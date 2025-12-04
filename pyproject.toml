@@ -1,6 +1,6 @@
 [build-system]
-requires = ["uv", "uv-build"]
-build-backend = "uv_build"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "preen"
@@ -15,7 +15,9 @@ dependencies = [
     "typer>=0.9",
     "rich>=13.5",
     "PyYAML>=6.0",
+    "Jinja2>=3.0",
 ]
+keywords = ["packaging", "release", "metadata", "hygiene", "cli", "python"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
@@ -25,13 +27,27 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+
+[project.urls]
+"Homepage" = "https://github.com/gojiplus/preen"
+"Repository" = "https://github.com/gojiplus/preen"
+"Bug Tracker" = "https://github.com/gojiplus/preen/issues"
+
+[project.scripts]
+preen = "preen.cli:run"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
 ]
+
+[tool.setuptools.packages.find]
+include = ["preen", "preen.*"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

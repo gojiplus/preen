@@ -1,0 +1,27 @@
+"""Command-line interface for {{ package_name }}."""
+
+import typer
+
+app = typer.Typer(help="{{ package_name }} - {{ description }}")
+
+
+@app.command()
+def hello(name: str = "World"):
+    """Say hello."""
+    typer.echo(f"Hello, {name}!")
+
+
+@app.command()
+def version():
+    """Show version."""
+    from {{ package_name }} import __version__
+    typer.echo(f"{{ package_name }} {__version__}")
+
+
+def main():
+    """Entry point for the CLI."""
+    app()
+
+
+if __name__ == "__main__":
+    main()

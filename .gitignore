@@ -1,2 +1,6 @@
 .DS_Store
 /preen/__pycache__
+/tests/__pycache__
+/preen/templates/__pycache__
+/preen/checks/__pycache__
+/preen.egg-info

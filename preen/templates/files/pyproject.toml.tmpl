@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "{{ package_name }}"
+version = "{{ version }}"
+description = "{{ description }}"
+authors = [
+    { name = "{{ author_name }}", email = "{{ author_email }}" },
+]
+readme = "README.md"
+requires-python = ">={{ min_python_version }}"
+dependencies = []
+keywords = []
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: {{ min_python_version }}",
+{% if min_python_version != "3.12" %}    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+{% endif %}    "License :: OSI Approved :: {{ license }} License",
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+]
+
+[project.urls]
+"Homepage" = "{{ homepage_url }}"
+"Repository" = "{{ repository_url }}"
+"Bug Tracker" = "{{ repository_url }}/issues"
+
+{% if has_cli %}
+[project.scripts]
+{{ package_name }} = "{{ package_name }}.cli:main"
+
+{% endif %}
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "ruff",
+]
+docs = [
+    "sphinx",
+    "furo",
+    "myst-parser",
+]
+
+[tool.setuptools.packages.find]
+include = ["{{ package_name }}", "{{ package_name }}.*"]
+
+[tool.pytest.ini_options]
+addopts = "-q --cov={{ package_name }}"
+
+[tool.ruff]
+target-version = "py{{ min_python_version.replace('.', '') }}"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.preen]
+# Preen configuration
+ci_os = ["ubuntu-latest"]
+sphinx_theme = "furo"
+use_myst = true

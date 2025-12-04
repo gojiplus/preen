@@ -8,9 +8,6 @@ to ensure isolation and avoid polluting the working directory.
 
 from __future__ import annotations
 
-import os
-import re
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -18,7 +15,9 @@ import pytest
 from preen.syncer import sync_project
 
 
-def write_pyproject(directory: Path, name: str = "mypackage", version: str = "0.1.0") -> None:
+def write_pyproject(
+    directory: Path, name: str = "mypackage", version: str = "0.1.0"
+) -> None:
     """Helper to write a minimal pyproject.toml into the temporary directory."""
     content = f"""
 [project]
@@ -37,8 +36,14 @@ license = {{text = "MIT"}}
 def test_sync_creates_files(tmp_path: Path) -> None:
     """Ensure that sync_project generates all expected files."""
     write_pyproject(tmp_path)
-    outputs = sync_project(tmp_path, quiet=True)
-    # Relative paths as keys
+    result = sync_project(tmp_path, quiet=True)
+
+    # Get all files that were processed (updated + unchanged)
+    all_files = set()
+    all_files.update(result.get("updated", {}).keys())
+    all_files.update(result.get("unchanged", {}).keys())
+
+    # Expected files
     expected = {
         "CITATION.cff",
         "docs/conf.py",
@@ -46,7 +51,8 @@ def test_sync_creates_files(tmp_path: Path) -> None:
         ".github/workflows/release.yml",
         ".github/workflows/docs.yml",
     }
-    assert set(outputs.keys()) == expected
+    assert all_files == expected
+
     # Verify files exist on disk
     for rel in expected:
         assert (tmp_path / rel).is_file()

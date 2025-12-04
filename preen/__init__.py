@@ -7,7 +7,7 @@ checking and releasing packages.
 """
 
 from importlib.metadata import version as _get_version  # type: ignore
-from pathlib import Path
+
 from .syncer import sync_project
 
 __all__ = ["__version__", "sync_project"]
