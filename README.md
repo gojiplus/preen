@@ -1,5 +1,10 @@
 # preen
 
+[![PyPI version](https://badge.fury.io/py/preen.svg)](https://badge.fury.io/py/preen)
+[![CI](https://github.com/gojiplus/preen/actions/workflows/ci.yml/badge.svg)](https://github.com/gojiplus/preen/actions)
+[![Documentation](https://github.com/gojiplus/preen/actions/workflows/docs.yml/badge.svg)](https://gojiplus.github.io/preen)
+[![Downloads](https://pepy.tech/badge/preen)](https://pepy.tech/project/preen)
+
 **An opinionated, agentic CLI for Python package hygiene and release**
 
 *"Get your feathers in order before you fly"*

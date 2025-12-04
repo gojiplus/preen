@@ -48,7 +48,7 @@ def test_sync_creates_files(tmp_path: Path) -> None:
         "CITATION.cff",
         "docs/conf.py",
         ".github/workflows/ci.yml",
-        ".github/workflows/release.yml",
+        ".github/workflows/python-publish.yml",
         ".github/workflows/docs.yml",
     }
     assert all_files == expected

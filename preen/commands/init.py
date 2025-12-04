@@ -107,6 +107,7 @@ def get_package_metadata() -> Dict[str, Any]:
         "license": license_name,
         "repository_url": repository_url,
         "homepage_url": homepage_url,
+        "github_username": github_username,
         "has_cli": has_cli,
     }
 
@@ -237,6 +238,7 @@ def init_package(
             "license": "MIT",
             "repository_url": f"https://github.com/yourname/{package_name}",
             "homepage_url": f"https://github.com/yourname/{package_name}",
+            "github_username": "yourname",
             "has_cli": False,
         }
     else:
