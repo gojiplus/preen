@@ -23,6 +23,7 @@ from .checks.ruff import RuffCheck
 from .checks.tests import TestsCheck
 from .checks.citation import CitationCheck
 from .checks.deps import DepsCheck
+from .checks.deptree import DeptreeCheck
 from .checks.ci_matrix import CIMatrixCheck
 from .checks.structure import StructureCheck
 from .checks.version import VersionCheck
@@ -163,6 +164,7 @@ def check(
         TestsCheck,
         CitationCheck,
         DepsCheck,
+        DeptreeCheck,
         CIMatrixCheck,
         StructureCheck,
         VersionCheck,
