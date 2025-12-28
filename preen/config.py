@@ -78,13 +78,12 @@ class PreenConfig:
 
     def get_ci_python_versions(self, pyproject_data: Dict[str, Any]) -> List[str]:
         """Get Python versions from explicit preen config or sensible defaults.
-        
+
         Args:
             pyproject_data: Parsed pyproject.toml data
-            
+
         Returns:
             List of Python version strings for CI matrix
         """
         preen_config = pyproject_data.get("tool", {}).get("preen", {})
         return preen_config.get("ci_python_versions", ["3.12", "3.13", "3.14"])
-
