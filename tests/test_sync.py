@@ -6,8 +6,6 @@ generated files contain expected values.  The tests use ``tempfile.TemporaryDire
 to ensure isolation and avoid polluting the working directory.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest

@@ -1,7 +1,5 @@
 """Project structure validation check."""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from ..config import PreenConfig

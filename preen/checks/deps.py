@@ -1,7 +1,5 @@
 """Dependencies check using deptry."""
 
-from __future__ import annotations
-
 import subprocess
 
 from .base import Check, CheckResult, Issue, Fix, Severity

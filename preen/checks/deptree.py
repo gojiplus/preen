@@ -1,7 +1,5 @@
 """Circular dependency check using a simple Python implementation."""
 
-from __future__ import annotations
-
 import ast
 from pathlib import Path
 from typing import Dict, Set, List

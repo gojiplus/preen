@@ -14,8 +14,6 @@ for future extension.  The function will create directories as needed and
 overwrite existing generated files.
 """
 
-from __future__ import annotations
-
 import datetime as _dt
 import sys
 from pathlib import Path

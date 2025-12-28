@@ -1,7 +1,5 @@
 """Template manager for rendering project files."""
 
-from __future__ import annotations
-
 from pathlib import Path
 from typing import Any, Dict
 

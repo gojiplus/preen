@@ -4,8 +4,6 @@ This module handles loading and merging configuration from pyproject.toml's
 [tool.preen] section with default values.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List

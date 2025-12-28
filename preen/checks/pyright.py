@@ -1,7 +1,5 @@
 """Pyright static type checking check."""
 
-from __future__ import annotations
-
 import json
 import subprocess
 from pathlib import Path

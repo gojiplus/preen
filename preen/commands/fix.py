@@ -1,7 +1,5 @@
 """Fix command for applying targeted fixes."""
 
-from __future__ import annotations
-
 from pathlib import Path
 # from typing import Optional  # No longer needed with Python 3.12+
 

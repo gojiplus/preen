@@ -1,7 +1,5 @@
 """Interactive prompt system for release workflow."""
 
-from __future__ import annotations
-
 from typing import Dict, List, Optional
 
 from rich.console import Console

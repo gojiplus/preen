@@ -1,7 +1,5 @@
 """CI matrix validation check."""
 
-from __future__ import annotations
-
 import yaml
 from pathlib import Path
 

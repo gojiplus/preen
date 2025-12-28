@@ -7,8 +7,6 @@ directory) and regenerates derived files.  Additional subcommands will be
 added in future phases of development.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import typer
