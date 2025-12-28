@@ -61,5 +61,8 @@ docs = [
 [tool.setuptools.packages.find]
 include = ["preen", "preen.*"]
 
+[tool.uv]
+python-preference = "only-system"
+
 [tool.pytest.ini_options]
 addopts = "-q"
