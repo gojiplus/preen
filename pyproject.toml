@@ -62,7 +62,7 @@ docs = [
 include = ["preen", "preen.*"]
 
 [tool.uv]
-python-preference = "only-system"
+python-preference = "managed"
 
 [tool.pytest.ini_options]
 addopts = "-q"
