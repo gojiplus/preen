@@ -32,11 +32,13 @@ autodoc_default_options = {
     "member-order": "bysource",
 }
 
+
 # Don't skip __init__ methods
 def skip_member(app, what, name, obj, skip, options):
     if name == "__init__":
         return False
     return skip
+
 
 # MyST settings
 myst_enable_extensions = [

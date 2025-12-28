@@ -493,12 +493,18 @@ def sync_project(
         "citation": {
             "CITATION.cff": _render_citation(name, version, authors, license_str)
         },
-        "docs": {str(Path("docs") / "conf.py"): _render_docs_conf(name, author_str, config)},
-        "ci": {str(Path(".github") / "workflows" / "ci.yml"): _render_ci_yml(python_versions, config)},
+        "docs": {
+            str(Path("docs") / "conf.py"): _render_docs_conf(name, author_str, config)
+        },
+        "ci": {
+            str(Path(".github") / "workflows" / "ci.yml"): _render_ci_yml(
+                python_versions, config
+            )
+        },
         "workflows": {
-            str(Path(".github") / "workflows" / "python-publish.yml"): _render_python_publish_yml(
-                name, config
-            ),
+            str(
+                Path(".github") / "workflows" / "python-publish.yml"
+            ): _render_python_publish_yml(name, config),
             str(Path(".github") / "workflows" / "docs.yml"): _render_docs_yml(),
         },
     }
