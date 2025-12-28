@@ -119,7 +119,7 @@ class StructureCheck(Check):
                 except ImportError:
                     import tomli as tomllib  # type: ignore
 
-                with open(pyproject_path, "rb") as f:
+                with pyproject_path.open("rb") as f:
                     data = tomllib.load(f)
 
                 package_name = data.get("project", {}).get("name", "")
@@ -176,14 +176,14 @@ class StructureCheck(Check):
         import shutil
 
         root_tests = self.project_dir / "tests"
-        shutil.move(str(src_tests_path), str(root_tests))
+        shutil.move(src_tests_path, root_tests)
 
     def _move_examples_to_root(self, src_examples_path: Path) -> None:
         """Move examples directory from src/ to root."""
         import shutil
 
         root_examples = self.project_dir / "examples"
-        shutil.move(str(src_examples_path), str(root_examples))
+        shutil.move(src_examples_path, root_examples)
 
     def _update_gitignore(self) -> None:
         """Update .gitignore to exclude Python artifacts."""
@@ -217,7 +217,7 @@ class StructureCheck(Check):
         if gitignore_path.exists():
             content = gitignore_path.read_text()
             if "__pycache__" not in content:
-                with open(gitignore_path, "a") as f:
+                with gitignore_path.open("a") as f:
                     f.write("\n" + "\n".join(python_ignores))
         else:
             gitignore_path.write_text("\n".join(python_ignores) + "\n")

@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Type
+from typing import Type
 
 from .base import Check, CheckResult
 
 
 def run_checks(
     project_dir: Path,
-    check_classes: List[Type[Check]],
-    skip: Optional[List[str]] = None,
-    only: Optional[List[str]] = None,
-) -> Dict[str, CheckResult]:
+    check_classes: list[Type[Check]],
+    skip: list[str] | None = None,
+    only: list[str] | None = None,
+) -> dict[str, CheckResult]:
     """Run multiple checks and return their results.
 
     Args:

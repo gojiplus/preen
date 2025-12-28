@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Dict
+# from typing import Any, Dict  # No longer needed with Python 3.12+
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -24,7 +25,7 @@ def is_valid_package_name(name: str) -> bool:
     )
 
 
-def get_package_metadata() -> Dict[str, Any]:
+def get_package_metadata() -> dict[str, Any]:
     """Collect package metadata from user input."""
     console = Console()
 
@@ -113,7 +114,7 @@ def get_package_metadata() -> Dict[str, Any]:
 
 
 def create_package_structure(
-    target_dir: Path, metadata: Dict[str, Any], src_layout: bool = True
+    target_dir: Path, metadata: dict[str, Any], src_layout: bool = True
 ) -> None:
     """Create the package directory structure."""
     console = Console()

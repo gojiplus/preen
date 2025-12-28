@@ -66,7 +66,7 @@ class CIMatrixCheck(Check):
 
         # Parse CI workflow
         try:
-            with open(ci_path, "r", encoding="utf-8") as f:
+            with ci_path.open("r", encoding="utf-8") as f:
                 ci_content = yaml.safe_load(f)
         except Exception as e:
             issues.append(

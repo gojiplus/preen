@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 
-from .base import Check, CheckResult, Issue, Fix, Severity
+from .base import Check, CheckResult, Issue, Fix, Severity, Impact
 
 
 class RuffCheck(Check):
@@ -72,6 +72,9 @@ class RuffCheck(Check):
                     check=self.name,
                     severity=Severity.WARNING,
                     description=f"Linting issues found ({lint_result.stdout.count(chr(10))} problems)",
+                    impact=Impact.IMPORTANT,
+                    explanation="Linting issues can indicate potential bugs, code style problems, or maintainability concerns. While not blocking, they should be addressed for code quality.",
+                    override_question="Continue with release despite linting issues?",
                     proposed_fix=Fix(
                         description="Apply ruff automatic fixes",
                         diff=fix_result.stdout
@@ -113,6 +116,9 @@ class RuffCheck(Check):
                     check=self.name,
                     severity=Severity.WARNING,
                     description="Code formatting issues found",
+                    impact=Impact.IMPORTANT,
+                    explanation="Consistent code formatting improves readability and reduces diff noise in version control. Consider fixing before release.",
+                    override_question="Continue with release despite formatting issues?",
                     proposed_fix=Fix(
                         description="Apply ruff formatting",
                         diff=diff_result.stdout,

@@ -66,7 +66,7 @@ class PreenConfig:
         if not pyproject_path.exists():
             return config
 
-        with open(pyproject_path, "rb") as f:
+        with pyproject_path.open("rb") as f:
             data = tomllib.load(f)
 
         tool_config = data.get("tool", {}).get("preen", {})

@@ -13,7 +13,7 @@
 
 ## Features
 
-- 🔍 **7 comprehensive checks** - linting, tests, dependencies, CI matrix, project structure, version consistency, and citation validation
+- 🔍 **12 comprehensive checks** - linting, tests, dependencies, CI matrix, project structure, version consistency, citation validation, link validation, documentation quality, static type checking, and spell checking
 - 🔧 **Interactive fixes** - preview diffs and apply fixes automatically or selectively
 - 📦 **Package initialization** - scaffold new packages with opinionated best practices
 - 🔄 **File synchronization** - generate CI workflows, documentation config, and CITATION.cff from pyproject.toml
@@ -86,12 +86,16 @@ Run comprehensive pre-release checks:
 | **structure** | Enforce project structure best practices |
 | **version** | Detect hardcoded version strings |
 | **citation** | Ensure CITATION.cff matches pyproject.toml |
+| **links** | Check for broken or dead links in project files |
+| **pydoclint** | Check docstring quality and completeness |
+| **pyright** | Static type checking for type safety |
+| **codespell** | Check spelling in documentation and comments |
 
 ```bash
 preen check                     # Interactive mode
 preen check --fix              # Auto-apply all fixes
 preen check --only ruff,tests  # Run specific checks
-preen check --skip deps        # Skip dependency check
+preen check --skip deps,links,pydoclint,pyright,codespell  # Skip optional checks
 preen check --strict           # CI mode (exit 1 on issues)
 ```
 

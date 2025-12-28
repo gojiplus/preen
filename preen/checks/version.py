@@ -93,7 +93,7 @@ class VersionCheck(Check):
         if not pyproject_path.exists():
             return None
 
-        with open(pyproject_path, "rb") as f:
+        with pyproject_path.open("rb") as f:
             data = tomllib.load(f)
 
         return data.get("project", {}).get("version", None)

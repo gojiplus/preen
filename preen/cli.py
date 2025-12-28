@@ -9,9 +9,7 @@ added in future phases of development.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Optional, List
 
 import typer
 from rich.console import Console
@@ -19,6 +17,8 @@ from rich.table import Table
 
 from .syncer import sync_project
 from .checks import run_checks
+from .checks.base import Impact
+from .interactive import EducationalPrompt
 from .checks.ruff import RuffCheck
 from .checks.tests import TestsCheck
 from .checks.citation import CitationCheck
@@ -27,8 +27,14 @@ from .checks.deptree import DeptreeCheck
 from .checks.ci_matrix import CIMatrixCheck
 from .checks.structure import StructureCheck
 from .checks.version import VersionCheck
+from .checks.links import LinkCheck
+from .checks.pydoclint import PydoclintCheck
+from .checks.pyright import PyrightCheck
+from .checks.codespell import CodespellCheck
 from .commands.init import init_package
 from .commands.bump import bump_package_version, VersionPart
+from .commands.release import release_to_pypi
+from .commands.fix import apply_fixes
 
 app = typer.Typer(
     help="Preen – an opinionated CLI for Python package hygiene and release",
@@ -38,7 +44,7 @@ app = typer.Typer(
 
 @app.command()
 def sync(
-    path: Optional[str] = typer.Argument(
+    path: str | None = typer.Argument(
         None,
         help="Path to the project directory. Defaults to the current working directory.",
         exists=False,
@@ -54,7 +60,7 @@ def sync(
         "--check",
         help="Check if files need updating without making changes. Exit 1 if changes needed.",
     ),
-    only: Optional[List[str]] = typer.Option(
+    only: list[str] | None = typer.Option(
         None,
         "--only",
         help="Only sync specific targets. Valid: ci, citation, docs, workflows",
@@ -66,7 +72,7 @@ def sync(
     such as ``CITATION.cff``, documentation configuration and GitHub Actions
     workflows.  It treats ``pyproject.toml`` as the single source of truth.
     """
-    project_dir = Path(path or os.getcwd())
+    project_dir = Path(path) if path else Path.cwd()
     console = Console()
 
     # Convert only list to set
@@ -120,43 +126,44 @@ def sync(
 
 @app.command()
 def check(
-    path: Optional[str] = typer.Argument(
+    path: str | None = typer.Argument(
         None,
         help="Path to the project directory. Defaults to the current working directory.",
-    ),
-    fix: bool = typer.Option(
-        False,
-        "--fix",
-        "-f",
-        help="Automatically apply fixes without prompting.",
     ),
     strict: bool = typer.Option(
         False,
         "--strict",
         help="Exit with code 1 if any issues found (for CI).",
     ),
-    skip: Optional[List[str]] = typer.Option(
+    explain: bool = typer.Option(
+        False,
+        "--explain",
+        help="Show explanations of why each issue matters.",
+    ),
+    skip: list[str] | None = typer.Option(
         None,
         "--skip",
         help="Skip specific checks.",
     ),
-    only: Optional[List[str]] = typer.Option(
+    only: list[str] | None = typer.Option(
         None,
         "--only",
         help="Run only specific checks.",
     ),
 ) -> None:
-    """Run pre-release checks on the package.
+    """Run checks on the package (pure detection, no fixing).
 
     This command runs various checks including linting, tests, and
-    configuration validation. Issues can be fixed interactively or
-    automatically with --fix.
+    configuration validation. For fixing issues, use 'preen fix'.
+    For guided release workflow, use 'preen release'.
     """
-    project_dir = Path(path or os.getcwd())
+    project_dir = Path(path) if path else Path.cwd()
     console = Console()
 
     # Header
-    console.print("\n[bold cyan]preen check[/bold cyan] - Running pre-release checks\n")
+    console.print(
+        "\n[bold cyan]preen check[/bold cyan] - Package health check (detection only)\n"
+    )
 
     # Available checks
     check_classes = [
@@ -168,6 +175,10 @@ def check(
         CIMatrixCheck,
         StructureCheck,
         VersionCheck,
+        LinkCheck,
+        PydoclintCheck,
+        PyrightCheck,
+        CodespellCheck,
     ]
 
     # Run checks
@@ -178,20 +189,26 @@ def check(
         only=only,
     )
 
+    # Educational prompt helper
+    educator = EducationalPrompt(console)
+
     # Display results table
     table = Table(show_header=True, header_style="bold cyan")
     table.add_column("Check", style="dim", width=20)
     table.add_column("Status")
     table.add_column("Issues")
+    table.add_column("Impact", width=12)
 
     total_issues = 0
     has_errors = False
-    fixable_issues = []
+    critical_count = 0
+    important_count = 0
 
     for check_name, result in results.items():
         if result.passed:
             status = "[green]✓ passed[/green]"
             issue_text = ""
+            impact_text = ""
         else:
             if result.has_errors:
                 status = "[red]✗ failed[/red]"
@@ -203,12 +220,22 @@ def check(
             total_issues += issue_count
             issue_text = f"{issue_count} issue{'s' if issue_count != 1 else ''}"
 
-            # Collect fixable issues
-            for issue in result.issues:
-                if issue.proposed_fix:
-                    fixable_issues.append(issue)
+            # Count by impact
+            critical = len(result.get_issues_by_impact(Impact.CRITICAL))
+            important = len(result.get_issues_by_impact(Impact.IMPORTANT))
+            critical_count += critical
+            important_count += important
 
-        table.add_row(check_name, status, issue_text)
+            impact_parts = []
+            if critical > 0:
+                impact_parts.append(f"[red]{critical} critical[/red]")
+            if important > 0:
+                impact_parts.append(f"[yellow]{important} important[/yellow]")
+            impact_text = (
+                ", ".join(impact_parts) if impact_parts else "[blue]info only[/blue]"
+            )
+
+        table.add_row(check_name, status, issue_text, impact_text)
 
     console.print(table)
 
@@ -218,38 +245,29 @@ def check(
     else:
         console.print(f"\n[bold]Found {total_issues} issue(s)[/bold]")
 
-        # Show issues
+        if critical_count > 0:
+            console.print(f"  🚫 {critical_count} critical (blocks release)")
+        if important_count > 0:
+            console.print(f"  ⚠️  {important_count} important (can override)")
+
+        # Show issues with explanations if requested
         for check_name, result in results.items():
             if not result.passed:
-                for issue in result.issues:
-                    console.print(f"  {issue}")
+                if explain:
+                    educator.explain_check(check_name, result.issues)
+                else:
+                    for issue in result.issues:
+                        symbol = issue.get_impact_symbol()
+                        console.print(f"  {symbol} {issue}")
 
-        # Handle fixes
-        if fixable_issues:
+        # Suggest next steps
+        console.print("\n[bold blue]Next steps:[/bold blue]")
+        console.print("  • Run [cyan]preen fix[/cyan] to apply automatic fixes")
+        console.print("  • Run [cyan]preen release[/cyan] for guided release workflow")
+        if not explain:
             console.print(
-                f"\n{len(fixable_issues)} issue(s) can be automatically fixed."
+                "  • Use [cyan]--explain[/cyan] to understand why issues matter"
             )
-
-            if fix:
-                # Apply all fixes
-                console.print("\nApplying fixes...")
-                for issue in fixable_issues:
-                    console.print(f"  Fixing: {issue.description}")
-                    issue.proposed_fix.apply()
-                console.print("[green]✓ Fixes applied[/green]")
-            elif not strict:
-                # Interactive mode
-                if typer.confirm("\nApply fixes interactively?"):
-                    for issue in fixable_issues:
-                        console.print(f"\n[bold]Issue:[/bold] {issue.description}")
-                        console.print("\n[dim]Proposed fix:[/dim]")
-                        console.print(issue.proposed_fix.preview())
-
-                        if typer.confirm("Apply this fix?"):
-                            issue.proposed_fix.apply()
-                            console.print("[green]✓ Fixed[/green]")
-                        else:
-                            console.print("[yellow]Skipped[/yellow]")
 
     # Exit with error in strict mode if issues found
     if strict and (total_issues > 0 or has_errors):
@@ -257,12 +275,101 @@ def check(
 
 
 @app.command()
+def release(
+    path: str | None = typer.Option(
+        None,
+        "--path",
+        "-p",
+        help="Path to project directory. Defaults to current directory.",
+    ),
+    target: str = typer.Option(
+        "pypi",
+        "--target",
+        "-t",
+        help="Release target: pypi, github, or both",
+    ),
+    skip_checks: bool = typer.Option(
+        False,
+        "--skip-checks",
+        help="Skip running checks (if you just ran them).",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show what would happen without doing it.",
+    ),
+) -> None:
+    """Interactive release workflow similar to devtools::release().
+
+    Runs checks, asks questions, and guides you through the release process.
+    Allows overriding non-critical issues with informed consent.
+    """
+    project_dir = Path(path) if path else Path.cwd()
+    console = Console()
+
+    release_to_pypi(
+        project_dir=project_dir,
+        target=target,
+        skip_checks=skip_checks,
+        dry_run=dry_run,
+        console=console,
+    )
+
+
+@app.command()
+def fix(
+    check_name: str | None = typer.Argument(
+        None,
+        help="Specific check to fix (e.g., 'ruff', 'citation'). If not provided, fixes all checks.",
+    ),
+    path: str | None = typer.Option(
+        None,
+        "--path",
+        "-p",
+        help="Path to project directory. Defaults to current directory.",
+    ),
+    auto: bool = typer.Option(
+        False,
+        "--auto",
+        "-a",
+        help="Apply all fixes automatically without prompting.",
+    ),
+    interactive: bool = typer.Option(
+        True,
+        "--interactive/--batch",
+        help="Ask before applying each fix (default) vs batch mode.",
+    ),
+) -> None:
+    """Apply fixes for issues found by checks.
+
+    This command finds and applies fixes for issues detected by preen checks.
+    Use after running 'preen check' to fix detected problems.
+
+    Examples:
+        preen fix                    # Fix all issues interactively
+        preen fix ruff              # Fix only ruff issues
+        preen fix --auto            # Apply all fixes automatically
+        preen fix citation --auto   # Auto-fix citation issues only
+    """
+    project_dir = Path(path) if path else Path.cwd()
+    console = Console()
+
+    apply_fixes(
+        project_dir=project_dir,
+        check_name=check_name,
+        interactive=interactive and not auto,
+        auto=auto,
+        console=console,
+    )
+
+
+@app.command()
 def init(
-    package_name: Optional[str] = typer.Argument(
+    package_name: str | None = typer.Argument(
         None,
         help="Name of the package to create. If not provided, will prompt interactively.",
     ),
-    directory: Optional[str] = typer.Option(
+    directory: str | None = typer.Option(
         None,
         "--dir",
         "-d",
@@ -290,7 +397,7 @@ def bump(
         ...,
         help="Part of version to bump: major, minor, or patch",
     ),
-    path: Optional[str] = typer.Option(
+    path: str | None = typer.Option(
         None,
         "--path",
         "-p",

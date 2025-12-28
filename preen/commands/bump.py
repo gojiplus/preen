@@ -53,14 +53,15 @@ def bump_version(current_version: str, part: VersionPart) -> str:
     """
     major, minor, patch = parse_version(current_version)
 
-    if part == "major":
-        return format_version(major + 1, 0, 0)
-    elif part == "minor":
-        return format_version(major, minor + 1, 0)
-    elif part == "patch":
-        return format_version(major, minor, patch + 1)
-    else:
-        raise ValueError(f"Invalid version part: {part}")
+    match part:
+        case "major":
+            return format_version(major + 1, 0, 0)
+        case "minor":
+            return format_version(major, minor + 1, 0)
+        case "patch":
+            return format_version(major, minor, patch + 1)
+        case _:
+            raise ValueError(f"Invalid version part: {part}")
 
 
 def get_current_version(project_dir: Path) -> str:
@@ -85,7 +86,7 @@ def get_current_version(project_dir: Path) -> str:
     except ImportError:
         import tomli as tomllib  # type: ignore
 
-    with open(pyproject_path, "rb") as f:
+    with pyproject_path.open("rb") as f:
         data = tomllib.load(f)
 
     version = data.get("project", {}).get("version")
