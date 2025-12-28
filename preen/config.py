@@ -77,39 +77,14 @@ class PreenConfig:
         return config
 
     def get_ci_python_versions(self, pyproject_data: Dict[str, Any]) -> List[str]:
-        """Extract Python versions for CI matrix from project metadata.
-
+        """Get Python versions from explicit preen config or sensible defaults.
+        
         Args:
             pyproject_data: Parsed pyproject.toml data
-
+            
         Returns:
             List of Python version strings for CI matrix
         """
-        versions = []
-        project = pyproject_data.get("project", {})
+        preen_config = pyproject_data.get("tool", {}).get("preen", {})
+        return preen_config.get("ci_python_versions", ["3.12", "3.13", "3.14"])
 
-        # Try to extract from classifiers first
-        classifiers = project.get("classifiers", [])
-        for classifier in classifiers:
-            if classifier.startswith("Programming Language :: Python :: 3."):
-                # Extract version like "3.9" from "Programming Language :: Python :: 3.9"
-                parts = classifier.split(" :: ")
-                if len(parts) == 4 and parts[-1][0].isdigit():
-                    versions.append(parts[-1])
-
-        # If no versions found, try requires-python
-        if not versions:
-            requires = project.get("requires-python", "")
-            if requires.startswith(">="):
-                min_version = requires[2:]
-                # Generate a reasonable set based on minimum
-                if min_version == "3.9":
-                    versions = ["3.9", "3.10", "3.11", "3.12"]
-                elif min_version == "3.10":
-                    versions = ["3.10", "3.11", "3.12"]
-                elif min_version == "3.11":
-                    versions = ["3.11", "3.12"]
-                else:
-                    versions = ["3.9", "3.10", "3.11", "3.12"]  # Default
-
-        return versions if versions else ["3.9", "3.10", "3.11", "3.12"]

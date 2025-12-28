@@ -2,17 +2,10 @@
 # Regenerate with: preen sync
 
 import importlib.metadata
-import sys
-from pathlib import Path
-
-# Add the project root to the Python path
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
 
 project = "preen"
 version = importlib.metadata.version("preen")
 author = "Gaurav Sood"
-copyright = "2024, Gaurav Sood"
 
 extensions = [
     "sphinx.ext.autodoc",
@@ -24,22 +17,6 @@ extensions = [
 
 html_theme = "furo"
 
-# Autodoc settings
-autodoc_default_options = {
-    "members": True,
-    "undoc-members": True,
-    "show-inheritance": True,
-    "member-order": "bysource",
-}
-
-
-# Don't skip __init__ methods
-def skip_member(app, what, name, obj, skip, options):
-    if name == "__init__":
-        return False
-    return skip
-
-
 # MyST settings
 myst_enable_extensions = [
     "colon_fence",
@@ -47,12 +24,10 @@ myst_enable_extensions = [
 ]
 
 # Intersphinx
-intersphinx_mapping = {
+intersphinx_mapping = {{
     "python": ("https://docs.python.org/3", None),
-}
+}}
 
 # Napoleon settings (Google style)
 napoleon_google_docstring = True
 napoleon_numpy_docstring = False
-napoleon_include_init_with_doc = False
-napoleon_include_private_with_doc = False

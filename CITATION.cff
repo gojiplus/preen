@@ -8,7 +8,8 @@ version: 0.1.0
 date-released: 2025-12-27
 url: https://github.com/gojiplus/preen
 repository-code: https://github.com/gojiplus/preen
+license: MIT
 authors:
   - family-names: Sood
     given-names: Gaurav
-    email: gsood@example.com
+    email: contact@gsood.com
