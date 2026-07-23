@@ -156,8 +156,14 @@ class PydoclintCheck(Check):
 
         # Run pydoclint on the project directory
         # Use --quiet to suppress file scanning output, only show violations
+        cmd = ["pydoclint", "--quiet"]
+        if (self.project_dir / "pyproject.toml").exists():
+            # Honor the repo's own [tool.pydoclint] (style, exclude, options)
+            cmd += ["--config", "pyproject.toml"]
+        else:
+            cmd += ["--style=google"]
         result = subprocess.run(
-            ["pydoclint", "--quiet", "--style=google", str(self.project_dir)],
+            [*cmd, str(self.project_dir)],
             capture_output=True,
             text=True,
             cwd=self.project_dir,
