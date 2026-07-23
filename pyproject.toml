@@ -14,16 +14,16 @@ classifiers = [
     "Topic :: Software Development :: Build Tools",
 ]
 dependencies = [
-    "typer>=0.9",
+    "typer>=0.27.0",
     "rich>=13.5",
     "PyYAML>=6.0",
     "httpx>=0.24.0",
     "copier>=9",
     "tomlkit>=0.13",
-    "ruff>=0.14.0",
-    "pyright>=1.1.390",
-    "pydoclint>=0.5",
-    "codespell>=2.3.0",
+    "ruff>=0.15.21",
+    "pyright>=1.1.411",
+    "pydoclint>=0.9.1",
+    "codespell>=2.4.3",
     "deptry>=0.20",
 ]
 
@@ -55,7 +55,7 @@ dev = [
     "pre-commit>=4",
     { include-group = "test" },
 ]
-test = ["pytest>=8", "pytest-cov>=6"]
+test = ["pytest>=9.1.1", "pytest-cov>=7.1.0"]
 docs = [
     "sphinx>=8",
     "py-canon @ git+https://github.com/gojiplus/py-canon@v1",
