@@ -144,10 +144,16 @@ class PyrightCheck(Check):
         """Run pyright type checking."""
         issues = []
 
-        # Check if pyright is available
+        # Run inside the project's own environment when it is uv-managed,
+        # so third-party imports resolve; otherwise use a global pyright
+        if (self.project_dir / "uv.lock").exists():
+            pyright_cmd = ["uv", "run", "pyright"]
+        else:
+            pyright_cmd = ["pyright"]
+
         try:
             subprocess.run(
-                ["pyright", "--version"],
+                [*pyright_cmd, "--version"],
                 capture_output=True,
                 check=True,
                 cwd=self.project_dir,
@@ -174,7 +180,7 @@ class PyrightCheck(Check):
         # No explicit path: let pyright use the repo's own include/exclude
         # config from pyproject.toml instead of scanning everything
         result = subprocess.run(
-            ["pyright", "--outputjson"],
+            [*pyright_cmd, "--outputjson"],
             capture_output=True,
             text=True,
             cwd=self.project_dir,
