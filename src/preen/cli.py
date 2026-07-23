@@ -176,7 +176,8 @@ def check(
                 "  - Use [cyan]--explain[/cyan] to understand why issues matter"
             )
 
-    if strict and (total_issues > 0 or has_errors):
+    # Informational issues are suggestions; they never gate CI
+    if strict and (critical_count > 0 or important_count > 0 or has_errors):
         raise typer.Exit(code=1)
 
 

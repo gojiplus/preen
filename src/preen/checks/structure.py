@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 from ..config import PreenConfig
-from .base import Check, CheckResult, Fix, Issue, Severity
+from .base import Check, CheckResult, Fix, Impact, Issue, Severity
 
 
 class StructureCheck(Check):
@@ -146,6 +146,7 @@ class StructureCheck(Check):
                                 "layout for better isolation."
                             ),
                             file=Path(package_name),
+                            impact=Impact.INFORMATIONAL,
                         )
                     )
 
