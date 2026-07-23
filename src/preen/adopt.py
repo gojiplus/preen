@@ -51,6 +51,16 @@ exclude = '\\.venv|tests|docs'
 
 LEGACY_TOOL_SECTIONS = ("black", "isort", "flake8", "mypy")
 
+DEV_GROUP_REQUIRED = {
+    "ruff": "ruff>=0.14",
+    "pyright": "pyright>=1.1.390",
+    "pydoclint": "pydoclint>=0.5",
+    "pytest": "pytest>=8",
+}
+
+# Tools the standard retires; their dev-group entries go with them.
+DEV_GROUP_RETIRED = ("black", "isort", "flake8", "mypy")
+
 DOCS_GROUP_REQUIRED = {
     "sphinx": "sphinx>=8",
     "furo": "furo",
@@ -369,6 +379,7 @@ def rewrite_pyproject(repo: Path, release_migration: bool = False) -> list[str]:
             changes.append(f"deleted [tool.{section}]")
 
     changes.extend(_ensure_docs_group(doc))
+    changes.extend(_ensure_dev_group(doc))
 
     if release_migration:
         changes.extend(_migrate_release(doc, repo))
@@ -397,6 +408,45 @@ def _ensure_docs_group(doc: Any) -> list[str]:
         if name not in present:
             docs.append(spec)  # type: ignore[union-attr]
             changes.append(f"added {spec!r} to docs group")
+    return changes
+
+
+def _ensure_dev_group(doc: Any) -> list[str]:
+    """Ensure [dependency-groups].dev carries the standard toolchain.
+
+    CI's lint job runs ruff/pyright/pydoclint via ``uv run``, so they
+    must be installable from the dev group. Entries for retired tools
+    (black, isort, flake8, mypy) are dropped.
+
+    Args:
+        doc: Parsed tomlkit document.
+
+    Returns:
+        List of changes made.
+    """
+    changes: list[str] = []
+    groups = _ensure_table(doc, "dependency-groups")
+    if "dev" not in groups:
+        groups["dev"] = tomlkit.array()
+        changes.append("created [dependency-groups].dev")
+    dev = groups["dev"]
+    kept = []
+    for entry in dev:
+        if isinstance(entry, str) and _requirement_name(entry) in DEV_GROUP_RETIRED:
+            changes.append(f"removed {entry!r} from dev group (retired tool)")
+            continue
+        kept.append(entry)
+    if len(kept) != len(dev):
+        new = tomlkit.array()
+        for entry in kept:
+            new.append(entry)
+        groups["dev"] = new
+        dev = new
+    present = {_requirement_name(entry) for entry in dev if isinstance(entry, str)}
+    for name, spec in DEV_GROUP_REQUIRED.items():
+        if name not in present:
+            dev.append(spec)  # type: ignore[union-attr]
+            changes.append(f"added {spec!r} to dev group")
     return changes
 
 
