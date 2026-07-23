@@ -75,10 +75,16 @@ def test_standard_tool_sections_set(legacy_repo: Path) -> None:
     assert ruff["lint"]["pydocstyle"]["convention"] == "google"
     assert ruff["lint"]["per-file-ignores"]["tests/**"] == ["S101", "D"]
     assert data["tool"]["pyright"] == {
-        "include": ["src"],
+        "include": ["legacy_pkg"],
         "typeCheckingMode": "standard",
     }
-    assert data["tool"]["pydoclint"] == {"style": "google", "exclude": "tests|docs"}
+    assert data["tool"]["pydoclint"] == {
+        "style": "google",
+        "arg-type-hints-in-docstring": False,
+        "check-return-types": False,
+        "check-class-attributes": False,
+        "exclude": "tests|docs",
+    }
     assert any("[tool.ruff]" in c for c in changes)
 
 

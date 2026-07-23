@@ -89,17 +89,11 @@ class CodespellCheck(Check):
 
         # Add skip patterns for common directories/files that don't need spell checking
         skip_patterns = [
-            ".git",
-            "__pycache__",
+            *sorted(self.excluded_dirs()),
             "*.pyc",
             "*.egg-info",
-            ".pytest_cache",
-            "node_modules",
-            ".mypy_cache",
-            "dist",
-            "build",
-            ".venv",
-            "venv",
+            "*.ipynb",
+            "uv.lock",
         ]
 
         cmd.extend(["--skip", ",".join(skip_patterns)])

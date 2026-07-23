@@ -21,13 +21,11 @@ class DeptreeCheck(Check):
 
     def _get_python_files(self) -> list[Path]:
         """Get all Python files in the project."""
-        python_files = []
-        for path in self.project_dir.rglob("*.py"):
-            # Skip __pycache__, .git, and test directories
-            if any(skip in path.parts for skip in ["__pycache__", ".git", ".tox"]):
-                continue
-            python_files.append(path)
-        return python_files
+        return [
+            path
+            for path in self.project_dir.rglob("*.py")
+            if not self.is_excluded(path.relative_to(self.project_dir))
+        ]
 
     def _extract_imports(self, file_path: Path) -> set[str]:
         """Extract import statements from a Python file."""
@@ -45,7 +43,12 @@ class DeptreeCheck(Check):
                 elif isinstance(node, ast.ImportFrom) and node.module:
                     imports.add(node.module)
 
-        except (SyntaxError, UnicodeDecodeError, FileNotFoundError):
+        except (
+            SyntaxError,
+            UnicodeDecodeError,
+            FileNotFoundError,
+            RecursionError,
+        ):
             pass  # Skip files that can't be parsed
 
         return imports

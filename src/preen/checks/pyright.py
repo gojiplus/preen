@@ -171,8 +171,10 @@ class PyrightCheck(Check):
             )
 
         # Run pyright with JSON output for easier parsing
+        # No explicit path: let pyright use the repo's own include/exclude
+        # config from pyproject.toml instead of scanning everything
         result = subprocess.run(
-            ["pyright", "--outputjson", str(self.project_dir)],
+            ["pyright", "--outputjson"],
             capture_output=True,
             text=True,
             cwd=self.project_dir,

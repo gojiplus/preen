@@ -43,6 +43,9 @@ typeCheckingMode = "standard"
 
 [tool.pydoclint]
 style = "google"
+arg-type-hints-in-docstring = false
+check-return-types = false
+check-class-attributes = false
 exclude = "tests|docs"
 """
 
@@ -350,6 +353,14 @@ def rewrite_pyproject(repo: Path, release_migration: bool = False) -> list[str]:
         existed = section in tool
         tool[section] = canon["tool"][section]  # type: ignore[index]
         changes.append(f"{'replaced' if existed else 'set'} [tool.{section}]")
+
+    # Point pyright at the actual package location (src/ vs flat layout)
+    project = doc.get("project", {})
+    project_name = str(project.get("name", repo.resolve().name))
+    package_name = detect_package_name(repo, project_name)
+    if not (repo / "src" / package_name).is_dir() and (repo / package_name).is_dir():
+        tool["pyright"]["include"] = [package_name]  # type: ignore[index]
+        changes.append(f"pyright include = ['{package_name}'] (flat layout)")
 
     for section in LEGACY_TOOL_SECTIONS:
         if section in tool:
