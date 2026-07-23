@@ -69,6 +69,7 @@ line-length = 88
 target-version = "py312"
 
 [tool.ruff.lint]
+external = ["DOC"]
 select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "D", "S", "SIM", "T20", "PT", "RUF"]
 # D203/D213: fleet standard (google convention). S603/S607: preen's job is
 # driving developer tools (ruff, git, uv, copier) via subprocess.
@@ -91,7 +92,10 @@ typeCheckingMode = "standard"
 [tool.pydoclint]
 style = "google"
 arg-type-hints-in-docstring = false
-exclude = "tests|docs"
+check-return-types = false
+check-class-attributes = false
+allow-init-docstring = true
+exclude = '\.venv|tests|docs'
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
