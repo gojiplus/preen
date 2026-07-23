@@ -30,7 +30,9 @@ def new_package(
     from copier import run_copy
 
     console = console or Console()
-    data: dict[str, Any] = {"project_name": name}
+    dest = Path(name)
+    project_name = dest.name
+    data: dict[str, Any] = {"project_name": project_name}
     if org is not None:
         data["org"] = org
     if description is not None:
@@ -38,8 +40,7 @@ def new_package(
     if cli is not None:
         data["needs_cli"] = cli
 
-    dest = Path(name)
-    console.print(f"Scaffolding [bold]{name}[/bold] from {CANON_TEMPLATE} ...")
+    console.print(f"Scaffolding [bold]{project_name}[/bold] from {CANON_TEMPLATE} ...")
     run_copy(CANON_TEMPLATE, dest, data=data, unsafe=True)
     console.print(f"\n[green]Created {dest}/[/green]")
     console.print("Next steps: cd into it, 'git init', 'uv lock', 'uv sync'.")

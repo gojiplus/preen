@@ -154,7 +154,12 @@ class StructureCheck(Check):
         issues = []
 
         # Check for __pycache__ in git (should be in .gitignore)
-        pycache_dirs = list(self.project_dir.rglob("__pycache__"))
+        skip_parts = {".venv", ".git", "node_modules", ".tox", "test_env"}
+        pycache_dirs = [
+            d
+            for d in self.project_dir.rglob("__pycache__")
+            if not any(part in skip_parts for part in d.parts)
+        ]
         if pycache_dirs and (self.project_dir / ".git").exists():
             issues.append(
                 Issue(
@@ -173,7 +178,11 @@ class StructureCheck(Check):
             )
 
         # Check for .pyc files
-        pyc_files = list(self.project_dir.rglob("*.pyc"))
+        pyc_files = [
+            f
+            for f in self.project_dir.rglob("*.pyc")
+            if not any(part in skip_parts for part in f.parts)
+        ]
         if pyc_files:
             issues.append(
                 Issue(

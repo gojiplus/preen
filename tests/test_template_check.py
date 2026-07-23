@@ -26,6 +26,16 @@ def test_matching_commit_passes(tmp_path: Path, monkeypatch) -> None:
     assert result.issues == []
 
 
+def test_equivalent_tags_pass(tmp_path: Path, monkeypatch) -> None:
+    """`v1` and `v1.0.0` are the same version — no drift."""
+    (tmp_path / ".copier-answers.yml").write_text(
+        "_commit: v1\n_src_path: gh:gojiplus/py-canon\nproject_name: x\n"
+    )
+    monkeypatch.setattr(template_mod, "latest_canon_tag", lambda: "v1.0.0")
+    result = TemplateCheck(tmp_path).run()
+    assert result.passed
+
+
 def test_stale_commit_is_important(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / ".copier-answers.yml").write_text(
         "_commit: v1.0.0\n_src_path: gh:gojiplus/py-canon\nproject_name: x\n"

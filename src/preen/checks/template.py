@@ -13,6 +13,22 @@ ANSWERS_FILE = ".copier-answers.yml"
 _VERSION_TAG = re.compile(r"refs/tags/(v\d+(?:\.\d+)*)$")
 
 
+def _version_key(tag: str) -> tuple[int, ...] | None:
+    """Parse a v-tag into a zero-padded comparable tuple.
+
+    Args:
+        tag: A tag like ``v1`` or ``v1.2.0``.
+
+    Returns:
+        A 3-tuple of ints (``v1`` -> ``(1, 0, 0)``), or None if unparsable.
+    """
+    match = re.fullmatch(r"v(\d+(?:\.\d+)*)", tag.strip())
+    if not match:
+        return None
+    parts = tuple(int(p) for p in match.group(1).split("."))
+    return (*parts, 0, 0, 0)[:3]
+
+
 def latest_canon_tag(url: str = CANON_URL, timeout: float = 10.0) -> str | None:
     """Return the latest ``v*`` tag of the template repo, or None if offline.
 
@@ -42,8 +58,9 @@ def latest_canon_tag(url: str = CANON_URL, timeout: float = 10.0) -> str | None:
         match = _VERSION_TAG.search(line.strip())
         if match:
             tag = match.group(1)
-            key = tuple(int(part) for part in tag[1:].split("."))
-            tags.append((key, tag))
+            key = _version_key(tag)
+            if key is not None:
+                tags.append((key, tag))
     if not tags:
         return None
     return max(tags)[1]
@@ -116,7 +133,11 @@ class TemplateCheck(Check):
                     impact=Impact.INFORMATIONAL,
                 )
             )
-        elif commit != latest:
+        elif commit != latest and (
+            commit is None
+            or _version_key(str(commit)) is None
+            or _version_key(str(commit)) != _version_key(latest)
+        ):
             issues.append(
                 Issue(
                     check=self.name,

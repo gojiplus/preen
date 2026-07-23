@@ -24,6 +24,7 @@ dependencies = [
     "pyright>=1.1.390",
     "pydoclint>=0.5",
     "codespell>=2.3.0",
+    "deptry>=0.20",
 ]
 
 [project.urls]
