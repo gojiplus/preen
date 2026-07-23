@@ -46,7 +46,7 @@ style = "google"
 arg-type-hints-in-docstring = false
 check-return-types = false
 check-class-attributes = false
-exclude = "tests|docs"
+exclude = '\\.venv|tests|docs'
 """
 
 LEGACY_TOOL_SECTIONS = ("black", "isort", "flake8", "mypy")

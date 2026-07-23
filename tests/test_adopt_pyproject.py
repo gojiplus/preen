@@ -83,7 +83,7 @@ def test_standard_tool_sections_set(legacy_repo: Path) -> None:
         "arg-type-hints-in-docstring": False,
         "check-return-types": False,
         "check-class-attributes": False,
-        "exclude": "tests|docs",
+        "exclude": "\\.venv|tests|docs",
     }
     assert any("[tool.ruff]" in c for c in changes)
 
