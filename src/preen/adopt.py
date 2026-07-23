@@ -68,6 +68,7 @@ OVERWRITE_ALWAYS = (
 )
 COPY_IF_ABSENT = (
     ".github/workflows/dependabot-auto-merge.yml",
+    ".github/zizmor.yml",
     ".github/dependabot.yml",
     ".pre-commit-config.yaml",
     "LICENSE",
