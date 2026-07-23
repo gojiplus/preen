@@ -1,188 +1,82 @@
 # Available Checks
 
-Preen includes a comprehensive set of checks to help maintain your Python project. Each check can be run individually or as part of a complete project audit.
+Every issue a check reports carries an impact level:
 
-## Project Structure Checks
+- **critical** — blocks release (`preen release` refuses to proceed)
+- **important** — should be fixed, but can be overridden with informed consent
+- **info** — advisory
 
-### Structure Check (`structure`)
+## Fleet conformance
 
-Validates project layout and structure follows best practices:
+### `template`
 
-- **Tests Location**: Ensures `tests/` directory is at project root, not inside packages
-- **Examples Location**: Ensures `examples/` directory is at project root
-- **Src Layout**: Checks for proper src/ layout vs flat layout
-- **Anti-patterns**: Detects common issues like committed `__pycache__` directories
+Copier adoption and drift. Critical if the repo has no
+`.copier-answers.yml`; important if the recorded `_commit` differs from the
+latest py-canon `v*` tag (queried via `git ls-remote`, skipped gracefully
+offline).
 
-**Auto-fixable**: Yes (can move directories and update `.gitignore`)
+### `ci-matrix`
 
-### Dependencies Check (`deps`)
+Passes if `.github/workflows/ci.yml` is a canon shim (calls
+`gojiplus/py-canon/.github/workflows/reusable-ci.yml`). Otherwise the
+workflow's test matrix must cover the `requires-python` floor.
 
-Analyzes project dependencies and requirements:
+### `citation`
 
-- Validates dependency versions and constraints
-- Checks for unused dependencies
-- Identifies security vulnerabilities
-- Ensures requirements files are up to date
+`CITATION.cff` exists, parses as YAML, and has the core CFF keys.
 
-### Dependency Tree Check (`deptree`)
+### `structure`
 
-Analyzes import dependencies within your project:
+Project layout: `tests/` and `examples/` at the repo root, `src/` layout,
+no committed `__pycache__` or `.pyc` files.
 
-- Maps internal module dependencies
-- Detects circular dependencies  
-- Identifies unused internal modules
-- Validates import structure
+### `version`
 
-## Code Quality Checks
+No hardcoded version strings: the git tag is the version, so literal
+`__version__ = "..."` assignments (and copies of a static `project.version`)
+are flagged.
 
-### Ruff Check (`ruff`)
+## Code quality
 
-Runs Ruff linter for comprehensive code quality:
+### `ruff`
 
-- Style violations (PEP 8)
-- Code complexity issues
-- Import sorting
-- Unused variables and imports
-- Security issues
+Lint and format with ruff — the standard's only linter/formatter.
 
-**Auto-fixable**: Yes (most Ruff rules can be auto-fixed)
+### `pyright`
 
-### Codespell Check (`codespell`)
+Type checking in `standard` mode.
 
-Checks for common spelling mistakes in code and documentation:
+### `pydoclint`
 
-- Detects typos in comments and docstrings
-- Checks variable and function names
-- Validates documentation spelling
+Docstring–signature consistency (google style).
 
-**Auto-fixable**: Yes (can fix common typos automatically)
+### `codespell`
 
-### Pydoclint Check (`pydoclint`)
+Common misspellings in code and docs.
 
-Validates docstring quality and completeness:
+## Tests and dependencies
 
-- Checks docstring presence for public functions/classes
-- Validates docstring format (Google/NumPy/Sphinx style)
-- Ensures parameter documentation matches function signatures
+### `tests`
 
-### Pyright Check (`pyright`)
+Runs the pytest suite.
 
-Static type checking with Pyright:
+### `deps`
 
-- Type annotation validation
-- Type inference checking
-- Import resolution verification
-- Generic type usage validation
+Dependency hygiene via deptry (unused/missing/transitive dependencies).
 
-## Version and Metadata Checks
+### `deptree`
 
-### Version Check (`version`)
+Circular imports within the package.
 
-Ensures version consistency across project files:
+## Documentation
 
-- Validates `pyproject.toml` version format
-- Checks for version mismatches between files
-- Ensures semantic versioning compliance
+### `links`
 
-### Citation Check (`citation`)
+Dead links in README and docs.
 
-Validates academic citation metadata:
-
-- Checks `CITATION.cff` format and completeness
-- Validates author information
-- Ensures proper citation metadata
-
-## Configuration and CI Checks
-
-### CI Matrix Check (`ci_matrix`)
-
-Validates GitHub Actions CI configuration:
-
-- Checks Python version matrix completeness
-- Validates workflow syntax
-- Ensures proper test matrix coverage
-
-### Tests Check (`tests`)
-
-Validates test suite configuration and coverage:
-
-- Checks for test file presence
-- Validates test configuration
-- Ensures proper test structure
-
-### Links Check (`links`)
-
-Validates URLs in documentation and code:
-
-- Checks external links for availability
-- Validates internal references
-- Detects broken documentation links
-
-## Running Specific Checks
-
-### Run Individual Checks
+## Running subsets
 
 ```bash
-# Run only structure checks
-preen check --only structure
-
-# Run only code quality checks  
-preen check --only ruff,codespell,pydoclint
-
-# Skip specific checks
-preen check --skip links,pyright
+preen check --only template --only ci-matrix
+preen check --skip links
 ```
-
-### Check Categories
-
-Checks can be grouped by category:
-
-- **structure**: `structure`, `deps`, `deptree`
-- **quality**: `ruff`, `codespell`, `pydoclint`, `pyright`  
-- **metadata**: `version`, `citation`
-- **ci**: `ci_matrix`, `tests`
-- **docs**: `links`
-
-### Auto-fixing
-
-Many checks support automatic fixing:
-
-```bash
-# Fix all auto-fixable issues
-preen fix
-
-# Fix specific check types
-preen fix --only ruff,structure
-```
-
-## Check Configuration
-
-Individual checks can be configured in your `pyproject.toml`:
-
-```toml
-[tool.preen]
-# Enable/disable specific checks
-enabled_checks = ["structure", "ruff", "version"]
-disabled_checks = ["links", "pyright"]
-
-# Check-specific configuration
-[tool.preen.structure]
-tests_at_root = true
-examples_at_root = true
-src_layout = false
-
-[tool.preen.ruff]
-target_version = "py312"
-line_length = 88
-
-[tool.preen.version]
-enforce_semver = true
-```
-
-## Exit Codes
-
-- **0**: All checks passed
-- **1**: Some checks failed
-- **2**: Configuration or runtime error
-
-Use `--strict` mode to ensure any issues result in exit code 1.

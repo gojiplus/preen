@@ -3,57 +3,22 @@
 ## Requirements
 
 - Python 3.12 or higher
-- pip or uv for package installation
+- [uv](https://docs.astral.sh/uv/) recommended
 
-## Install from PyPI
+## Install
 
 ```bash
-pip install preen
+uv tool install preen
 ```
 
-## Install with uv
+or with pipx:
 
 ```bash
-uv add preen
+pipx install preen
 ```
 
-## Development Installation
-
-For contributing to preen or using the latest development version:
+## Verify
 
 ```bash
-# Clone the repository
-git clone https://github.com/gojiplus/preen.git
-cd preen
-
-# Install in development mode
-pip install -e .
-
-# Or with uv
-uv sync
-```
-
-## Verify Installation
-
-Check that preen is correctly installed:
-
-```bash
-preen --version
 preen --help
 ```
-
-## Optional Dependencies
-
-For development and testing:
-
-```bash
-# Install with development dependencies
-pip install preen[dev]
-
-# Or with uv
-uv sync --all-extras
-```
-
-This includes:
-- pytest and pytest-cov for testing
-- All documentation dependencies for building docs

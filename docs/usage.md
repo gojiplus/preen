@@ -1,159 +1,89 @@
 # Usage Guide
 
-## Overview
+Preen has six commands:
 
-Preen provides several commands to help maintain your Python projects:
+- `preen new NAME` — scaffold a new package from the py-canon copier template
+- `preen adopt [PATH]` — retrofit an existing repo onto the template
+- `preen update [PATH]` — pull the latest template changes (`copier update`)
+- `preen check [PATH]` — run conformance checks (detection only)
+- `preen fix [CHECK]` — apply fixes for detected issues
+- `preen release [X.Y.Z]` — guided tag-driven release
 
-- `preen check` - Run all enabled checks on your project
-- `preen sync` - Synchronize project files and configuration
-- `preen init` - Initialize preen configuration for a new project
-- `preen bump` - Bump package version
-- `preen fix` - Fix issues automatically where possible
-
-## Basic Commands
-
-### Check Your Project
-
-Run all enabled checks to identify issues:
+## Scaffolding: `preen new`
 
 ```bash
-# Check everything
-preen check
-
-# Check specific types
-preen check --only structure
-preen check --only ruff
-preen check --only deptree
-
-# Run in strict mode (fail on any issues)
-preen check --strict
+preen new my-package --description "Does a thing" --cli
 ```
 
-### Sync Project Files
+Runs copier against `gh:gojiplus/py-canon` and creates `my-package/`.
+Anything you don't pass as a flag (`--org`, `--description`, `--cli`),
+copier prompts for.
 
-Synchronize and update project configuration files:
+## Adoption: `preen adopt`
 
 ```bash
-# Sync everything
-preen sync
-
-# Sync specific categories
-preen sync --only docs
-preen sync --only ci
-preen sync --only workflows
+cd my-existing-package
+preen adopt
 ```
 
-### Initialize Configuration
+Mines the copier answers from the repo itself, renders the template into a
+temp directory, and copies in only the managed files (workflow shims,
+`docs/conf.py`, `.copier-answers.yml`, `py.typed`, and — only if absent —
+pre-commit config, dependabot config, `LICENSE`, `CITATION.cff`). Rewrites
+`[tool.ruff]`, `[tool.pyright]`, `[tool.pydoclint]` in `pyproject.toml`
+to the standard and deletes legacy `[tool.black]`, `[tool.isort]`,
+`[tool.flake8]`, `[tool.mypy]` sections. Ends with an adoption report of
+what was written, skipped, and left for you.
 
-Set up preen for a new project:
+Add `--release-migration` to convert the build backend to hatchling +
+uv-dynamic-versioning (the git tag becomes the version).
+
+## Staying current: `preen update`
 
 ```bash
-# Initialize with defaults
-preen init
-
-# Initialize with specific template
-preen init --template basic
+preen update
 ```
 
-### Version Management
+Runs `copier update` for a repo with a `.copier-answers.yml`, merging
+template changes with conflict markers inline, and prints the changed files.
 
-Bump your package version:
+## Checking: `preen check`
 
 ```bash
-# Bump patch version (1.0.0 -> 1.0.1)
-preen bump patch
-
-# Bump minor version (1.0.0 -> 1.1.0)
-preen bump minor
-
-# Bump major version (1.0.0 -> 2.0.0)
-preen bump major
-
-# Set specific version
-preen bump --version 2.1.3
+preen check            # human-readable report
+preen check --strict   # exit 1 on any issue (CI)
+preen check --only ruff --only template
+preen check --explain  # why each issue matters
 ```
 
-### Fix Issues Automatically
-
-Fix issues that can be automatically resolved:
+## Fixing: `preen fix`
 
 ```bash
-# Fix all fixable issues
-preen fix
-
-# Fix specific check types
-preen fix --only ruff
-preen fix --only structure
+preen fix              # fix everything, interactively
+preen fix ruff --auto  # auto-apply ruff fixes
 ```
 
-## Common Workflows
-
-### New Project Setup
+## Releasing: `preen release`
 
 ```bash
-# 1. Initialize preen configuration
-preen init
-
-# 2. Sync project files
-preen sync
-
-# 3. Check for any issues
-preen check
-
-# 4. Fix any auto-fixable issues
-preen fix
+preen release            # prompts for the version
+preen release 1.2.0      # tag v1.2.0
+preen release --dry-run  # show the plan
 ```
 
-### Regular Maintenance
+Runs the checks, walks through any issues (critical issues block; important
+ones can be overridden with informed consent), then creates and pushes the
+`vX.Y.Z` tag. The tag push triggers the repo's release workflow: build,
+attestations, PyPI trusted publishing, GitHub Release.
 
-```bash
-# Check for issues
-preen check
+## Configuration
 
-# Fix what can be fixed automatically
-preen fix
+Optional `[tool.preen]` section in `pyproject.toml`:
 
-# Sync any updated templates
-preen sync
-```
-
-### Before Release
-
-```bash
-# Ensure everything is clean
-preen check --strict
-
-# Bump version
-preen bump minor
-
-# Final check
-preen check
-```
-
-## Command Options
-
-### Global Options
-
-- `--verbose, -v` - Increase verbosity
-- `--quiet, -q` - Suppress output
-- `--config PATH` - Use specific config file
-- `--help` - Show help message
-
-### Check Options
-
-- `--only TYPES` - Run only specific check types
-- `--skip TYPES` - Skip specific check types
-- `--strict` - Fail on any issues (exit code 1)
-- `--fix` - Automatically fix issues where possible
-
-### Sync Options
-
-- `--only CATEGORIES` - Sync only specific categories
-- `--dry-run` - Show what would be synced without making changes
-- `--force` - Overwrite existing files
-
-For detailed help on any command, use:
-
-```bash
-preen COMMAND --help
+```toml
+[tool.preen]
+src_layout = true
+tests_at_root = true
+examples_at_root = true
+skip_checks = ["links"]
 ```

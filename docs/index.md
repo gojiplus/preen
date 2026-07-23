@@ -1,31 +1,21 @@
-# Preen Documentation
+# Preen
 
-An opinionated, agentic CLI for Python package hygiene and release.
+Conformance and adoption CLI for the
+[py-canon](https://github.com/gojiplus/py-canon) fleet standard.
 
-## Overview
+py-canon defines the standard (copier template, reusable workflows, shared
+Sphinx config); preen is how repos enter the fleet and stay in it.
 
-Preen is a tool that helps maintain Python projects by checking and fixing common issues like:
-
-- Project structure and layout
-- Version consistency
-- CI/CD configuration
-- Dependencies and imports
-- Code quality checks
-
-## Quick Start
+## Quick start
 
 ```bash
-# Install preen
-pip install preen
+uv tool install preen
 
-# Check your project
-preen check
-
-# Sync project files and configuration
-preen sync
+preen new my-package     # scaffold a new package
+preen adopt              # retrofit an existing repo
+preen check              # conformance checks
+preen release            # tag-driven release
 ```
-
-## Documentation
 
 ```{toctree}
 :maxdepth: 2
@@ -33,13 +23,5 @@ preen sync
 
 installation
 usage
-configuration
 checks
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: API Reference
-
-api
 ```

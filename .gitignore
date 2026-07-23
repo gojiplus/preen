@@ -1,11 +1,25 @@
-.DS_Store
-/preen/__pycache__
-/tests/__pycache__
-/preen/templates/__pycache__
-/preen/checks/__pycache__
-/preen.egg-info
-/preen/commands/__pycache__
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Environments
+.venv/
+test_env/
+.env
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Docs
 docs/_build/
-/preen/commands/__pycache__
-/preen/commands/__pycache__
-/preen/commands/__pycache__
+_site/
+
+# OS
+.DS_Store

@@ -1,68 +1,101 @@
-[build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "preen"
-version = "0.1.0"
-description = "An opinionated, agentic CLI for Python package hygiene and release"
-authors = [
-    { name = "Gaurav Sood", email = "contact@gsood.com" },
-]
+description = "Conformance and adoption CLI for the py-canon fleet standard"
 readme = "README.md"
-license = "MIT"
+license = { text = "MIT" }
+authors = [{ name = "Gaurav Sood", email = "contact@gsood.com" }]
 requires-python = ">=3.12"
+dynamic = ["version"]
+keywords = ["packaging", "release", "conformance", "copier", "cli", "python"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Build Tools",
+]
 dependencies = [
     "typer>=0.9",
     "rich>=13.5",
     "PyYAML>=6.0",
-    "Jinja2>=3.0",
     "httpx>=0.24.0",
-    "pydoclint>=0.3.0",
-    "pyright>=1.1.350",
-    "codespell>=2.3.0",
+    "copier>=9",
+    "tomlkit>=0.13",
     "ruff>=0.14.0",
-]
-keywords = ["packaging", "release", "metadata", "hygiene", "cli", "python"]
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "Topic :: Software Development :: Build Tools",
-    "Topic :: Software Development :: Libraries :: Python Modules",
+    "pyright>=1.1.390",
+    "pydoclint>=0.5",
+    "codespell>=2.3.0",
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/gojiplus/preen"
-"Repository" = "https://github.com/gojiplus/preen"
-"Documentation" = "https://gojiplus.github.io/preen"
+Homepage = "https://github.com/gojiplus/preen"
+Documentation = "https://gojiplus.github.io/preen/"
+Repository = "https://github.com/gojiplus/preen"
 "Bug Tracker" = "https://github.com/gojiplus/preen/issues"
-"Changelog" = "https://github.com/gojiplus/preen/releases"
 
 [project.scripts]
 preen = "preen.cli:run"
 
-[project.optional-dependencies]
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/preen"]
+
+[dependency-groups]
 dev = [
-    "pytest>=7.0",
-    "pytest-cov",
+    "pre-commit>=4",
+    { include-group = "test" },
 ]
+test = ["pytest>=8", "pytest-cov>=6"]
 docs = [
-    "sphinx>=7.0",
-    "sphinx-rtd-theme>=2.0",
-    "myst-parser>=2.0",
-    "furo>=2024.0",
+    "sphinx>=8",
+    "py-canon @ git+https://github.com/gojiplus/py-canon@v1",
+    "furo",
+    "myst-parser",
+    "sphinx-copybutton",
 ]
 
-[tool.setuptools.packages.find]
-include = ["preen", "preen.*"]
+[tool.ruff]
+line-length = 88
+target-version = "py312"
 
-[tool.uv]
-python-preference = "managed"
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "D", "S", "SIM", "T20", "PT", "RUF"]
+# D203/D213: fleet standard (google convention). S603/S607: preen's job is
+# driving developer tools (ruff, git, uv, copier) via subprocess.
+ignore = ["D203", "D213", "S603", "S607"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "D"]
+"docs/**" = ["D"]
+
+[tool.pyright]
+include = ["src"]
+typeCheckingMode = "standard"
+
+[tool.pydoclint]
+style = "google"
+arg-type-hints-in-docstring = false
+exclude = "tests|docs"
 
 [tool.pytest.ini_options]
-addopts = "-q"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src"]
+
+[tool.preen]
