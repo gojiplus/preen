@@ -13,7 +13,8 @@ class LinkCheck(Check):
 
     # URL regex pattern to match HTTP/HTTPS URLs
     URL_PATTERN = re.compile(
-        r"https?://(?:[-\w.])+(?:[:\d]+)?(?:/(?:[\w/_.])*(?:\?(?:[\w&=%.])*)?(?:#(?:[\w.])*)?)?",
+        r"https?://(?:[-\w.])+(?:[:\d]+)?"
+        r"(?:/(?:[-\w/_.~%@+])*(?:\?(?:[-\w&=%.])*)?(?:#(?:[-\w.])*)?)?",
         re.IGNORECASE,
     )
 
@@ -77,7 +78,7 @@ class LinkCheck(Check):
         urls = []
         for line_num, line in enumerate(content.splitlines(), 1):
             for match in self.URL_PATTERN.finditer(line):
-                url = match.group()
+                url = match.group().rstrip(".,;:'\")")
                 if not self._should_skip_url(url):
                     urls.append((url, line_num))
 
@@ -93,16 +94,7 @@ class LinkCheck(Check):
                 if any(part.startswith(".") for part in file_path.parts):
                     continue
 
-                # Skip common build/cache directories
-                skip_dirs = {
-                    "__pycache__",
-                    "node_modules",
-                    ".git",
-                    "build",
-                    "dist",
-                    ".pytest_cache",
-                }
-                if any(skip_dir in file_path.parts for skip_dir in skip_dirs):
+                if self.is_excluded(file_path.relative_to(self.project_dir)):
                     continue
 
                 urls = self._extract_urls_from_file(file_path)

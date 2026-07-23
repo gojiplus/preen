@@ -1,5 +1,7 @@
 """Project structure validation check."""
 
+import fnmatch
+import subprocess
 from pathlib import Path
 
 from ..config import PreenConfig
@@ -149,17 +151,41 @@ class StructureCheck(Check):
 
         return issues
 
+    def _tracked_matches(self, pattern: str) -> list[Path]:
+        """Git-tracked paths whose final component matches pattern.
+
+        Committed cache files are the real antipattern; on-disk but
+        git-ignored ones are fine. Falls back to a filesystem scan
+        outside a git repo.
+        """
+        if (self.project_dir / ".git").exists():
+            try:
+                result = subprocess.run(
+                    ["git", "ls-files", "-z"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    cwd=self.project_dir,
+                )
+            except (subprocess.SubprocessError, FileNotFoundError):
+                return []
+            return [
+                Path(p)
+                for p in result.stdout.split("\0")
+                if p and any(fnmatch.fnmatch(part, pattern) for part in Path(p).parts)
+            ]
+        return [
+            p
+            for p in self.project_dir.rglob(pattern)
+            if not self.is_excluded(p.relative_to(self.project_dir))
+        ]
+
     def _check_common_antipatterns(self) -> list[Issue]:
         """Check for common project structure anti-patterns."""
         issues = []
 
         # Check for __pycache__ in git (should be in .gitignore)
-        skip_parts = {".venv", ".git", "node_modules", ".tox", "test_env"}
-        pycache_dirs = [
-            d
-            for d in self.project_dir.rglob("__pycache__")
-            if not any(part in skip_parts for part in d.parts)
-        ]
+        pycache_dirs = self._tracked_matches("__pycache__")
         if pycache_dirs and (self.project_dir / ".git").exists():
             issues.append(
                 Issue(
@@ -178,11 +204,7 @@ class StructureCheck(Check):
             )
 
         # Check for .pyc files
-        pyc_files = [
-            f
-            for f in self.project_dir.rglob("*.pyc")
-            if not any(part in skip_parts for part in f.parts)
-        ]
+        pyc_files = self._tracked_matches("*.pyc")
         if pyc_files:
             issues.append(
                 Issue(

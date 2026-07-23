@@ -22,10 +22,15 @@ class TestsCheck(Check):
         """Run pytest and report results."""
         issues = []
 
-        # Check if pytest is available
+        # Run inside the project's uv environment when available
+        if (self.project_dir / "uv.lock").exists():
+            pytest_cmd = ["uv", "run", "pytest"]
+        else:
+            pytest_cmd = ["python3", "-m", "pytest"]
+
         try:
             subprocess.run(
-                ["python3", "-m", "pytest", "--version"],
+                [*pytest_cmd, "--version"],
                 capture_output=True,
                 check=True,
                 cwd=self.project_dir,
@@ -47,7 +52,7 @@ class TestsCheck(Check):
 
         # Run pytest
         result = subprocess.run(
-            ["python3", "-m", "pytest", "--tb=short", "-q"],
+            [*pytest_cmd, "--tb=short", "-q"],
             capture_output=True,
             text=True,
             cwd=self.project_dir,
