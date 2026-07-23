@@ -78,6 +78,9 @@ class LinkCheck(Check):
         urls = []
         for line_num, line in enumerate(content.splitlines(), 1):
             for match in self.URL_PATTERN.finditer(line):
+                # pip VCS specs (git+https://...@ref) are not fetchable URLs
+                if line[: match.start()].endswith("+"):
+                    continue
                 url = match.group().rstrip(".,;:'\")")
                 if not self._should_skip_url(url):
                     urls.append((url, line_num))
@@ -192,6 +195,10 @@ class LinkCheck(Check):
                                 ),
                             )
                         )
+                    case code if code in (401, 403, 405, 429):
+                        # Anti-bot / auth responses do not mean the link is
+                        # dead for a human reader
+                        pass
                     case code if 400 <= code < 500:  # Client error
                         issues.append(
                             Issue(
