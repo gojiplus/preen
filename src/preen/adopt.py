@@ -27,6 +27,7 @@ line-length = 88
 target-version = "py311"
 
 [tool.ruff.lint]
+external = ["DOC"]
 select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "D", "S", "SIM", "T20", "PT", "RUF"]
 ignore = ["D203", "D213"]
 
@@ -46,6 +47,7 @@ style = "google"
 arg-type-hints-in-docstring = false
 check-return-types = false
 check-class-attributes = false
+allow-init-docstring = true
 exclude = '\\.venv|tests|docs'
 """
 
