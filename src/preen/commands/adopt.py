@@ -4,6 +4,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from ..adopt import AdoptionReport, adopt_repo
 
@@ -39,25 +40,25 @@ def run_adopt(
     console.print("\n[bold]Written:[/bold]")
     if report.written:
         for item in report.written:
-            console.print(f"  [green]+[/green] {item}")
+            console.print(f"  [green]+[/green] {escape(item)}")
     else:
         console.print("  (nothing)")
 
     console.print("\n[bold]Skipped:[/bold]")
     if report.skipped:
         for item in report.skipped:
-            console.print(f"  [dim]-[/dim] {item}")
+            console.print(f"  [dim]-[/dim] {escape(item)}")
     else:
         console.print("  (nothing)")
 
     console.print("\n[bold]pyproject.toml:[/bold]")
     for item in report.pyproject_changes:
-        console.print(f"  [yellow]~[/yellow] {item}")
+        console.print(f"  [yellow]~[/yellow] {escape(item)}")
 
     if report.todos:
         console.print("\n[bold]Manual TODOs:[/bold]")
         for item in report.todos:
-            console.print(f"  [red]![/red] {item}")
+            console.print(f"  [red]![/red] {escape(item)}")
 
     console.print(
         "\nRun [cyan]uv lock && uv sync --all-groups[/cyan], then "
