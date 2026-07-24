@@ -10,6 +10,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from .checks import ALL_CHECKS, Impact, run_checks
@@ -166,7 +167,7 @@ def check(
                     educator.explain_check(check_name, result.issues)
                 else:
                     for issue in result.issues:
-                        console.print(f"  {issue}")
+                        console.print(f"  {escape(str(issue))}")
 
         console.print("\n[bold blue]Next steps:[/bold blue]")
         console.print("  - Run [cyan]preen fix[/cyan] to apply automatic fixes")
