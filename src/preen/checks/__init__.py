@@ -8,6 +8,7 @@ from .base import Check, CheckResult, Fix, Impact, Issue, Severity
 from .ci_matrix import CIMatrixCheck
 from .citation import CitationCheck
 from .codespell import CodespellCheck
+from .depgroups import DepgroupsCheck
 from .deps import DepsCheck
 from .deptree import DeptreeCheck
 from .license import LicenseCheck
@@ -28,6 +29,7 @@ ALL_CHECKS: list[type[Check]] = [
     CitationCheck,
     DepsCheck,
     DeptreeCheck,
+    DepgroupsCheck,
     CIMatrixCheck,
     StructureCheck,
     VersionCheck,

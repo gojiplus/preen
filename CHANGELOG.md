@@ -17,6 +17,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   license file exists), plus `preen fix license` to auto-migrate the
   deprecated `{ text = ... }` table form, remove redundant classifiers, and
   add a missing `license-files` entry.
+- New `depgroups` check enforcing PEP 735 `[dependency-groups]` usage:
+  flags a missing `[dependency-groups]` section, a missing `dev` umbrella
+  group, dev-type extras (test, docs, lint, etc.) left in
+  `[project.optional-dependencies]`, and names duplicated across both
+  sections.
 
 ### Changed
 
