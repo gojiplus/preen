@@ -108,3 +108,6 @@ testpaths = ["tests"]
 source = ["src"]
 
 [tool.preen]
+src_layout = true
+tests_at_root = true
+skip_checks = []
