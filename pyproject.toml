@@ -2,14 +2,14 @@
 name = "preen"
 description = "Conformance and adoption CLI for the py-canon fleet standard"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Gaurav Sood", email = "contact@gsood.com" }]
 requires-python = ">=3.12"
 dynamic = ["version"]
 keywords = ["packaging", "release", "conformance", "copier", "cli", "python"]
 classifiers = [
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Topic :: Software Development :: Build Tools",
 ]
@@ -37,7 +37,7 @@ Repository = "https://github.com/gojiplus/preen"
 preen = "preen.cli:run"
 
 [build-system]
-requires = ["hatchling", "uv-dynamic-versioning"]
+requires = ["hatchling>=1.27", "uv-dynamic-versioning"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
