@@ -209,3 +209,39 @@ def test_ruff_ignore_merge_is_idempotent(tmp_path: Path) -> None:
     data = _load(repo)
     ignore = data["tool"]["ruff"]["lint"]["ignore"]
     assert ignore == ["D203", "D213", "S603", "S607"]
+
+
+def _write_pyproject_with_requires(
+    tmp_path: Path, requires_python: str | None, package: str = "pkg"
+) -> Path:
+    requires_line = ""
+    if requires_python:
+        requires_line = f'requires-python = "{requires_python}"\n'
+    (tmp_path / "pyproject.toml").write_text(
+        f'[project]\nname = "{package}"\nversion = "0.1.0"\n{requires_line}'
+    )
+    pkg = tmp_path / package
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    return tmp_path
+
+
+def test_target_version_derived_from_requires_python_floor(tmp_path: Path) -> None:
+    repo = _write_pyproject_with_requires(tmp_path, ">=3.12")
+    rewrite_pyproject(repo)
+    data = _load(repo)
+    assert data["tool"]["ruff"]["target-version"] == "py312"
+
+
+def test_target_version_falls_back_without_requires_python(tmp_path: Path) -> None:
+    repo = _write_pyproject_with_requires(tmp_path, None)
+    rewrite_pyproject(repo)
+    data = _load(repo)
+    assert data["tool"]["ruff"]["target-version"] == "py311"
+
+
+def test_target_version_uses_actual_floor_below_fleet_standard(tmp_path: Path) -> None:
+    repo = _write_pyproject_with_requires(tmp_path, ">=3.10")
+    rewrite_pyproject(repo)
+    data = _load(repo)
+    assert data["tool"]["ruff"]["target-version"] == "py310"

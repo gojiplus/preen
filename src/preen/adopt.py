@@ -392,6 +392,10 @@ def rewrite_pyproject(repo: Path, release_migration: bool = False) -> list[str]:
         tool[section] = canon["tool"][section]  # type: ignore[index]
         changes.append(f"{'replaced' if existed else 'set'} [tool.{section}]")
 
+    target_version = _ruff_target_version(doc)
+    tool["ruff"]["target-version"] = target_version  # type: ignore[index]
+    changes.append(f"target-version = {target_version!r} (from requires-python floor)")
+
     canon_ignore = [str(code) for code in tool["ruff"]["lint"]["ignore"]]  # type: ignore[index]
     extra_ignore = sorted(set(existing_ruff_ignores) - set(canon_ignore))
     if extra_ignore:
@@ -593,10 +597,34 @@ def _requires_python_floor(repo: Path) -> tuple[int, int] | None:
     except (OSError, tomllib.TOMLDecodeError):
         return None
     requires = data.get("project", {}).get("requires-python", "")
+    return _parse_requires_python_floor(requires)
+
+
+def _parse_requires_python_floor(requires: str) -> tuple[int, int] | None:
+    """Parse the floor out of a requires-python specifier string."""
     match = re.search(r">=\s*(\d+)\.(\d+)", requires)
     if not match:
         return None
     return (int(match.group(1)), int(match.group(2)))
+
+
+def _ruff_target_version(doc: Any) -> str:
+    """Derive ruff target-version from the repo's requires-python floor.
+
+    Falls back to the fleet floor (py311) when requires-python is absent
+    or unparsable.
+
+    Args:
+        doc: Parsed tomlkit document for the target repo's pyproject.toml.
+
+    Returns:
+        Ruff target-version string, e.g. "py312".
+    """
+    requires = str(doc.get("project", {}).get("requires-python", ""))
+    floor = _parse_requires_python_floor(requires)
+    if floor is None:
+        return "py311"
+    return f"py{floor[0]}{floor[1]}"
 
 
 def adopt_repo(
