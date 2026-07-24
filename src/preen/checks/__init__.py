@@ -10,6 +10,7 @@ from .citation import CitationCheck
 from .codespell import CodespellCheck
 from .deps import DepsCheck
 from .deptree import DeptreeCheck
+from .license import LicenseCheck
 from .links import LinkCheck
 from .pydoclint import PydoclintCheck
 from .pyright import PyrightCheck
@@ -30,6 +31,7 @@ ALL_CHECKS: list[type[Check]] = [
     CIMatrixCheck,
     StructureCheck,
     VersionCheck,
+    LicenseCheck,
     LinkCheck,
     PydoclintCheck,
     PyrightCheck,

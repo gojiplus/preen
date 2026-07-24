@@ -12,6 +12,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `.pre-commit-config.yaml`, `src/preen/py.typed`, weekly CI drift-check
   schedule.
 - Populated `[tool.preen]` with preen's own configuration.
+- New `license` check enforcing PEP 639 license metadata (SPDX string form,
+  no deprecated `License ::` classifiers, `license-files` present when a
+  license file exists), plus `preen fix license` to auto-migrate the
+  deprecated `{ text = ... }` table form, remove redundant classifiers, and
+  add a missing `license-files` entry.
 
 ### Changed
 
