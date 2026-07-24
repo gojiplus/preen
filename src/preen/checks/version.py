@@ -97,6 +97,10 @@ class VersionCheck(Check):
                 content = file_path.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
                 continue
+            if "importlib.metadata" in content:
+                # The sanctioned pattern: version("pkg") with a literal
+                # fallback for source trees without installed metadata
+                continue
             for match in _LITERAL_VERSION.finditer(content):
                 line_num = content[: match.start()].count("\n") + 1
                 issues.append(

@@ -20,12 +20,17 @@ class RuffCheck(Check):
 
     def run(self) -> CheckResult:
         """Run ruff check and ruff format."""
+        if (self.project_dir / "uv.lock").exists():
+            ruff_cmd = ["uv", "run", "ruff"]
+        else:
+            ruff_cmd = ["ruff"]
+
         issues = []
 
         # Check if ruff is available
         try:
             subprocess.run(
-                ["ruff", "--version"],
+                [*ruff_cmd, "--version"],
                 capture_output=True,
                 check=True,
                 cwd=self.project_dir,
@@ -47,7 +52,7 @@ class RuffCheck(Check):
 
         # Run ruff check
         lint_result = subprocess.run(
-            ["ruff", "check", "--quiet"],
+            [*ruff_cmd, "check", "--quiet"],
             capture_output=True,
             text=True,
             cwd=self.project_dir,
@@ -56,7 +61,7 @@ class RuffCheck(Check):
         if lint_result.returncode != 0:
             # Try to get fixable issues
             fix_result = subprocess.run(
-                ["ruff", "check", "--quiet", "--fix", "--diff"],
+                [*ruff_cmd, "check", "--quiet", "--fix", "--diff"],
                 capture_output=True,
                 text=True,
                 cwd=self.project_dir,
@@ -64,7 +69,7 @@ class RuffCheck(Check):
 
             def apply_lint_fix():
                 subprocess.run(
-                    ["ruff", "check", "--fix"],
+                    [*ruff_cmd, "check", "--fix"],
                     cwd=self.project_dir,
                     check=False,
                 )
@@ -98,7 +103,7 @@ class RuffCheck(Check):
 
         # Run ruff format check
         format_result = subprocess.run(
-            ["ruff", "format", "--check", "--quiet"],
+            [*ruff_cmd, "format", "--check", "--quiet"],
             capture_output=True,
             text=True,
             cwd=self.project_dir,
@@ -107,7 +112,7 @@ class RuffCheck(Check):
         if format_result.returncode != 0:
             # Get formatting diff
             diff_result = subprocess.run(
-                ["ruff", "format", "--diff"],
+                [*ruff_cmd, "format", "--diff"],
                 capture_output=True,
                 text=True,
                 cwd=self.project_dir,
@@ -115,7 +120,7 @@ class RuffCheck(Check):
 
             def apply_format_fix():
                 subprocess.run(
-                    ["ruff", "format"],
+                    [*ruff_cmd, "format"],
                     cwd=self.project_dir,
                     check=False,
                 )
