@@ -155,3 +155,57 @@ def test_release_migration_src_layout(tmp_path: Path) -> None:
 def test_missing_pyproject_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         rewrite_pyproject(tmp_path)
+
+
+def _write_pyproject(tmp_path: Path, body: str, package: str = "pkg") -> Path:
+    (tmp_path / "pyproject.toml").write_text(
+        f'[project]\nname = "{package}"\nversion = "0.1.0"\n\n{body}'
+    )
+    pkg = tmp_path / package
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    return tmp_path
+
+
+def test_ruff_extra_ignores_preserved(tmp_path: Path) -> None:
+    repo = _write_pyproject(
+        tmp_path,
+        "[tool.ruff]\nline-length = 100\n\n"
+        '[tool.ruff.lint]\nselect = ["E"]\nignore = ["S603", "S607"]\n',
+    )
+    changes = rewrite_pyproject(repo)
+    data = _load(repo)
+    ignore = data["tool"]["ruff"]["lint"]["ignore"]
+    # Canon codes first (in canon order), then extra repo codes, sorted.
+    assert ignore == ["D203", "D213", "S603", "S607"]
+    assert any("preserved" in c and "S603" in c and "S607" in c for c in changes)
+
+
+def test_ruff_legacy_top_level_ignore_preserved(tmp_path: Path) -> None:
+    repo = _write_pyproject(
+        tmp_path,
+        '[tool.ruff]\nline-length = 100\nignore = ["S603"]\n',
+    )
+    rewrite_pyproject(repo)
+    data = _load(repo)
+    assert data["tool"]["ruff"]["lint"]["ignore"] == ["D203", "D213", "S603"]
+
+
+def test_ruff_no_existing_section_ignore_is_canon_only(tmp_path: Path) -> None:
+    repo = _write_pyproject(tmp_path, "")
+    rewrite_pyproject(repo)
+    data = _load(repo)
+    assert data["tool"]["ruff"]["lint"]["ignore"] == ["D203", "D213"]
+
+
+def test_ruff_ignore_merge_is_idempotent(tmp_path: Path) -> None:
+    repo = _write_pyproject(
+        tmp_path,
+        "[tool.ruff]\nline-length = 100\n\n"
+        '[tool.ruff.lint]\nselect = ["E"]\nignore = ["S603", "S607"]\n',
+    )
+    rewrite_pyproject(repo)
+    rewrite_pyproject(repo)
+    data = _load(repo)
+    ignore = data["tool"]["ruff"]["lint"]["ignore"]
+    assert ignore == ["D203", "D213", "S603", "S607"]

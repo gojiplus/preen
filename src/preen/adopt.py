@@ -337,6 +337,30 @@ def _requirement_name(spec: str) -> str:
     )
 
 
+def _existing_ruff_ignores(tool: Any) -> list[str]:
+    """Collect lint ignore codes from a repo's existing [tool.ruff] section.
+
+    Checks both the current ``lint.ignore`` location and the legacy
+    top-level ``ignore`` form, since older ruff configs use either.
+
+    Args:
+        tool: The document's [tool] table.
+
+    Returns:
+        Ignore codes found in the existing config, in file order.
+    """
+    ruff = tool.get("ruff")
+    if ruff is None:
+        return []
+    codes: list[str] = []
+    lint = ruff.get("lint")
+    if lint is not None and "ignore" in lint:
+        codes.extend(str(code) for code in lint["ignore"])
+    if "ignore" in ruff:
+        codes.extend(str(code) for code in ruff["ignore"])
+    return codes
+
+
 def rewrite_pyproject(repo: Path, release_migration: bool = False) -> list[str]:
     """Rewrite pyproject.toml [tool.*] sections to the fleet standard.
 
@@ -362,10 +386,19 @@ def rewrite_pyproject(repo: Path, release_migration: bool = False) -> list[str]:
     changes: list[str] = []
 
     tool = _ensure_table(doc, "tool")
+    existing_ruff_ignores = _existing_ruff_ignores(tool)
     for section in ("ruff", "pyright", "pydoclint"):
         existed = section in tool
         tool[section] = canon["tool"][section]  # type: ignore[index]
         changes.append(f"{'replaced' if existed else 'set'} [tool.{section}]")
+
+    canon_ignore = [str(code) for code in tool["ruff"]["lint"]["ignore"]]  # type: ignore[index]
+    extra_ignore = sorted(set(existing_ruff_ignores) - set(canon_ignore))
+    if extra_ignore:
+        tool["ruff"]["lint"]["ignore"] = canon_ignore + extra_ignore  # type: ignore[index]
+        changes.append(
+            "preserved repo-specific ruff ignore(s): " + ", ".join(extra_ignore)
+        )
 
     # Point pyright at the actual package location (src/ vs flat layout)
     project = doc.get("project", {})
