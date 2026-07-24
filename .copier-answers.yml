@@ -1,0 +1,12 @@
+# Managed by copier — records template version for `copier update`. Do not edit.
+_commit: v1
+_src_path: gh:gojiplus/py-canon
+author_email: contact@gsood.com
+author_name: Gaurav Sood
+coverage_floor: 0
+default_branch: main
+description: Conformance and adoption CLI for the py-canon fleet standard
+needs_cli: true
+org: gojiplus
+package_name: preen
+project_name: preen

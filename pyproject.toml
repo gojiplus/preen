@@ -54,6 +54,10 @@ packages = ["src/preen"]
 dev = [
     "pre-commit>=4",
     { include-group = "test" },
+    "ruff>=0.14",
+    "pyright>=1.1.390",
+    "pydoclint>=0.5",
+    "pytest>=8",
 ]
 test = ["pytest>=8", "pytest-cov>=6"]
 docs = [
