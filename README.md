@@ -1,6 +1,7 @@
 # preen
 
 [![PyPI version](https://img.shields.io/pypi/v/preen.svg)](https://pypi.org/project/preen/)
+[![Downloads](https://static.pepy.tech/badge/preen)](https://pepy.tech/project/preen)
 [![CI](https://github.com/gojiplus/preen/actions/workflows/ci.yml/badge.svg)](https://github.com/gojiplus/preen/actions/workflows/ci.yml)
 [![Documentation](https://github.com/gojiplus/preen/actions/workflows/docs.yml/badge.svg)](https://gojiplus.github.io/preen/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
