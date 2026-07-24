@@ -4,6 +4,7 @@ This module provides the base infrastructure for running checks and the
 registry of all built-in checks.
 """
 
+from .audit import AuditCheck
 from .base import Check, CheckResult, Fix, Impact, Issue, Severity
 from .ci_matrix import CIMatrixCheck
 from .citation import CitationCheck
@@ -30,6 +31,7 @@ ALL_CHECKS: list[type[Check]] = [
     DepsCheck,
     DeptreeCheck,
     DepgroupsCheck,
+    AuditCheck,
     CIMatrixCheck,
     StructureCheck,
     VersionCheck,

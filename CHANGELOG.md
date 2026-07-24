@@ -22,6 +22,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   group, dev-type extras (test, docs, lint, etc.) left in
   `[project.optional-dependencies]`, and names duplicated across both
   sections.
+- New `audit` check running pip-audit over the project's locked dependencies
+  (exported via `uv export`) to flag known-vulnerable packages; complements
+  `deps`, which doesn't check for CVEs.
 
 ### Changed
 
