@@ -6,18 +6,23 @@ publishing, GitHub Release). This command runs the checks, asks for
 informed consent, then tags and pushes.
 """
 
+import datetime
 import re
 import subprocess
 from pathlib import Path
 
 import typer
+from packaging.version import InvalidVersion, Version
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 
 from ..checks import ALL_CHECKS, run_checks
+from ..checks.changelog import (
+    has_version_entry,
+    rename_unreleased_heading,
+    unreleased_section_text,
+)
 from ..interactive import InteractiveReleaseWorkflow
-
-_VERSION = re.compile(r"^\d+\.\d+\.\d+([.\-+].*)?$")
 
 
 def _git(project_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -45,6 +50,12 @@ def _latest_tag(project_dir: Path) -> str | None:
     if result.returncode != 0:
         return None
     return result.stdout.strip() or None
+
+
+def _tag_exists(project_dir: Path, tag: str) -> bool:
+    """Return True if `tag` already exists locally (per ``git tag -l``)."""
+    result = _git(project_dir, "tag", "-l", tag)
+    return bool(result.stdout.strip())
 
 
 def _suggest_next(latest: str | None) -> str:
@@ -116,17 +127,64 @@ def release_package(
     if version is None:
         version = Prompt.ask("Version to release", default=_suggest_next(latest))
     version = version.lstrip("v")
-    if not _VERSION.match(version):
-        console.print(f"[red]'{version}' does not look like X.Y.Z[/red]")
-        raise typer.Exit(1)
+    try:
+        Version(version)
+    except InvalidVersion:
+        console.print(f"[red]'{version}' is not a valid PEP 440 version[/red]")
+        raise typer.Exit(1) from None
     tag = f"v{version}"
+
+    if _tag_exists(project_dir, tag):
+        console.print(f"[red]Tag {tag} already exists[/red]")
+        raise typer.Exit(1)
+
+    changelog_path = project_dir / "CHANGELOG.md"
+    changelog_text = (
+        changelog_path.read_text(encoding="utf-8") if changelog_path.exists() else ""
+    )
+    today = datetime.date.today().isoformat()
+    rename_unreleased = False
+    if not has_version_entry(changelog_text, version):
+        unreleased = unreleased_section_text(changelog_text)
+        if unreleased is not None and unreleased.strip():
+            rename_unreleased = True
+        else:
+            console.print(f"[red]no changelog entry for {version}[/red]")
+            raise typer.Exit(1)
 
     if dry_run:
         console.print("\n[yellow]DRY RUN — would perform:[/yellow]")
-        console.print(f"  1. git tag {tag}")
-        console.print(f"  2. git push origin {tag}")
-        console.print("  3. The tag push triggers the repo's release workflow")
+        step = 1
+        if rename_unreleased:
+            console.print(
+                f"  {step}. Rename [Unreleased] to [{version}] - {today} in "
+                "CHANGELOG.md"
+            )
+            step += 1
+        console.print(f"  {step}. git tag {tag}")
+        step += 1
+        console.print(f"  {step}. git push origin {tag}")
+        step += 1
+        console.print(f"  {step}. The tag push triggers the repo's release workflow")
         return
+
+    if rename_unreleased:
+        if Confirm.ask(
+            f"CHANGELOG.md has no entry for {version}. Rename [Unreleased] to "
+            f"[{version}] - {today}?",
+            default=True,
+        ):
+            changelog_path.write_text(
+                rename_unreleased_heading(changelog_text, version, today),
+                encoding="utf-8",
+            )
+            console.print(
+                f"Renamed [Unreleased] to [{version}] - {today} in "
+                "CHANGELOG.md — commit this change as part of the release."
+            )
+        else:
+            console.print("[red]Release cancelled[/red]")
+            raise typer.Exit(1)
 
     if not Confirm.ask(f"\nTag and push [bold]{tag}[/bold]?", default=False):
         console.print("[red]Release cancelled[/red]")

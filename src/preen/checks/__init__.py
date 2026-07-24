@@ -6,6 +6,7 @@ registry of all built-in checks.
 
 from .audit import AuditCheck
 from .base import Check, CheckResult, Fix, Impact, Issue, Severity
+from .changelog import ChangelogCheck
 from .ci_matrix import CIMatrixCheck
 from .citation import CitationCheck
 from .codespell import CodespellCheck
@@ -28,6 +29,7 @@ ALL_CHECKS: list[type[Check]] = [
     RuffCheck,
     TestsCheck,
     CitationCheck,
+    ChangelogCheck,
     DepsCheck,
     DeptreeCheck,
     DepgroupsCheck,

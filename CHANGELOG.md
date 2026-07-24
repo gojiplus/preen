@@ -25,6 +25,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - New `audit` check running pip-audit over the project's locked dependencies
   (exported via `uv export`) to flag known-vulnerable packages; complements
   `deps`, which doesn't check for CVEs.
+- New `changelog` check enforcing Keep a Changelog structure in
+  `CHANGELOG.md`; `preen release` now refuses to tag without a PEP 440
+  version, a not-already-existing tag, and a changelog entry for the
+  release (offering to rename `[Unreleased]` to the new version when
+  appropriate).
 
 ### Changed
 
