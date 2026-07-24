@@ -8,6 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Raised own test coverage from 54% to 90%; enforce a 70% floor in CI.
 - New `metadata` check: flags a `requires-python` upper bound (`<`, `<=`,
   `==`, `===`, `~=` specifiers cap installs on future Pythons for no
   benefit, per sp-repo-review PP004) and, for projects with `[tool.pyright]`

@@ -19,5 +19,5 @@ jobs:
     uses: gojiplus/py-canon/.github/workflows/reusable-ci.yml@v1
     with:
       wheel-import: preen
-      coverage-floor: 0
+      coverage-floor: 70
       python-versions: '["3.12", "3.14"]'
