@@ -15,6 +15,7 @@ from .deps import DepsCheck
 from .deptree import DeptreeCheck
 from .license import LicenseCheck
 from .links import LinkCheck
+from .metadata import MetadataCheck
 from .pydoclint import PydoclintCheck
 from .pyright import PyrightCheck
 from .ruff import RuffCheck
@@ -39,6 +40,7 @@ ALL_CHECKS: list[type[Check]] = [
     VersionCheck,
     LicenseCheck,
     LinkCheck,
+    MetadataCheck,
     PydoclintCheck,
     PyrightCheck,
     CodespellCheck,

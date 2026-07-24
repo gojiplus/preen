@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- New `metadata` check: flags a `requires-python` upper bound (`<`, `<=`,
+  `==`, `===`, `~=` specifiers cap installs on future Pythons for no
+  benefit, per sp-repo-review PP004) and, for projects with `[tool.pyright]`
+  or `[tool.mypy]` configured, a missing PEP 561 `py.typed` marker in the
+  package directory.
 - Adopted preen onto its own py-canon template: `.copier-answers.yml`,
   `.pre-commit-config.yaml`, `src/preen/py.typed`, weekly CI drift-check
   schedule.
