@@ -1,0 +1,7 @@
+{
+  "name": "gojiplus",
+  "owner": { "name": "Gaurav Sood" },
+  "plugins": [
+    { "name": "preen", "source": "./", "description": "Python package hygiene via the preen CLI" }
+  ]
+}

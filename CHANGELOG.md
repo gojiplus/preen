@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Ship Claude Code plugin + skill: `.claude-plugin/plugin.json`,
+  `.claude-plugin/marketplace.json`, and `skills/preen/SKILL.md`, installable
+  via `/plugin marketplace add gojiplus/preen` then
+  `/plugin install preen@gojiplus`.
 - Raised own test coverage from 54% to 90%; enforce a 70% floor in CI.
 - New `metadata` check: flags a `requires-python` upper bound (`<`, `<=`,
   `==`, `===`, `~=` specifiers cap installs on future Pythons for no

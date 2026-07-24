@@ -22,6 +22,17 @@ higher bar than the standard it applies.
 uv tool install preen   # or: pipx install preen
 ```
 
+## Use with Claude Code
+
+```
+/plugin marketplace add gojiplus/preen
+/plugin install preen@gojiplus
+```
+
+The bundled skill teaches Claude Code to reach for the preen CLI —
+scaffolding, adoption, checks, and releases — instead of reimplementing
+its logic.
+
 ## Commands
 
 | Command | What it does |
