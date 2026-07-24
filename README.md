@@ -12,6 +12,10 @@ shared Sphinx configuration. Preen is how repos enter the fleet and stay in
 it: it scaffolds new packages, retrofits existing ones, pulls template
 updates, checks conformance, and cuts tag-driven releases.
 
+preen itself requires Python >=3.12, stricter than the >=3.11 floor of the
+fleet standard it enforces on other repos — the tool can hold itself to a
+higher bar than the standard it applies.
+
 ## Install
 
 ```bash
