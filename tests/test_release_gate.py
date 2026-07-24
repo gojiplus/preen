@@ -344,3 +344,84 @@ def test_dry_run_with_existing_version_entry_no_rename_mentioned(
     output = console.file.getvalue()
     assert "DRY RUN" in output
     assert "Rename" not in output
+
+
+def test_dry_run_is_fully_non_interactive(tmp_path: Path, monkeypatch) -> None:
+    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+
+    def _no_prompt(*args: object, **kwargs: object) -> bool:
+        raise AssertionError("dry-run must not prompt")
+
+    monkeypatch.setattr(rich.prompt.Confirm, "ask", _no_prompt)
+    monkeypatch.setattr(rich.prompt.Prompt, "ask", _no_prompt)
+    console = _console()
+
+    release_package(
+        tmp_path, version=None, skip_checks=True, dry_run=True, console=console
+    )
+
+    out = console.file.getvalue()
+    assert "DRY RUN" in out
+    assert "0.1.0" in out
+    assert (tmp_path / "CHANGELOG.md").read_text() == UNRELEASED_NONEMPTY
+    assert not _tag_exists(tmp_path, "v0.1.0")
+
+
+def test_release_commit_excludes_prestaged_files(tmp_path: Path, monkeypatch) -> None:
+    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+    (tmp_path / "unrelated.txt").write_text("staged but not part of the release\n")
+    subprocess.run(["git", "add", "unrelated.txt"], cwd=tmp_path, check=True)
+    monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
+
+    real_git = release_mod._git
+
+    def fake_git(project_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        if args and args[0] == "push":
+            return subprocess.CompletedProcess(
+                args=["git", *args], returncode=0, stdout="", stderr=""
+            )
+        return real_git(project_dir, *args)
+
+    monkeypatch.setattr(release_mod, "_git", fake_git)
+
+    release_package(tmp_path, version="1.0.0", skip_checks=True, console=_console())
+
+    committed = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "HEAD"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    assert committed == ["CHANGELOG.md"]
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "A  unrelated.txt" in status
+
+
+def test_accepted_flow_prints_branch_push_reminder(tmp_path: Path, monkeypatch) -> None:
+    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+    monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
+
+    real_git = release_mod._git
+
+    def fake_git(project_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        if args and args[0] == "push":
+            return subprocess.CompletedProcess(
+                args=["git", *args], returncode=0, stdout="", stderr=""
+            )
+        return real_git(project_dir, *args)
+
+    monkeypatch.setattr(release_mod, "_git", fake_git)
+    console = _console()
+
+    release_package(tmp_path, version="1.0.0", skip_checks=True, console=console)
+
+    out = console.file.getvalue()
+    assert "local-only" in out
+    assert "git push" in out

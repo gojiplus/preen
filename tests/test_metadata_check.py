@@ -74,3 +74,9 @@ def test_untyped_project_clean(tmp_path: Path) -> None:
     result = MetadataCheck(tmp_path).run()
     assert result.passed
     assert result.issues == []
+
+
+def test_missing_pyproject_passes_silently(tmp_path):
+    result = MetadataCheck(tmp_path).run()
+    assert result.passed
+    assert result.issues == []

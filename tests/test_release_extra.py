@@ -88,7 +88,7 @@ def test_runs_checks_when_not_skipped(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(rich.prompt.Confirm, "ask", lambda *a, **k: True)
     calls = {}
 
-    def fake_run_checks(project_dir, checks):
+    def fake_run_checks(project_dir, checks, skip=None, only=None):
         calls["ran"] = True
         return {}
 
@@ -113,7 +113,7 @@ def test_critical_check_failure_cancels_release(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setattr(
         release_mod,
         "run_checks",
-        lambda project_dir, checks: {
+        lambda project_dir, checks, skip=None, only=None: {
             "deptree": CheckResult(check="deptree", passed=False, issues=[issue])
         },
     )
@@ -162,26 +162,26 @@ def test_dirty_tree_prompt_accepted_continues(tmp_path: Path, monkeypatch) -> No
     assert result.stdout.strip() == "v1.2.3"
 
 
-def test_git_add_failure_aborts(tmp_path: Path, monkeypatch) -> None:
-    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+def test_config_skip_checks_forwarded_to_release_checks(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _init_repo(tmp_path, HAS_TARGET_VERSION)
+    (tmp_path / "pyproject.toml").write_text('[tool.preen]\nskip_checks = ["links"]\n')
     monkeypatch.setattr(rich.prompt.Confirm, "ask", lambda *a, **k: True)
+    calls = {}
 
-    real_git = release_mod._git
+    def fake_run_checks(project_dir, checks, skip=None, only=None):
+        calls["skip"] = skip
+        return {}
 
-    def fake_git(project_dir, *args):
-        if args and args[0] == "add":
-            return subprocess.CompletedProcess(
-                args=["git", *args], returncode=1, stdout="", stderr="add failed"
-            )
-        return real_git(project_dir, *args)
-
-    monkeypatch.setattr(release_mod, "_git", fake_git)
-    console = _console()
+    monkeypatch.setattr(release_mod, "run_checks", fake_run_checks)
 
     with pytest.raises(typer.Exit):
-        release_package(tmp_path, version="1.0.0", skip_checks=True, console=console)
+        release_package(
+            tmp_path, version="1.2.3", skip_checks=False, console=_console()
+        )
 
-    assert "git add failed" in console.file.getvalue()
+    assert calls["skip"] == ["links"]
 
 
 def test_git_commit_failure_aborts(tmp_path: Path, monkeypatch) -> None:

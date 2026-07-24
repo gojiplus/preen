@@ -19,6 +19,7 @@ from .commands.fix import apply_fixes
 from .commands.new import new_package
 from .commands.release import release_package
 from .commands.update import run_update
+from .config import PreenConfig
 from .interactive import EducationalPrompt
 
 app = typer.Typer(
@@ -86,7 +87,10 @@ def check(
         help="Path to the project directory. Defaults to the current directory.",
     ),
     strict: bool = typer.Option(
-        False, "--strict", help="Exit with code 1 if any issues found (for CI)."
+        False,
+        "--strict",
+        help="Exit with code 1 on critical/important issues or check errors "
+        "(for CI); info-level issues never gate.",
     ),
     explain: bool = typer.Option(
         False, "--explain", help="Show explanations of why each issue matters."
@@ -104,7 +108,10 @@ def check(
         "\n[bold cyan]preen check[/bold cyan] — package health check (detection only)\n"
     )
 
-    results = run_checks(project_dir, ALL_CHECKS, skip=skip, only=only)
+    # [tool.preen] skip_checks applies unless an explicit --only overrides it
+    config_skips = [] if only else PreenConfig.from_pyproject(project_dir).skip_checks
+    merged_skip = [*(skip or []), *config_skips]
+    results = run_checks(project_dir, ALL_CHECKS, skip=merged_skip or None, only=only)
     educator = EducationalPrompt(console)
 
     table = Table(show_header=True, header_style="bold cyan")

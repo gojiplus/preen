@@ -43,6 +43,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `[tool.preen] skip_checks` is now honored by `preen check` and the
+  `preen release` pre-checks; an explicit `--only` overrides it.
+- `preen release`: `--dry-run` is fully non-interactive, the changelog
+  rename commit is pathspec-limited to `CHANGELOG.md` (pre-staged files
+  stay staged), and a successful tag push reminds you to push the branch
+  so the release commit is reachable.
 - `preen adopt` merges repo-specific ruff ignores into the canon list
   instead of overwriting them.
 - `preen adopt` derives ruff's `target-version` from the target repo's

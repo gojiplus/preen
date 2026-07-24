@@ -28,8 +28,8 @@ the CLI; do not reimplement its checks or fixes by hand.
   already-adopted repo.
 - `preen check [PATH] [--strict] [--explain] [--skip CHECK] [--only CHECK]`
   — run conformance checks; detection only, never modifies files.
-  `--strict` exits 1 on any issue (use in CI). `--explain` prints why each
-  issue matters.
+  `--strict` exits 1 on critical/important issues (use in CI); info-level
+  issues never gate. `--explain` prints why each issue matters.
 - `preen fix [CHECK_NAME] [--path PATH] [--auto] [--interactive/--batch]`
   — apply fixes for issues `check` found. Omit `CHECK_NAME` to fix
   everything fixable; `--auto` skips the per-fix prompts.

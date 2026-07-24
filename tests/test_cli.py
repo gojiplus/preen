@@ -248,3 +248,40 @@ def test_release_command_forwards_args(monkeypatch, tmp_path) -> None:
         "skip_checks": True,
         "dry_run": True,
     }
+
+
+def _capturing_run_checks(captured: dict):
+    def fake_run_checks(project_dir, checks, skip=None, only=None):
+        captured["skip"] = skip
+        captured["only"] = only
+        return {"ruff": _result("ruff", passed=True)}
+
+    return fake_run_checks
+
+
+def test_check_applies_config_skip_checks(tmp_path, monkeypatch) -> None:
+    (tmp_path / "pyproject.toml").write_text('[tool.preen]\nskip_checks = ["links"]\n')
+    captured: dict = {}
+    monkeypatch.setattr(cli_mod, "run_checks", _capturing_run_checks(captured))
+    result = runner.invoke(app, ["check", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "links" in captured["skip"]
+
+
+def test_check_only_overrides_config_skip_checks(tmp_path, monkeypatch) -> None:
+    (tmp_path / "pyproject.toml").write_text('[tool.preen]\nskip_checks = ["links"]\n')
+    captured: dict = {}
+    monkeypatch.setattr(cli_mod, "run_checks", _capturing_run_checks(captured))
+    result = runner.invoke(app, ["check", str(tmp_path), "--only", "links"])
+    assert result.exit_code == 0
+    assert captured["skip"] is None
+    assert captured["only"] == ["links"]
+
+
+def test_check_cli_skip_merges_with_config_skip(tmp_path, monkeypatch) -> None:
+    (tmp_path / "pyproject.toml").write_text('[tool.preen]\nskip_checks = ["links"]\n')
+    captured: dict = {}
+    monkeypatch.setattr(cli_mod, "run_checks", _capturing_run_checks(captured))
+    result = runner.invoke(app, ["check", str(tmp_path), "--skip", "ruff"])
+    assert result.exit_code == 0
+    assert set(captured["skip"]) == {"ruff", "links"}

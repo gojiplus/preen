@@ -36,6 +36,11 @@ class MetadataCheck(Check):
         Returns:
             CheckResult containing any issues found.
         """
+        if not (self.project_dir / "pyproject.toml").exists():
+            # No pyproject at all is another check's problem; stay silent
+            # like the sibling checks do.
+            return CheckResult(check=self.name, passed=True, issues=[])
+
         data = self._load_pyproject()
         issues = self._check_requires_python(data) + self._check_py_typed(data)
 

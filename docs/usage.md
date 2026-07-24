@@ -31,9 +31,12 @@ temp directory, and copies in only the managed files (workflow shims,
 `docs/conf.py`, `.copier-answers.yml`, `py.typed`, and — only if absent —
 pre-commit config, dependabot config, `LICENSE`, `CITATION.cff`). Rewrites
 `[tool.ruff]`, `[tool.pyright]`, `[tool.pydoclint]` in `pyproject.toml`
-to the standard and deletes legacy `[tool.black]`, `[tool.isort]`,
-`[tool.flake8]`, `[tool.mypy]` sections. Ends with an adoption report of
-what was written, skipped, and left for you.
+to the standard — preserving repo-specific ruff ignore codes by merging
+them into the canon list, and deriving `target-version` from the repo's
+`requires-python` floor (falling back to py311) — and deletes legacy
+`[tool.black]`, `[tool.isort]`, `[tool.flake8]`, `[tool.mypy]` sections.
+Ends with an adoption report of what was written, skipped, and left for
+you.
 
 Add `--release-migration` to convert the build backend to hatchling +
 uv-dynamic-versioning (the git tag becomes the version).
@@ -51,10 +54,14 @@ template changes with conflict markers inline, and prints the changed files.
 
 ```bash
 preen check            # human-readable report
-preen check --strict   # exit 1 on any issue (CI)
+preen check --strict   # exit 1 on critical/important issues (CI)
 preen check --only ruff --only template
 preen check --explain  # why each issue matters
 ```
+
+`--strict` gates on critical and important issues (and check errors);
+info-level issues never fail CI. Checks listed in `[tool.preen]`
+`skip_checks` are skipped unless named in an explicit `--only`.
 
 ## Fixing: `preen fix`
 
@@ -68,13 +75,20 @@ preen fix ruff --auto  # auto-apply ruff fixes
 ```bash
 preen release            # prompts for the version
 preen release 1.2.0      # tag v1.2.0
-preen release --dry-run  # show the plan
+preen release --dry-run  # show the plan (fully non-interactive)
 ```
 
 Runs the checks, walks through any issues (critical issues block; important
-ones can be overridden with informed consent), then creates and pushes the
-`vX.Y.Z` tag. The tag push triggers the repo's release workflow: build,
-attestations, PyPI trusted publishing, GitHub Release.
+ones can be overridden with informed consent), then gates the tag on three
+things: the version must be PEP 440-valid, the `vX.Y.Z` tag must not
+already exist, and `CHANGELOG.md` must contain an entry for the version.
+If there's no entry but a non-empty `[Unreleased]` section, preen offers to
+rename it to `[X.Y.Z] - <date>` and commits that rename (only
+`CHANGELOG.md`) before tagging, so the tagged commit contains the entry.
+Then it creates and pushes the tag; the push triggers the repo's release
+workflow: build, attestations, PyPI trusted publishing, GitHub Release.
+The rename commit itself stays local — run `git push` afterwards so it is
+reachable from your branch.
 
 ## Configuration
 

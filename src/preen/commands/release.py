@@ -22,6 +22,7 @@ from ..checks.changelog import (
     rename_unreleased_heading,
     unreleased_section_text,
 )
+from ..config import PreenConfig
 from ..interactive import InteractiveReleaseWorkflow
 
 
@@ -104,28 +105,35 @@ def release_package(
 
     if not skip_checks:
         console.print("Running pre-release checks...\n")
-        results = run_checks(project_dir, ALL_CHECKS)
+        config = PreenConfig.from_pyproject(project_dir)
+        results = run_checks(project_dir, ALL_CHECKS, skip=config.skip_checks or None)
     else:
         console.print("[yellow]Skipping checks as requested[/yellow]\n")
         results = {}
 
-    if not workflow.run_release_checks(results, "GitHub (tag push)"):
-        console.print("\n[red]Release cancelled[/red]")
-        raise typer.Exit(1)
-
-    dirty = _git(project_dir, "status", "--porcelain").stdout.strip()
-    if dirty:
-        console.print("[yellow]Working tree is not clean:[/yellow]")
-        for line in dirty.splitlines()[:10]:
-            console.print(f"  {line}")
-        if not Confirm.ask("Tag anyway?", default=False):
+    # Dry runs are fully non-interactive: no confirmation gates, no prompts.
+    if not dry_run:
+        if not workflow.run_release_checks(results, "GitHub (tag push)"):
+            console.print("\n[red]Release cancelled[/red]")
             raise typer.Exit(1)
+
+        dirty = _git(project_dir, "status", "--porcelain").stdout.strip()
+        if dirty:
+            console.print("[yellow]Working tree is not clean:[/yellow]")
+            for line in dirty.splitlines()[:10]:
+                console.print(f"  {line}")
+            if not Confirm.ask("Tag anyway?", default=False):
+                raise typer.Exit(1)
 
     latest = _latest_tag(project_dir)
     if latest:
         console.print(f"Latest release tag: [bold]{latest}[/bold]")
     if version is None:
-        version = Prompt.ask("Version to release", default=_suggest_next(latest))
+        if dry_run:
+            version = _suggest_next(latest)
+            console.print(f"No version given; assuming [bold]{version}[/bold]")
+        else:
+            version = Prompt.ask("Version to release", default=_suggest_next(latest))
     version = version.lstrip("v")
     try:
         Version(version)
@@ -191,11 +199,11 @@ def release_package(
             rename_unreleased_heading(changelog_text, version, today),
             encoding="utf-8",
         )
-        result = _git(project_dir, "add", "CHANGELOG.md")
-        if result.returncode != 0:
-            console.print(f"[red]git add failed:[/red] {result.stderr.strip()}")
-            raise typer.Exit(1)
-        result = _git(project_dir, "commit", "-m", f"Release {version}")
+        # Pathspec-limited commit: anything the user had staged stays staged
+        # instead of being swept into the release commit.
+        result = _git(
+            project_dir, "commit", "-m", f"Release {version}", "--", "CHANGELOG.md"
+        )
         if result.returncode != 0:
             console.print(f"[red]git commit failed:[/red] {result.stderr.strip()}")
             raise typer.Exit(1)
@@ -220,3 +228,8 @@ def release_package(
         f"\n[bold green]Pushed {tag} — the release workflow takes it from "
         "here.[/bold green]"
     )
+    if rename_unreleased:
+        console.print(
+            f"The 'Release {version}' commit is local-only; run [bold]git push"
+            "[/bold] so the changelog commit is reachable from your branch."
+        )
