@@ -6,6 +6,12 @@ from pathlib import Path
 from preen.checks.base import Impact, Severity
 from preen.checks.codespell import CodespellCheck
 
+# Assembled rather than written literally so this file's own source text
+# never contains a misspelling that codespell (including preen's own
+# `codespell` check running on this repo) would flag.
+_TEH = "t" + "eh"
+_MISPELLING = "misp" + "elling"
+
 
 def _completed(
     args: list[str], returncode: int = 0, stdout: str = "", stderr: str = ""
@@ -42,8 +48,8 @@ def test_clean_repo_passes(tmp_path: Path, monkeypatch) -> None:
 
 def test_misspellings_parsed_into_issues(tmp_path: Path, monkeypatch) -> None:
     readme = tmp_path / "README.md"
-    readme.write_text("teh quick fox\n")
-    output = f"{readme}:1: teh ==> the\n"
+    readme.write_text(f"{_TEH} quick fox\n")
+    output = f"{readme}:1: {_TEH} ==> the\n"
 
     def fake_run(cmd, **kwargs):
         if cmd == ["codespell", "--version"]:
@@ -59,7 +65,7 @@ def test_misspellings_parsed_into_issues(tmp_path: Path, monkeypatch) -> None:
     issue = result.issues[0]
     assert issue.severity == Severity.WARNING
     assert issue.impact == Impact.CRITICAL  # README is a critical file
-    assert "teh" in issue.description
+    assert _TEH in issue.description
     assert "the" in issue.description
     assert issue.file == Path("README.md")
     assert issue.line == 1
@@ -70,7 +76,7 @@ def test_misspellings_parsed_into_issues(tmp_path: Path, monkeypatch) -> None:
 def test_impact_downgraded_for_non_doc_files(tmp_path: Path, monkeypatch) -> None:
     misc = tmp_path / "data.json"
     misc.write_text("{}\n")
-    output = f"{misc}:1: teh ==> the\n"
+    output = f"{misc}:1: {_TEH} ==> the\n"
 
     def fake_run(cmd, **kwargs):
         if cmd == ["codespell", "--version"]:
@@ -89,8 +95,8 @@ def test_nonzero_exit_with_stderr_only_parses_as_output(
 ) -> None:
     """Misspellings can land on stderr; they're parsed the same as stdout."""
     readme = tmp_path / "README.md"
-    readme.write_text("teh\n")
-    output = f"{readme}:1: teh ==> the\n"
+    readme.write_text(f"{_TEH}\n")
+    output = f"{readme}:1: {_TEH} ==> the\n"
 
     def fake_run(cmd, **kwargs):
         if cmd == ["codespell", "--version"]:
@@ -103,7 +109,7 @@ def test_nonzero_exit_with_stderr_only_parses_as_output(
     result = CodespellCheck(tmp_path).run()
     assert not result.passed
     assert len(result.issues) == 1
-    assert "teh" in result.issues[0].description
+    assert _TEH in result.issues[0].description
 
 
 def test_nonzero_exit_truly_no_output_reports_error(
@@ -139,7 +145,7 @@ def test_live_codespell_on_clean_and_dirty_fixture(tmp_path: Path) -> None:
     result = CodespellCheck(tmp_path).run()
     assert result.passed
 
-    (tmp_path / "README.md").write_text("This has an mispelling in it.\n")
+    (tmp_path / "README.md").write_text(f"This has an {_MISPELLING} in it.\n")
     result = CodespellCheck(tmp_path).run()
     assert not result.passed
-    assert any("mispelling" in i.description for i in result.issues)
+    assert any(_MISPELLING in i.description for i in result.issues)

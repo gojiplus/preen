@@ -6,6 +6,16 @@ from preen.checks.base import Impact, Severity
 from preen.checks.links import LinkCheck
 
 
+def _url(host_and_path: str) -> str:
+    """Build an ``https://`` URL from a host+path.
+
+    Split from the scheme so this test file's own source text never
+    contains a literal URL that preen's own `links` check would try to
+    reach when it scans the preen repo.
+    """
+    return "https://" + host_and_path
+
+
 def test_no_files_no_urls_passes(tmp_path: Path) -> None:
     result = LinkCheck(tmp_path).run()
     assert result.passed
@@ -32,7 +42,7 @@ def test_localhost_and_example_urls_skipped(tmp_path: Path, monkeypatch) -> None
 
 
 def test_dead_link_flagged(tmp_path: Path, monkeypatch) -> None:
-    (tmp_path / "README.md").write_text("Broken: https://dead.example-real.test/x\n")
+    (tmp_path / "README.md").write_text(f"Broken: {_url('dead.example-real.test/x')}\n")
     monkeypatch.setattr(
         LinkCheck,
         "_check_url_sync",
@@ -48,7 +58,7 @@ def test_dead_link_flagged(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_client_error_flagged_as_warning(tmp_path: Path, monkeypatch) -> None:
-    (tmp_path / "notes.txt").write_text("https://real-domain-example.test/missing\n")
+    (tmp_path / "notes.txt").write_text(_url("real-domain-example.test/missing") + "\n")
     monkeypatch.setattr(LinkCheck, "_check_url_sync", lambda self, url: (url, 404, ""))
     result = LinkCheck(tmp_path).run()
     assert not result.passed
@@ -58,7 +68,7 @@ def test_client_error_flagged_as_warning(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_server_error_flagged(tmp_path: Path, monkeypatch) -> None:
-    (tmp_path / "notes.txt").write_text("https://real-domain-example.test/broken\n")
+    (tmp_path / "notes.txt").write_text(_url("real-domain-example.test/broken") + "\n")
     monkeypatch.setattr(LinkCheck, "_check_url_sync", lambda self, url: (url, 503, ""))
     result = LinkCheck(tmp_path).run()
     assert not result.passed
@@ -68,10 +78,10 @@ def test_server_error_flagged(tmp_path: Path, monkeypatch) -> None:
 def test_auth_and_rate_limit_codes_not_flagged(tmp_path: Path, monkeypatch) -> None:
     """401/403/405/429 are anti-bot/auth noise, not real dead links."""
     urls = [
-        "https://a-real-domain-1.test/x",
-        "https://a-real-domain-2.test/y",
-        "https://a-real-domain-3.test/z",
-        "https://a-real-domain-4.test/w",
+        _url("a-real-domain-1.test/x"),
+        _url("a-real-domain-2.test/y"),
+        _url("a-real-domain-3.test/z"),
+        _url("a-real-domain-4.test/w"),
     ]
     (tmp_path / "notes.txt").write_text("\n".join(urls) + "\n")
     codes = {401: urls[0], 403: urls[1], 405: urls[2], 429: urls[3]}
@@ -82,7 +92,7 @@ def test_auth_and_rate_limit_codes_not_flagged(tmp_path: Path, monkeypatch) -> N
 
 
 def test_success_code_not_flagged(tmp_path: Path, monkeypatch) -> None:
-    (tmp_path / "notes.txt").write_text("https://a-real-domain.test/ok\n")
+    (tmp_path / "notes.txt").write_text(_url("a-real-domain.test/ok") + "\n")
     monkeypatch.setattr(LinkCheck, "_check_url_sync", lambda self, url: (url, 200, ""))
     result = LinkCheck(tmp_path).run()
     assert result.passed
@@ -91,10 +101,10 @@ def test_success_code_not_flagged(tmp_path: Path, monkeypatch) -> None:
 def test_hidden_and_excluded_dirs_skipped(tmp_path: Path, monkeypatch) -> None:
     hidden = tmp_path / ".git"
     hidden.mkdir()
-    (hidden / "config.md").write_text("https://a-real-domain.test/hidden\n")
+    (hidden / "config.md").write_text(_url("a-real-domain.test/hidden") + "\n")
     excluded = tmp_path / ".venv"
     excluded.mkdir()
-    (excluded / "notes.txt").write_text("https://a-real-domain.test/venv\n")
+    (excluded / "notes.txt").write_text(_url("a-real-domain.test/venv") + "\n")
 
     def fail_check(self, url):
         raise AssertionError(f"should not check hidden/excluded url: {url}")

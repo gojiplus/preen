@@ -76,6 +76,9 @@ def _split_requirement_blocks(text: str) -> list[list[str]]:
 def _filter_pypi_requirements(text: str) -> tuple[str, list[str]]:
     """Drop non-PyPI-auditable requirement lines (VCS/local/direct-URL refs).
 
+    Args:
+        text: Exported requirements-txt content (e.g. from `uv export`).
+
     Returns:
         A tuple of the filtered requirements-txt content and the names of
         the packages dropped, in encounter order.
@@ -256,6 +259,9 @@ class AuditCheck(Check):
         Args:
             dependencies: The `"dependencies"` list from a pip-audit JSON
                 report. Non-dict entries are skipped rather than raising.
+
+        Returns:
+            One Issue per vulnerability found across all dependencies.
         """
         issues = []
         for dependency in dependencies:
