@@ -161,6 +161,8 @@ def release_package(
                 "CHANGELOG.md"
             )
             step += 1
+            console.print(f'  {step}. git commit CHANGELOG.md -m "Release {version}"')
+            step += 1
         console.print(f"  {step}. git tag {tag}")
         step += 1
         console.print(f"  {step}. git push origin {tag}")
@@ -168,27 +170,39 @@ def release_package(
         console.print(f"  {step}. The tag push triggers the repo's release workflow")
         return
 
-    if rename_unreleased:
-        if Confirm.ask(
-            f"CHANGELOG.md has no entry for {version}. Rename [Unreleased] to "
-            f"[{version}] - {today}?",
-            default=True,
-        ):
-            changelog_path.write_text(
-                rename_unreleased_heading(changelog_text, version, today),
-                encoding="utf-8",
-            )
-            console.print(
-                f"Renamed [Unreleased] to [{version}] - {today} in "
-                "CHANGELOG.md — commit this change as part of the release."
-            )
-        else:
-            console.print("[red]Release cancelled[/red]")
-            raise typer.Exit(1)
+    # Ask about the rename now, but defer writing CHANGELOG.md until the
+    # final tag confirmation is also accepted -- a decline at either prompt
+    # must leave the working tree untouched, and the tagged commit must
+    # actually contain the renamed entry (not just an uncommitted edit).
+    if rename_unreleased and not Confirm.ask(
+        f"CHANGELOG.md has no entry for {version}. Rename [Unreleased] to "
+        f"[{version}] - {today}?",
+        default=True,
+    ):
+        console.print("[red]Release cancelled[/red]")
+        raise typer.Exit(1)
 
     if not Confirm.ask(f"\nTag and push [bold]{tag}[/bold]?", default=False):
         console.print("[red]Release cancelled[/red]")
         raise typer.Exit(1)
+
+    if rename_unreleased:
+        changelog_path.write_text(
+            rename_unreleased_heading(changelog_text, version, today),
+            encoding="utf-8",
+        )
+        result = _git(project_dir, "add", "CHANGELOG.md")
+        if result.returncode != 0:
+            console.print(f"[red]git add failed:[/red] {result.stderr.strip()}")
+            raise typer.Exit(1)
+        result = _git(project_dir, "commit", "-m", f"Release {version}")
+        if result.returncode != 0:
+            console.print(f"[red]git commit failed:[/red] {result.stderr.strip()}")
+            raise typer.Exit(1)
+        console.print(
+            f"Renamed [Unreleased] to [{version}] - {today} in CHANGELOG.md "
+            "and committed."
+        )
 
     result = _git(project_dir, "tag", tag)
     if result.returncode != 0:

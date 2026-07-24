@@ -10,6 +10,7 @@ import rich.prompt
 import typer
 from rich.console import Console
 
+import preen.commands.release as release_mod
 from preen.checks.changelog import has_version_entry, unreleased_section_text
 from preen.commands.release import release_package
 
@@ -217,6 +218,87 @@ def test_unreleased_rename_declined_aborts(tmp_path: Path, monkeypatch) -> None:
     original = (tmp_path / "CHANGELOG.md").read_text()
     assert unreleased_section_text(original) is not None
     assert not _tag_exists(tmp_path, "v1.0.0")
+
+
+def test_accept_rename_then_decline_final_confirm_leaves_tree_clean(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+    before = (tmp_path / "CHANGELOG.md").read_text()
+    monkeypatch.setattr(
+        rich.prompt.Confirm,
+        "ask",
+        _confirm_by_keyword({"Rename": True, "Tag and push": False}, default=True),
+    )
+    console = _console()
+
+    with pytest.raises(typer.Exit):
+        release_package(
+            tmp_path,
+            version="1.0.0",
+            skip_checks=True,
+            console=console,
+        )
+
+    after = (tmp_path / "CHANGELOG.md").read_text()
+    assert before == after
+    assert not _tag_exists(tmp_path, "v1.0.0")
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert status.stdout.strip() == ""
+
+
+def test_full_accept_commits_renamed_changelog_before_tagging(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+    monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
+
+    real_git = release_mod._git
+
+    def fake_git(project_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        # Stub only the push step (no remote configured in the fixture);
+        # everything else runs for real so we can inspect the resulting
+        # commit/tag state.
+        if args and args[0] == "push":
+            return subprocess.CompletedProcess(
+                args=["git", *args], returncode=0, stdout="", stderr=""
+            )
+        return real_git(project_dir, *args)
+
+    monkeypatch.setattr(release_mod, "_git", fake_git)
+    console = _console()
+
+    release_package(
+        tmp_path,
+        version="1.0.0",
+        skip_checks=True,
+        console=console,
+    )
+
+    assert _tag_exists(tmp_path, "v1.0.0")
+    tagged_changelog = subprocess.run(
+        ["git", "show", "v1.0.0:CHANGELOG.md"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert has_version_entry(tagged_changelog, "1.0.0")
+    assert unreleased_section_text(tagged_changelog) is None
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert status.stdout.strip() == ""
 
 
 def test_dry_run_does_not_modify_changelog_or_create_tag(
