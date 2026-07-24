@@ -36,6 +36,33 @@ No hardcoded version strings: the git tag is the version, so literal
 `__version__ = "..."` assignments (and copies of a static `project.version`)
 are flagged.
 
+### `changelog`
+
+`CHANGELOG.md` follows Keep a Changelog structure. Important if the file is
+missing, or has neither a `## [Unreleased]` heading nor a version heading.
+Info if version headings exist but there's no `[Unreleased]` section.
+`preen release` refuses to tag without a changelog entry for the release.
+
+### `license`
+
+`[project.license]` follows PEP 639. Important: no `license` at all; the
+deprecated `{ text = ... }` / `{ file = ... }` table form; a string value
+that isn't a structurally valid SPDX expression; redundant `License ::`
+trove classifiers alongside `license`. Info: an SPDX identifier outside
+preen's allowlist (advisory — verify at spdx.org), or a missing
+`license-files` when a `LICENSE`/`LICENCE`/`COPYING` file exists at the repo
+root. `preen fix license` migrates unambiguous table-form values to an SPDX
+string, drops the redundant classifiers, and adds `license-files`.
+
+### `metadata`
+
+Two independent pyproject.toml checks. `requires-python`: important if it
+has an upper bound (`<`, `<=`, `==`, `===`, `~=`), which caps installs on
+future Pythons for no benefit (sp-repo-review PP004); info if it's absent
+entirely. `py.typed`: important if `[tool.pyright]` or `[tool.mypy]` is
+configured but the package directory has no PEP 561 `py.typed` marker. No
+auto-fix for either.
+
 ## Code quality
 
 ### `ruff`
@@ -67,6 +94,25 @@ Dependency hygiene via deptry (unused/missing/transitive dependencies).
 ### `deptree`
 
 Circular imports within the package.
+
+### `depgroups`
+
+PEP 735 `[dependency-groups]` usage. Important: no `[dependency-groups]`
+section; one with no `dev` group; a dev-type extra (`test`, `docs`, `lint`,
+etc.) left in `[project.optional-dependencies]` instead of
+`[dependency-groups]`. Info: a name defined in both sections. No auto-fix —
+move entries manually or with `uv add --group`.
+
+### `audit`
+
+Known vulnerabilities in locked dependencies, via `pip-audit` over a `uv
+export --all-groups` of the project. Important: a locked package has a
+known vulnerability (reports the CVE/GHSA ids and a fix version when
+pip-audit has one). Info: a dependency pinned via a direct git/file/URL
+reference, which `pip-audit --disable-pip` can't hash-verify and so is
+skipped rather than scanned. Skips entirely (info, non-blocking) if there's
+no `uv.lock`, `uv export` fails, or `pip-audit` isn't installed. No
+auto-fix — bumping a vulnerable dependency needs manual review.
 
 ## Documentation
 

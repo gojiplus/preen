@@ -47,3 +47,5 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - License metadata switched to PEP 639: `license = "MIT"` (SPDX
   expression) plus `license-files`, dropping the redundant
   `License :: OSI Approved :: MIT License` classifier.
+- Documented the new checks (`license`, `depgroups`, `audit`, `changelog`,
+  `metadata`) and release gates in README.md and docs/checks.md.

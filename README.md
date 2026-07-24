@@ -49,7 +49,9 @@ renders the template into a temp directory, and copies in **only the managed
 files**: the CI/docs/release workflow shims, `.pre-commit-config.yaml` and
 dependabot config (if absent), `docs/conf.py` (old one backed up),
 `.copier-answers.yml`, `py.typed`, plus `LICENSE` and `CITATION.cff` if
-missing. It rewrites the `[tool.ruff]`, `[tool.pyright]`, and
+missing. It rewrites the `[tool.ruff]` (preserving any repo-specific lint
+ignores already present, and setting `target-version` from the repo's own
+`requires-python` floor, falling back to `py311`), `[tool.pyright]`, and
 `[tool.pydoclint]` sections to the standard with tomlkit (comments elsewhere
 survive) and deletes legacy `[tool.black]`, `[tool.isort]`, `[tool.flake8]`,
 and `[tool.mypy]` sections.
@@ -60,22 +62,33 @@ uv-dynamic-versioning, so the git tag becomes the version.
 ### Checks
 
 `preen check` runs: `template` (copier adoption + drift against the latest
-py-canon tag), `ruff`, `tests`, `citation`, `deps` (deptry), `deptree`
-(circular imports), `ci-matrix` (canon shim, or a matrix covering the
+py-canon tag), `ruff`, `tests`, `citation`, `changelog` (Keep a Changelog
+structure), `deps` (deptry), `deptree` (circular imports), `depgroups` (PEP
+735 dependency-groups usage), `audit` (pip-audit over the locked
+dependencies), `ci-matrix` (canon shim, or a matrix covering the
 requires-python floor), `structure`, `version` (hardcoded version strings),
-`links`, `pydoclint`, `pyright`, and `codespell`.
+`license` (PEP 639 license metadata), `links`, `metadata` (requires-python
+upper bound, PEP 561 `py.typed`), `pydoclint`, `pyright`, and `codespell`.
 
 Issues carry an impact level: **critical** blocks release, **important** can
 be overridden with informed consent, **info** is advisory. `preen release`
-walks that ladder interactively before tagging.
+walks that ladder interactively before tagging. Most checks are
+detection-only; `preen fix license` migrates the deprecated
+`{ text = ... }` license table form to an SPDX string where the mapping is
+unambiguous, drops redundant `License ::` classifiers, and adds a missing
+`license-files` entry.
 
 ### Releasing
 
 The fleet standard derives versions from git tags (uv-dynamic-versioning) —
-no bump commits. `preen release` runs the checks, asks for confirmation,
-then tags `vX.Y.Z` and pushes the tag; the repo's release workflow does the
-rest (build, PEP 740 attestations, PyPI trusted publishing, GitHub Release).
-Use `--dry-run` to see the plan without acting.
+no bump commits. `preen release` runs the checks, then refuses to proceed
+unless the version is PEP 440-valid, the tag doesn't already exist, and
+CHANGELOG.md has an entry for it (offering to rename `[Unreleased]` to the
+new version and commit that rename if the Unreleased section has content).
+It then asks for confirmation, tags `vX.Y.Z`, and pushes the tag; the repo's
+release workflow does the rest (build, PEP 740 attestations, PyPI trusted
+publishing, GitHub Release). Use `--dry-run` to see the plan without
+acting.
 
 ## Configuration
 
@@ -87,6 +100,14 @@ src_layout = true       # expect src/ layout (default: true)
 tests_at_root = true    # expect tests/ at the repo root (default: true)
 skip_checks = ["links"] # checks to skip by default
 ```
+
+## Notes
+
+- `pydoclint` covers docstring-signature consistency for now; ruff ships
+  equivalent `DOC` rules (`[tool.ruff.lint] external = ["DOC"]` reserves
+  the codes), but they're still preview-only, so `pydoclint` stays until
+  ruff stabilizes them.
+- `codespell` stays: ruff has no spelling-check rules.
 
 ## License
 
