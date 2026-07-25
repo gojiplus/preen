@@ -76,10 +76,12 @@ OVERWRITE_ALWAYS = (
     ".github/workflows/ci.yml",
     ".github/workflows/docs.yml",
     ".github/workflows/release.yml",
+    # Canon-managed like the other workflows: leaving it copy-if-absent meant a
+    # fix to the auto-merge logic could never reach a repo that already had it.
+    ".github/workflows/dependabot-auto-merge.yml",
     ".copier-answers.yml",
 )
 COPY_IF_ABSENT = (
-    ".github/workflows/dependabot-auto-merge.yml",
     ".github/zizmor.yml",
     ".github/dependabot.yml",
     ".pre-commit-config.yaml",

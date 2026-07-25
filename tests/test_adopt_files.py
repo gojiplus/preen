@@ -43,6 +43,8 @@ def test_workflows_always_overwritten(rendered: Path, repo: Path) -> None:
     ci = repo / ".github" / "workflows" / "ci.yml"
     ci.parent.mkdir(parents=True)
     ci.write_text("old ci\n")
+    automerge = repo / ".github" / "workflows" / "dependabot-auto-merge.yml"
+    automerge.write_text("old automerge\n")
 
     report = AdoptionReport()
     copy_managed_files(rendered, repo, "mypkg", report)
@@ -51,6 +53,9 @@ def test_workflows_always_overwritten(rendered: Path, repo: Path) -> None:
     assert (repo / ".github" / "workflows" / "release.yml").read_text() == (
         "rendered release\n"
     )
+    # A stale auto-merge workflow must be replaced, not skipped: leaving it
+    # copy-if-absent stranded a broken version in every already-adopted repo.
+    assert automerge.read_text() == "rendered automerge\n"
     assert (repo / ".copier-answers.yml").exists()
     assert ".github/workflows/ci.yml" in report.written
 
