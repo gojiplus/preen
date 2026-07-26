@@ -48,7 +48,7 @@ def test_no_uv_lock_uses_python3_module(tmp_path: Path, monkeypatch) -> None:
 
 def test_pytest_not_installed(tmp_path: Path, monkeypatch) -> None:
     def fake_run(cmd, **kwargs):
-        raise FileNotFoundError()
+        raise FileNotFoundError
 
     monkeypatch.setattr("preen.checks.tests.subprocess.run", fake_run)
     result = PytestCheck(tmp_path).run()

@@ -91,9 +91,7 @@ class RuffCheck(Check):
                     override_question="Continue with release despite linting issues?",
                     proposed_fix=Fix(
                         description="Apply ruff automatic fixes",
-                        diff=fix_result.stdout
-                        if fix_result.stdout
-                        else "No automatic fixes available",
+                        diff=fix_result.stdout or "No automatic fixes available",
                         apply=apply_lint_fix,
                     )
                     if fix_result.stdout

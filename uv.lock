@@ -719,7 +719,6 @@ dev = [
     { name = "pre-commit", specifier = ">=4" },
     { name = "pydoclint", specifier = ">=0.5" },
     { name = "pyright", specifier = ">=1.1.390" },
-    { name = "pytest", specifier = ">=8" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "ruff", specifier = ">=0.14" },

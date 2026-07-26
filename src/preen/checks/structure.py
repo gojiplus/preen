@@ -1,11 +1,23 @@
 """Project structure validation check."""
 
 import fnmatch
+import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 from ..config import PreenConfig
 from .base import Check, CheckResult, Fix, Impact, Issue, Severity
+
+
+def _move(src: Path, dest: Path) -> None:
+    """Move a directory, discarding shutil.move's return value.
+
+    Args:
+        src: Directory to move.
+        dest: Destination path.
+    """
+    shutil.move(src, dest)
 
 
 class StructureCheck(Check):
@@ -49,74 +61,53 @@ class StructureCheck(Check):
 
     def _check_tests_location(self) -> list[Issue]:
         """Check that tests/ is at project root, not inside package."""
-        issues = []
-
-        # Check if tests/ exists at root
-        root_tests = self.project_dir / "tests"
-        if not root_tests.exists():
-            # Look for tests in src/ directory
-            src_dir = self.project_dir / "src"
-            if src_dir.exists():
-                for package_dir in src_dir.iterdir():
-                    if package_dir.is_dir() and (package_dir / "tests").exists():
-                        issues.append(
-                            Issue(
-                                check=self.name,
-                                severity=Severity.WARNING,
-                                description=(
-                                    "tests/ directory found inside package "
-                                    f"at {package_dir / 'tests'}"
-                                ),
-                                file=package_dir / "tests",
-                                proposed_fix=Fix(
-                                    description="Move tests/ to project root",
-                                    diff=(
-                                        f"Move {package_dir / 'tests'} -> {root_tests}"
-                                    ),
-                                    apply=lambda p=package_dir: (
-                                        self._move_tests_to_root(p / "tests")
-                                    ),
-                                ),
-                            )
-                        )
-
-        return issues
+        return self._check_dir_at_root("tests")
 
     def _check_examples_location(self) -> list[Issue]:
         """Check that examples/ is at project root, not inside package."""
-        issues = []
+        return self._check_dir_at_root("examples")
 
-        # Check if examples/ exists at root
-        root_examples = self.project_dir / "examples"
-        if not root_examples.exists():
-            # Look for examples in src/ directory
-            src_dir = self.project_dir / "src"
-            if src_dir.exists():
-                for package_dir in src_dir.iterdir():
-                    if package_dir.is_dir() and (package_dir / "examples").exists():
-                        issues.append(
-                            Issue(
-                                check=self.name,
-                                severity=Severity.WARNING,
-                                description=(
-                                    "examples/ directory found inside package "
-                                    f"at {package_dir / 'examples'}"
-                                ),
-                                file=package_dir / "examples",
-                                proposed_fix=Fix(
-                                    description="Move examples/ to project root",
-                                    diff=(
-                                        f"Move {package_dir / 'examples'} -> "
-                                        f"{root_examples}"
-                                    ),
-                                    apply=lambda p=package_dir: (
-                                        self._move_examples_to_root(p / "examples")
-                                    ),
-                                ),
-                            )
-                        )
+    def _check_dir_at_root(self, name: str) -> list[Issue]:
+        """Flag a `name`/ directory nested under src/ instead of at the root.
 
-        return issues
+        Args:
+            name: Directory name, e.g. ``tests``.
+
+        Returns:
+            One issue per package that nests the directory.
+        """
+        root = self.project_dir / name
+        src_dir = self.project_dir / "src"
+        if root.exists() or not src_dir.exists():
+            return []
+        return [
+            self._nested_dir_issue(package_dir / name, root, name)
+            for package_dir in src_dir.iterdir()
+            if package_dir.is_dir() and (package_dir / name).exists()
+        ]
+
+    def _nested_dir_issue(self, nested: Path, root: Path, name: str) -> Issue:
+        """Build the issue for a directory that belongs at the repo root.
+
+        Args:
+            nested: The misplaced directory under src/.
+            root: Where it belongs.
+            name: Directory name, for the message.
+
+        Returns:
+            The issue, carrying a fix that moves the directory.
+        """
+        return Issue(
+            check=self.name,
+            severity=Severity.WARNING,
+            description=f"{name}/ directory found inside package at {nested}",
+            file=nested,
+            proposed_fix=Fix(
+                description=f"Move {name}/ to project root",
+                diff=f"Move {nested} -> {root}",
+                apply=lambda: _move(nested, root),
+            ),
+        )
 
     def _check_src_layout(self) -> list[Issue]:
         """Check src/ layout is properly structured."""
@@ -127,11 +118,6 @@ class StructureCheck(Check):
             # Check if package is at root (flat layout)
             pyproject_path = self.project_dir / "pyproject.toml"
             if pyproject_path.exists():
-                try:
-                    import tomllib
-                except ImportError:
-                    import tomli as tomllib  # type: ignore
-
                 with pyproject_path.open("rb") as f:
                     data = tomllib.load(f)
 
@@ -223,20 +209,6 @@ class StructureCheck(Check):
     def can_fix(self) -> bool:
         """Return True if this check can automatically fix issues."""
         return True
-
-    def _move_tests_to_root(self, src_tests_path: Path) -> None:
-        """Move tests directory from src/ to root."""
-        import shutil
-
-        root_tests = self.project_dir / "tests"
-        shutil.move(src_tests_path, root_tests)
-
-    def _move_examples_to_root(self, src_examples_path: Path) -> None:
-        """Move examples directory from src/ to root."""
-        import shutil
-
-        root_examples = self.project_dir / "examples"
-        shutil.move(src_examples_path, root_examples)
 
     def _update_gitignore(self) -> None:
         """Update .gitignore to exclude Python artifacts."""

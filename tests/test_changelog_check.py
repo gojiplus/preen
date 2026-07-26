@@ -2,8 +2,10 @@
 
 from pathlib import Path
 
+import pytest
+
 from preen.checks.base import Impact
-from preen.checks.changelog import ChangelogCheck
+from preen.checks.changelog import ChangelogCheck, has_version_entry, heading_version
 
 KEEP_A_CHANGELOG = """\
 # Changelog
@@ -117,3 +119,42 @@ def test_can_fix_is_false(tmp_path: Path) -> None:
 
 def test_check_name_is_changelog(tmp_path: Path) -> None:
     assert ChangelogCheck(tmp_path).name == "changelog"
+
+
+def test_prerelease_heading_does_not_satisfy_final_version() -> None:
+    """`## [0.2.0rc1]` must not gate-pass a 0.2.0 release (issue #14)."""
+    text = "## [0.2.0rc1] - 2026-01-01\n\n- something\n"
+    assert not has_version_entry(text, "0.2.0")
+    assert has_version_entry(text, "0.2.0rc1")
+
+
+def test_prerelease_version_matches_its_own_heading() -> None:
+    text = "## [1.2.3rc1] - 2026-01-01\n\n- something\n"
+    assert has_version_entry(text, "1.2.3rc1")
+
+
+@pytest.mark.parametrize(
+    ("heading", "expected"),
+    [
+        ("[1.2.3] - 2026-01-01", "1.2.3"),
+        ("1.2.3 (2026-01-01)", "1.2.3"),
+        ("v1.2.3", "1.2.3"),
+        ("[0.2.0rc1]", "0.2.0rc1"),
+        ("[1.2.3.post1]", "1.2.3.post1"),
+        ("[1.2.3.dev0]", "1.2.3.dev0"),
+        ("Unreleased", None),
+        ("[Unreleased]", None),
+        ("Changed", None),
+        ("2026-01-01", None),
+    ],
+)
+def test_heading_version_parsing(heading: str, expected: str | None) -> None:
+    assert heading_version(heading) == expected
+
+
+def test_version_entry_matches_normalized_forms() -> None:
+    assert has_version_entry("## [1.2.3.0] - 2026-01-01\n", "1.2.3")
+
+
+def test_invalid_requested_version_never_matches() -> None:
+    assert not has_version_entry("## [1.2.3] - 2026-01-01\n", "not-a-version")

@@ -55,6 +55,11 @@ def run_adopt(
     for item in report.pyproject_changes:
         console.print(f"  [yellow]~[/yellow] {escape(item)}")
 
+    if report.preserved:
+        console.print("\n[bold]Preserved (repo-specific, not overwritten):[/bold]")
+        for item in report.preserved:
+            console.print(f"  [cyan]=[/cyan] {escape(item)}")
+
     if report.todos:
         console.print("\n[bold]Manual TODOs:[/bold]")
         for item in report.todos:

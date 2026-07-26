@@ -60,6 +60,7 @@ def apply_fixes(
 
     fixed_count = 0
     skipped_count = 0
+    deferred_count = 0
 
     for issue in fixable_issues:
         fix = issue.proposed_fix
@@ -68,7 +69,13 @@ def apply_fixes(
         if issue.explanation:
             console.print(f"[dim]{issue.explanation}[/dim]")
 
-        if auto or not interactive:
+        if (auto or not interactive) and fix.requires_confirmation:
+            console.print(
+                "  [yellow]Deferred[/yellow] — this fix rewrites content preen "
+                "cannot judge; rerun without --auto to review it"
+            )
+            deferred_count += 1
+        elif auto or not interactive:
             console.print("  Applying fix...")
             fix.apply()
             console.print("  [green]Fixed[/green]")
@@ -91,6 +98,8 @@ def apply_fixes(
     console.print(f"  {fixed_count} issue(s) fixed")
     if skipped_count > 0:
         console.print(f"  {skipped_count} issue(s) skipped")
+    if deferred_count > 0:
+        console.print(f"  {deferred_count} issue(s) deferred for review")
 
     if fixed_count > 0:
         console.print("\nRun [cyan]preen check[/cyan] to verify fixes")

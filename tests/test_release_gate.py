@@ -425,3 +425,113 @@ def test_accepted_flow_prints_branch_push_reminder(tmp_path: Path, monkeypatch) 
     out = console.file.getvalue()
     assert "local-only" in out
     assert "git push" in out
+
+
+PRERELEASE_ONLY = """\
+# Changelog
+
+## [0.2.0rc1] - 2026-01-01
+
+- Release candidate.
+"""
+
+
+def test_prerelease_heading_does_not_satisfy_final_release(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`## [0.2.0rc1]` must not gate-pass releasing 0.2.0 (issue #14)."""
+    _init_repo(tmp_path, PRERELEASE_ONLY)
+    monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
+    console = _console()
+    with pytest.raises(typer.Exit):
+        release_package(tmp_path, version="0.2.0", skip_checks=True, console=console)
+    assert "no changelog entry for 0.2.0" in console.file.getvalue()
+    assert not _tag_exists(tmp_path, "v0.2.0")
+
+
+def test_prerelease_matches_its_own_heading_without_rename(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Releasing 0.2.0rc1 finds its heading instead of forcing the rename."""
+    _init_repo(tmp_path, PRERELEASE_ONLY)
+    monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
+    console = _console()
+    release_package(
+        tmp_path, version="0.2.0rc1", skip_checks=True, dry_run=True, console=console
+    )
+    output = console.file.getvalue()
+    assert "Rename [Unreleased]" not in output
+    assert "git tag v0.2.0rc1" in output
+
+
+def test_remote_tag_aborts_before_touching_the_tree(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """An unfetched remote tag must fail early, not at push (issue #18)."""
+    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+    monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
+    monkeypatch.setattr(release_mod, "_remote_tag_exists", lambda *a: True)
+    console = _console()
+    with pytest.raises(typer.Exit):
+        release_package(tmp_path, version="1.2.3", skip_checks=True, console=console)
+    assert "already exists on origin" in console.file.getvalue()
+    assert "## [Unreleased]" in (tmp_path / "CHANGELOG.md").read_text()
+
+
+def test_offline_remote_check_does_not_block(tmp_path: Path) -> None:
+    """No origin configured: the query fails, and that is not an answer."""
+    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+    assert release_mod._remote_tag_exists(tmp_path, "v1.2.3") is False
+
+
+def test_plugin_manifest_version_bumped_and_committed(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """plugin.json is hand-versioned and drifts behind the tags (issue #18)."""
+    _init_repo(tmp_path, HAS_TARGET_VERSION)
+    manifest = tmp_path / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir()
+    manifest.write_text('{\n  "name": "x",\n  "version": "0.2.0"\n}\n')
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "manifest"], cwd=tmp_path, check=True)
+
+    monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
+    monkeypatch.setattr(release_mod, "_remote_tag_exists", lambda *a: False)
+    pushed: list[tuple[str, ...]] = []
+    real_git = release_mod._git
+
+    def fake_git(project_dir: Path, *args: str):
+        if args[:1] == ("push",):
+            pushed.append(args)
+            return subprocess.CompletedProcess(args, 0, "", "")
+        return real_git(project_dir, *args)
+
+    monkeypatch.setattr(release_mod, "_git", fake_git)
+    release_package(tmp_path, version="1.2.3", skip_checks=True, console=_console())
+
+    assert '"version": "1.2.3"' in manifest.read_text()
+    # Key order and formatting survive the rewrite.
+    assert manifest.read_text().startswith('{\n  "name": "x",')
+    # And the bump is in the tagged commit, not left dirty.
+    status = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=tmp_path, capture_output=True, text=True
+    )
+    assert status.stdout.strip() == ""
+    assert pushed
+
+
+def test_plugin_manifest_untouched_when_version_matches(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _init_repo(tmp_path, HAS_TARGET_VERSION)
+    manifest = tmp_path / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir()
+    manifest.write_text('{"version": "1.2.3"}')
+    assert release_mod._plugin_manifest_bump(tmp_path, "1.2.3") is None
+
+
+def test_plugin_manifest_without_version_key_ignored(tmp_path: Path) -> None:
+    manifest = tmp_path / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name": "x"}')
+    assert release_mod._plugin_manifest_bump(tmp_path, "1.2.3") is None
