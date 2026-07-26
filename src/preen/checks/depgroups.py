@@ -28,6 +28,9 @@ DEV_TYPE_EXTRAS = frozenset(
         "lint",
         "linting",
         "typecheck",
+        # `_normalize` folds separators, so this covers type_check too.
+        "type-check",
+        "type-checking",
         "typing",
         "quality",
         "ci",

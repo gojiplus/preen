@@ -16,11 +16,13 @@ from pathlib import Path
 from typing import Any
 
 import tomlkit
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import InvalidVersion, Version
 from tomlkit.items import Table
 
 CANON_TEMPLATE = "gh:gojiplus/py-canon"
 
-# [tool.*] sections replaced wholesale with the template's values.
+# [tool.*] sections merged onto the repo's own (see `_merge_canon`).
 CANON_TOOL_TOML = """
 [tool.ruff]
 line-length = 88
@@ -28,14 +30,21 @@ target-version = "py311"
 
 [tool.ruff.lint]
 external = ["DOC"]
-select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "D", "S", "SIM", "T20", "PT", "RUF"]
-ignore = ["D203", "D213"]
+select = [
+    "E", "W", "F", "I", "B", "C4", "UP", "N", "D", "S", "SIM", "T20", "PT", "RUF",
+    "PTH", "RET", "PIE", "FURB", "PERF", "DTZ", "LOG", "G", "TC", "FLY",
+    "RSE", "SLOT", "FA", "A", "EXE", "ICN", "PGH", "PLE", "ARG", "SLF",
+]
+# D203/D213: the google convention the fleet standard picks. W191/D206/D300:
+# ruff's own docs list these as always incompatible with `ruff format`, which
+# the standard also runs.
+ignore = ["D203", "D213", "W191", "D206", "D300"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "D"]
+"tests/**" = ["S101", "D", "ARG", "SLF"]
 "docs/**" = ["D"]
 
 [tool.pyright]
@@ -95,6 +104,15 @@ CANON_WORKFLOWS = {
     "dependabot-auto-merge.yml",
 }
 
+CI_WORKFLOW = ".github/workflows/ci.yml"
+
+# Marks a ci.yml as a canon shim rather than a repo's hand-rolled workflow.
+_CANON_CI_USES_RE = re.compile(
+    r"^\s*uses:\s*gojiplus/py-canon/\.github/workflows/reusable-ci\.yml@", re.MULTILINE
+)
+_WITH_HEADER_RE = re.compile(r"^(\s*)with:\s*$")
+_WITH_INPUT_RE = re.compile(r"^(\s*)([A-Za-z0-9_-]+):[ \t]*(.*?)\s*$")
+
 
 @dataclass
 class AdoptionReport:
@@ -103,6 +121,8 @@ class AdoptionReport:
     written: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     pyproject_changes: list[str] = field(default_factory=list)
+    #: Repo-specific configuration adoption kept instead of overwriting.
+    preserved: list[str] = field(default_factory=list)
     todos: list[str] = field(default_factory=list)
 
 
@@ -158,6 +178,36 @@ def detect_package_name(repo: Path, project_name: str) -> str:
     return normalized
 
 
+def _mine_coverage_floor(repo: Path) -> int:
+    """Read the coverage floor out of an existing canon ci.yml shim.
+
+    The answer is persisted to .copier-answers.yml, so defaulting to 0 here
+    would not just clobber the floor on this run — it would re-clobber it on
+    every later ``preen update``.
+
+    Args:
+        repo: Repository directory.
+
+    Returns:
+        The repo's declared coverage floor, or 0 if it has none.
+    """
+    ci = repo / CI_WORKFLOW
+    if not ci.exists():
+        return 0
+    try:
+        text = ci.read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    block = _find_with_block(text.split("\n"))
+    if block is None or "coverage-floor" not in block.inputs:
+        return 0
+    _, value = block.inputs["coverage-floor"]
+    try:
+        return int(value.strip().strip("'\""))
+    except ValueError:
+        return 0
+
+
 def mine_answers(repo: Path) -> dict[str, Any]:
     """Mine copier answers from an existing repo.
 
@@ -204,7 +254,7 @@ def mine_answers(repo: Path) -> dict[str, Any]:
         "org": org,
         "description": description,
         "needs_cli": bool(project.get("scripts")),
-        "coverage_floor": 0,
+        "coverage_floor": _mine_coverage_floor(repo),
         "default_branch": default_branch,
     }
     if author_name:
@@ -250,10 +300,22 @@ def copy_managed_files(
     """
     for rel in OVERWRITE_ALWAYS:
         src = rendered / rel
+        dest = repo / rel
         if not src.exists():
             report.skipped.append(f"{rel} (not in template)")
             continue
-        _copy(src, repo / rel)
+        # The CI shim carries repo-specific inputs the template knows nothing
+        # about; overwriting it blind loses them.
+        if rel == CI_WORKFLOW and dest.exists():
+            merged, preserved = _preserve_ci_inputs(
+                dest.read_text(encoding="utf-8"), src.read_text(encoding="utf-8")
+            )
+            dest.write_text(merged, encoding="utf-8")
+            report.written.append(rel)
+            for entry in preserved:
+                report.preserved.append(f"{rel}: {entry}")
+            continue
+        _copy(src, dest)
         report.written.append(rel)
 
     for rel in COPY_IF_ABSENT:
@@ -293,6 +355,98 @@ def copy_managed_files(
         else:
             typed.touch()
             report.written.append(str(typed.relative_to(repo)))
+
+
+@dataclass
+class _WithBlock:
+    """The `with:` block of a workflow job, located by line."""
+
+    header: int
+    indent: str
+    #: input name -> (line index, raw value)
+    inputs: dict[str, tuple[int, str]] = field(default_factory=dict)
+
+
+def _find_with_block(lines: list[str]) -> _WithBlock | None:
+    """Locate the first `with:` block in a workflow file.
+
+    Args:
+        lines: The file split on newlines.
+
+    Returns:
+        The block, or None if the file has no ``with:`` mapping.
+    """
+    block = None
+    for index, line in enumerate(lines):
+        match = _WITH_HEADER_RE.match(line)
+        if match:
+            block = _WithBlock(header=index, indent=match.group(1))
+            break
+    if block is None:
+        return None
+    for index in range(block.header + 1, len(lines)):
+        line = lines[index]
+        if not line.strip():
+            continue
+        entry = _WITH_INPUT_RE.match(line)
+        if entry is None or len(entry.group(1)) <= len(block.indent):
+            break
+        block.inputs[entry.group(2)] = (index, entry.group(3))
+    return block
+
+
+def _preserve_ci_inputs(old_text: str, new_text: str) -> tuple[str, list[str]]:
+    """Re-apply an existing canon ci.yml shim's `with:` inputs onto the rendered one.
+
+    The template renders only the inputs it knows about (``wheel-import``,
+    ``coverage-floor``), so a repo that hand-added ``python-versions`` — or
+    that raised its coverage floor — would lose those to the overwrite. This
+    edits the rendered shim's ``with:`` block textually rather than
+    round-tripping the YAML, so comments and the ``on:`` key survive intact.
+
+    Args:
+        old_text: The repo's existing ci.yml.
+        new_text: The freshly rendered ci.yml.
+
+    Returns:
+        The rendered text with the repo's inputs re-applied, and a list of
+        what was preserved.
+    """
+    if not (_CANON_CI_USES_RE.search(old_text) and _CANON_CI_USES_RE.search(new_text)):
+        return new_text, []
+
+    lines = new_text.split("\n")
+    old_block = _find_with_block(old_text.split("\n"))
+    new_block = _find_with_block(lines)
+    if old_block is None or new_block is None or not old_block.inputs:
+        return new_text, []
+
+    preserved: list[str] = []
+    added: list[tuple[str, str]] = []
+    for key, (_, old_value) in old_block.inputs.items():
+        if key not in new_block.inputs:
+            added.append((key, old_value))
+            preserved.append(f"{key}: {old_value} (absent from the template)")
+            continue
+        index, rendered_value = new_block.inputs[key]
+        if rendered_value == old_value:
+            continue
+        indent = lines[index][: len(lines[index]) - len(lines[index].lstrip())]
+        lines[index] = f"{indent}{key}: {old_value}"
+        preserved.append(f"{key}: {old_value} (template rendered {rendered_value})")
+
+    if added:
+        if new_block.inputs:
+            last = max(index for index, _ in new_block.inputs.values())
+            entry_indent = lines[last][: len(lines[last]) - len(lines[last].lstrip())]
+        else:
+            last = new_block.header
+            entry_indent = new_block.indent + "  "
+        lines[last + 1 : last + 1] = [
+            f"{entry_indent}{key}: {value}" for key, value in added
+        ]
+
+    return "\n".join(lines), preserved
 
 
 def _copy(src: Path, dest: Path) -> None:
@@ -339,34 +493,114 @@ def _requirement_name(spec: str) -> str:
     )
 
 
-def _existing_ruff_ignores(tool: Any) -> list[str]:
-    """Collect lint ignore codes from a repo's existing [tool.ruff] section.
+# Array settings where a repo's extra entries are appended to canon's list
+# rather than replaced by it. Paths are relative to [tool].
+UNION_PATHS = frozenset(
+    {
+        ("ruff", "lint", "ignore"),
+        ("ruff", "lint", "select"),
+        ("ruff", "lint", "extend-select"),
+        ("ruff", "lint", "external"),
+    }
+)
 
-    Checks both the current ``lint.ignore`` location and the legacy
-    top-level ``ignore`` form, since older ruff configs use either.
+# Every code list under this table is unioned, whatever its pattern key.
+PER_FILE_IGNORES_PATH = ("ruff", "lint", "per-file-ignores")
+
+# Lint settings ruff moved under [tool.ruff.lint]; older configs still put
+# them at the top level of [tool.ruff], where the canon merge would preserve
+# them into a config ruff warns about.
+LEGACY_LINT_KEYS = ("select", "ignore", "extend-select", "external", "per-file-ignores")
+
+
+def _describe(path: tuple[str, ...], value: Any) -> str:
+    """Render a [tool] sub-path for the adoption report.
 
     Args:
-        tool: The document's [tool] table.
+        path: Key path below ``[tool]``.
+        value: The value at that path, which decides table vs key phrasing.
 
     Returns:
-        Ignore codes found in the existing config, in file order.
+        A TOML-ish location, e.g. ``[tool.ruff] exclude``.
     """
-    ruff = tool.get("ruff")
-    if ruff is None:
-        return []
-    codes: list[str] = []
-    lint = ruff.get("lint")
-    if lint is not None and "ignore" in lint:
-        codes.extend(str(code) for code in lint["ignore"])
-    if "ignore" in ruff:
-        codes.extend(str(code) for code in ruff["ignore"])
-    return codes
+    if isinstance(value, dict):
+        return "[tool." + ".".join(path) + "]"
+    return "[tool." + ".".join(path[:-1]) + "] " + path[-1]
 
 
-def rewrite_pyproject(repo: Path, release_migration: bool = False) -> list[str]:
+def _is_union_path(path: tuple[str, ...]) -> bool:
+    """Return True if repo entries at `path` should be unioned with canon's."""
+    return path in UNION_PATHS or path[:-1] == PER_FILE_IGNORES_PATH
+
+
+def _hoist_legacy_lint_keys(ruff: Any, changes: list[str]) -> None:
+    """Move deprecated top-level [tool.ruff] lint settings under [tool.ruff.lint].
+
+    Args:
+        ruff: The repo's existing ``[tool.ruff]`` table.
+        changes: Change log to append to.
+    """
+    legacy = [key for key in LEGACY_LINT_KEYS if key in ruff]
+    if not legacy:
+        return
+    lint = _ensure_table(ruff, "lint")
+    for key in legacy:
+        if key not in lint:
+            lint[key] = ruff[key]
+        del ruff[key]
+        changes.append(f"moved legacy [tool.ruff] {key} under [tool.ruff.lint]")
+
+
+def _merge_canon(
+    canon: Any, repo: Any, path: tuple[str, ...], preserved: list[str]
+) -> None:
+    """Merge a repo's table onto the canon table for the same path, in place.
+
+    Canon wins on every key it defines, except array settings on the union
+    allowlist, where the repo's extra entries are appended. Keys and
+    subtables canon says nothing about — a repo's ``exclude`` list, its
+    ``flake8-bugbear`` settings, its extra per-file-ignore patterns — are
+    preserved verbatim, so adoption never silently drops deliberate config.
+
+    Args:
+        canon: The canon table for this path (mutated).
+        repo: The repo's existing table for this path.
+        path: Key path below ``[tool]``, for reporting.
+        preserved: Log of preserved settings to append to.
+    """
+    if not isinstance(repo, dict):
+        return
+    for key, repo_value in repo.items():
+        sub_path = (*path, str(key))
+        if key not in canon:
+            canon[key] = repo_value
+            preserved.append(_describe(sub_path, repo_value))
+            continue
+        canon_value = canon[key]
+        if isinstance(canon_value, dict) and isinstance(repo_value, dict):
+            _merge_canon(canon_value, repo_value, sub_path, preserved)
+        elif (
+            _is_union_path(sub_path)
+            and isinstance(canon_value, list)
+            and isinstance(repo_value, list)
+        ):
+            entries = [str(entry) for entry in canon_value]
+            extra = sorted({str(entry) for entry in repo_value} - set(entries))
+            if extra:
+                canon[key] = entries + extra
+                preserved.append(
+                    f"{_describe(sub_path, repo_value)} entries: " + ", ".join(extra)
+                )
+
+
+def rewrite_pyproject(
+    repo: Path, release_migration: bool = False
+) -> tuple[list[str], list[str]]:
     """Rewrite pyproject.toml [tool.*] sections to the fleet standard.
 
-    Uses tomlkit so untouched sections keep their comments and order.
+    Uses tomlkit so untouched sections keep their comments and order, and
+    merges rather than replaces the canon-managed sections so repo-specific
+    settings survive adoption (see `_merge_canon`).
 
     Args:
         repo: Repository directory containing pyproject.toml.
@@ -374,7 +608,7 @@ def rewrite_pyproject(repo: Path, release_migration: bool = False) -> list[str]:
             uv-dynamic-versioning with a tag-derived version.
 
     Returns:
-        Human-readable list of changes made.
+        A (changes, preserved) pair of human-readable lists.
 
     Raises:
         FileNotFoundError: If the repo has no pyproject.toml.
@@ -386,25 +620,24 @@ def rewrite_pyproject(repo: Path, release_migration: bool = False) -> list[str]:
     doc = tomlkit.parse(pyproject_path.read_text(encoding="utf-8"))
     canon = tomlkit.parse(CANON_TOOL_TOML)
     changes: list[str] = []
+    preserved: list[str] = []
 
     tool = _ensure_table(doc, "tool")
-    existing_ruff_ignores = _existing_ruff_ignores(tool)
     for section in ("ruff", "pyright", "pydoclint"):
-        existed = section in tool
-        tool[section] = canon["tool"][section]  # type: ignore[index]
-        changes.append(f"{'replaced' if existed else 'set'} [tool.{section}]")
+        canon_section = canon["tool"][section]  # type: ignore[index]
+        if section in tool:
+            changes.append(f"merged canon into [tool.{section}]")
+            repo_section = tool[section]
+            if section == "ruff":
+                _hoist_legacy_lint_keys(repo_section, changes)
+            _merge_canon(canon_section, repo_section, (section,), preserved)
+        else:
+            changes.append(f"set [tool.{section}]")
+        tool[section] = canon_section
 
     target_version = _ruff_target_version(doc)
     tool["ruff"]["target-version"] = target_version  # type: ignore[index]
     changes.append(f"target-version = {target_version!r} (from requires-python floor)")
-
-    canon_ignore = [str(code) for code in tool["ruff"]["lint"]["ignore"]]  # type: ignore[index]
-    extra_ignore = sorted(set(existing_ruff_ignores) - set(canon_ignore))
-    if extra_ignore:
-        tool["ruff"]["lint"]["ignore"] = canon_ignore + extra_ignore  # type: ignore[index]
-        changes.append(
-            "preserved repo-specific ruff ignore(s): " + ", ".join(extra_ignore)
-        )
 
     # Point pyright at the actual package location (src/ vs flat layout)
     project = doc.get("project", {})
@@ -426,7 +659,7 @@ def rewrite_pyproject(repo: Path, release_migration: bool = False) -> list[str]:
         changes.extend(_migrate_release(doc, repo))
 
     pyproject_path.write_text(tomlkit.dumps(doc), encoding="utf-8")
-    return changes
+    return changes, preserved
 
 
 def _ensure_docs_group(doc: Any) -> list[str]:
@@ -483,12 +716,41 @@ def _ensure_dev_group(doc: Any) -> list[str]:
             new.append(entry)
         groups["dev"] = new
         dev = new
-    present = {_requirement_name(entry) for entry in dev if isinstance(entry, str)}
+    present = _group_requirements(groups, "dev")
     for name, spec in DEV_GROUP_REQUIRED.items():
         if name not in present:
             dev.append(spec)  # type: ignore[union-attr]
             changes.append(f"added {spec!r} to dev group")
     return changes
+
+
+def _group_requirements(
+    groups: Any, name: str, seen: frozenset[str] = frozenset()
+) -> set[str]:
+    """Collect the distributions a dependency group provides, following includes.
+
+    A PEP 735 group can pull in another via ``{ include-group = ... }``.
+    Ignoring those makes a requirement look absent and adds a second, weaker
+    pin beside the one the included group already carries.
+
+    Args:
+        groups: The ``[dependency-groups]`` table.
+        name: Group to resolve.
+        seen: Groups already being resolved, to stop include cycles.
+
+    Returns:
+        Normalized distribution names the group provides.
+    """
+    if name in seen or name not in groups:
+        return set()
+    seen = seen | {name}
+    names: set[str] = set()
+    for entry in groups[name]:
+        if isinstance(entry, str):
+            names.add(_requirement_name(entry))
+        elif isinstance(entry, dict) and "include-group" in entry:
+            names |= _group_requirements(groups, str(entry["include-group"]), seen)
+    return names
 
 
 def _migrate_release(doc: Any, repo: Path) -> list[str]:
@@ -603,11 +865,33 @@ def _requires_python_floor(repo: Path) -> tuple[int, int] | None:
 
 
 def _parse_requires_python_floor(requires: str) -> tuple[int, int] | None:
-    """Parse the floor out of a requires-python specifier string."""
-    match = re.search(r">=\s*(\d+)\.(\d+)", requires)
-    if not match:
+    """Parse the floor out of a requires-python specifier string.
+
+    Handles every specifier that pins a lower bound: ``>=3.12``, ``~=3.12``,
+    ``==3.12.*`` and ``>3.11`` all floor at 3.12/3.11 respectively. When
+    several clauses set a floor, the highest wins.
+
+    Args:
+        requires: A PEP 440 specifier string, e.g. ``">=3.11,<4"``.
+
+    Returns:
+        The (major, minor) floor, or None if no clause pins one.
+    """
+    try:
+        specifiers = SpecifierSet(requires)
+    except InvalidSpecifier:
         return None
-    return (int(match.group(1)), int(match.group(2)))
+    floors: list[tuple[int, int]] = []
+    for specifier in specifiers:
+        # `>` floors at the same major.minor: >3.11 still admits 3.11.1.
+        if specifier.operator not in (">=", "~=", "==", ">"):
+            continue
+        try:
+            version = Version(specifier.version.rstrip(".*"))
+        except InvalidVersion:
+            continue
+        floors.append((version.major, version.minor))
+    return max(floors) if floors else None
 
 
 def _ruff_target_version(doc: Any) -> str:
@@ -653,8 +937,8 @@ def adopt_repo(
         render_template(answers, rendered, template=template)
         copy_managed_files(rendered, repo, str(answers["package_name"]), report)
 
-    report.pyproject_changes = rewrite_pyproject(
-        repo, release_migration=release_migration
-    )
+    changes, preserved = rewrite_pyproject(repo, release_migration=release_migration)
+    report.pyproject_changes = changes
+    report.preserved.extend(f"pyproject.toml: {item}" for item in preserved)
     report.todos = build_todos(repo, str(answers["package_name"]))
     return report

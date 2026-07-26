@@ -18,7 +18,7 @@ def _completed(
 
 def test_pyright_not_installed(tmp_path: Path, monkeypatch) -> None:
     def fake_run(cmd, **kwargs):
-        raise FileNotFoundError()
+        raise FileNotFoundError
 
     monkeypatch.setattr("preen.checks.pyright.subprocess.run", fake_run)
     result = PyrightCheck(tmp_path).run()

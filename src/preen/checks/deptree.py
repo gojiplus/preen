@@ -31,7 +31,7 @@ class DeptreeCheck(Check):
         """Extract import statements from a Python file."""
         imports = set()
         try:
-            with open(file_path, encoding="utf-8") as f:
+            with file_path.open(encoding="utf-8") as f:
                 content = f.read()
 
             tree = ast.parse(content, filename=str(file_path))
@@ -68,10 +68,7 @@ class DeptreeCheck(Check):
         module_name = ".".join(relative_path.parts)
 
         # Handle __init__.py files
-        if module_name.endswith(".__init__"):
-            module_name = module_name[:-9]
-
-        return module_name
+        return module_name.removesuffix(".__init__")
 
     def _detect_cycles(self, graph: dict[str, set[str]]) -> list[list[str]]:
         """Detect cycles using DFS."""

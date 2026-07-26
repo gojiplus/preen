@@ -7,6 +7,7 @@ informed consent, then tags and pushes.
 """
 
 import datetime
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -57,6 +58,78 @@ def _tag_exists(project_dir: Path, tag: str) -> bool:
     """Return True if `tag` already exists locally (per ``git tag -l``)."""
     result = _git(project_dir, "tag", "-l", tag)
     return bool(result.stdout.strip())
+
+
+def _remote_tag_exists(project_dir: Path, tag: str) -> bool:
+    """Return True if `tag` already exists on origin.
+
+    A tag that was never fetched passes the local check and then fails at
+    push, after the changelog has been rewritten and committed. An offline
+    or otherwise failing query answers False rather than blocking a release.
+
+    Args:
+        project_dir: Repository directory.
+        tag: Tag name, e.g. ``v1.2.3``.
+
+    Returns:
+        True only when origin is reachable and already has the tag.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "ls-remote", "--tags", "origin", f"refs/tags/{tag}"],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode != 0:
+        return False
+    return bool(result.stdout.strip())
+
+
+def _plugin_manifest_bump(project_dir: Path, version: str) -> Path | None:
+    """Return the Claude Code plugin manifest needing a version bump, if any.
+
+    The manifest carries a hardcoded version while everything else in the
+    fleet standard is tag-derived, so it silently drifts behind the tags.
+
+    Args:
+        project_dir: Repository directory.
+        version: Version being released.
+
+    Returns:
+        Path to the manifest when it declares a different version, else None.
+    """
+    manifest = project_dir / ".claude-plugin" / "plugin.json"
+    if not manifest.exists():
+        return None
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict) or "version" not in data:
+        return None
+    return manifest if str(data["version"]) != version else None
+
+
+def _write_plugin_version(manifest: Path, version: str) -> None:
+    """Set the plugin manifest's version, preserving key order and indentation.
+
+    Args:
+        manifest: Path to .claude-plugin/plugin.json.
+        version: Version to write.
+    """
+    text = manifest.read_text(encoding="utf-8")
+    updated = re.sub(
+        r'("version"\s*:\s*)"[^"]*"',
+        lambda m: f'{m.group(1)}"{version}"',
+        text,
+        count=1,
+    )
+    manifest.write_text(updated, encoding="utf-8")
 
 
 def _suggest_next(latest: str | None) -> str:
@@ -145,12 +218,20 @@ def release_package(
     if _tag_exists(project_dir, tag):
         console.print(f"[red]Tag {tag} already exists[/red]")
         raise typer.Exit(1)
+    if _remote_tag_exists(project_dir, tag):
+        console.print(
+            f"[red]Tag {tag} already exists on origin[/red] (not fetched locally); "
+            "run `git fetch --tags` and pick another version."
+        )
+        raise typer.Exit(1)
 
     changelog_path = project_dir / "CHANGELOG.md"
     changelog_text = (
         changelog_path.read_text(encoding="utf-8") if changelog_path.exists() else ""
     )
-    today = datetime.date.today().isoformat()
+    # Local date, explicitly zoned: a changelog heading should carry the date
+    # the releaser sees, not UTC's.
+    today = datetime.datetime.now().astimezone().date().isoformat()
     rename_unreleased = False
     if not has_version_entry(changelog_text, version):
         unreleased = unreleased_section_text(changelog_text)
@@ -159,6 +240,8 @@ def release_package(
         else:
             console.print(f"[red]no changelog entry for {version}[/red]")
             raise typer.Exit(1)
+
+    plugin_manifest = _plugin_manifest_bump(project_dir, version)
 
     if dry_run:
         console.print("\n[yellow]DRY RUN — would perform:[/yellow]")
@@ -169,7 +252,13 @@ def release_package(
                 "CHANGELOG.md"
             )
             step += 1
-            console.print(f'  {step}. git commit CHANGELOG.md -m "Release {version}"')
+        if plugin_manifest is not None:
+            console.print(
+                f"  {step}. Set version to {version} in .claude-plugin/plugin.json"
+            )
+            step += 1
+        if rename_unreleased or plugin_manifest is not None:
+            console.print(f'  {step}. git commit -m "Release {version}"')
             step += 1
         console.print(f"  {step}. git tag {tag}")
         step += 1
@@ -190,27 +279,40 @@ def release_package(
         console.print("[red]Release cancelled[/red]")
         raise typer.Exit(1)
 
+    if plugin_manifest is not None and not Confirm.ask(
+        f".claude-plugin/plugin.json declares a different version. Set it to "
+        f"{version}?",
+        default=True,
+    ):
+        plugin_manifest = None
+
     if not Confirm.ask(f"\nTag and push [bold]{tag}[/bold]?", default=False):
         console.print("[red]Release cancelled[/red]")
         raise typer.Exit(1)
 
+    release_paths: list[str] = []
     if rename_unreleased:
         changelog_path.write_text(
             rename_unreleased_heading(changelog_text, version, today),
             encoding="utf-8",
         )
+        release_paths.append("CHANGELOG.md")
+        console.print(f"Renamed [Unreleased] to [{version}] - {today} in CHANGELOG.md")
+    if plugin_manifest is not None:
+        _write_plugin_version(plugin_manifest, version)
+        release_paths.append(".claude-plugin/plugin.json")
+        console.print(f"Set .claude-plugin/plugin.json version to {version}")
+
+    if release_paths:
         # Pathspec-limited commit: anything the user had staged stays staged
         # instead of being swept into the release commit.
         result = _git(
-            project_dir, "commit", "-m", f"Release {version}", "--", "CHANGELOG.md"
+            project_dir, "commit", "-m", f"Release {version}", "--", *release_paths
         )
         if result.returncode != 0:
             console.print(f"[red]git commit failed:[/red] {result.stderr.strip()}")
             raise typer.Exit(1)
-        console.print(
-            f"Renamed [Unreleased] to [{version}] - {today} in CHANGELOG.md "
-            "and committed."
-        )
+        console.print(f"Committed: {', '.join(release_paths)}")
 
     result = _git(project_dir, "tag", tag)
     if result.returncode != 0:
@@ -228,8 +330,8 @@ def release_package(
         f"\n[bold green]Pushed {tag} — the release workflow takes it from "
         "here.[/bold green]"
     )
-    if rename_unreleased:
+    if release_paths:
         console.print(
             f"The 'Release {version}' commit is local-only; run [bold]git push"
-            "[/bold] so the changelog commit is reachable from your branch."
+            "[/bold] so it is reachable from your branch."
         )

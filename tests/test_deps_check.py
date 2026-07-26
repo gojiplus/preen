@@ -17,7 +17,7 @@ def _completed(
 
 def test_deptry_not_installed(tmp_path: Path, monkeypatch) -> None:
     def fake_run(cmd, **kwargs):
-        raise FileNotFoundError()
+        raise FileNotFoundError
 
     monkeypatch.setattr("preen.checks.deps.subprocess.run", fake_run)
     result = DepsCheck(tmp_path).run()

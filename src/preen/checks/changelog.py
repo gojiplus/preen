@@ -9,6 +9,8 @@ whether a release has a changelog entry.
 import re
 from pathlib import Path
 
+from packaging.version import InvalidVersion, Version
+
 from .base import Check, CheckResult, Impact, Issue, Severity
 
 # A level-2 markdown heading, e.g. "## [Unreleased]" or "## 1.2.3 (2026-01-01)".
@@ -17,8 +19,10 @@ _HEADING_RE = re.compile(r"^##\s+(.*?)\s*$")
 # Tolerates "[Unreleased]" and "Unreleased", case-insensitive.
 _UNRELEASED_RE = re.compile(r"^\[?unreleased\]?$", re.IGNORECASE)
 
-# Tolerates "[1.2.3] - 2026-01-01", "1.2.3 (2026-01-01)", and "v1.2.3".
-_VERSION_RE = re.compile(r"^\[?v?(\d+\.\d+\.\d+)\]?")
+# Tolerates "[1.2.3] - 2026-01-01", "1.2.3 (2026-01-01)", and "v1.2.3". The
+# candidate must run to a word boundary: matching a bare X.Y.Z prefix would
+# let a "[1.2.3rc1]" heading satisfy the release gate for 1.2.3.
+_VERSION_RE = re.compile(r"^\[?v?([^\[\]\s]+?)\]?(?=[\s(]|$)")
 
 
 def parse_headings(text: str) -> list[tuple[int, str]]:
@@ -37,14 +41,37 @@ def is_unreleased_heading(heading_text: str) -> bool:
 
 
 def heading_version(heading_text: str) -> str | None:
-    """Return the X.Y.Z version a heading names, or None if it doesn't."""
+    """Return the PEP 440 version a heading names, or None if it doesn't.
+
+    Accepts pre/post/dev releases ("1.2.3rc1", "1.2.3.post1") as well as
+    plain X.Y.Z, and rejects anything `packaging` won't parse as a version.
+    """
     match = _VERSION_RE.match(heading_text.strip())
-    return match.group(1) if match else None
+    if not match:
+        return None
+    candidate = match.group(1)
+    try:
+        Version(candidate)
+    except InvalidVersion:
+        return None
+    return candidate
 
 
 def has_version_entry(text: str, version: str) -> bool:
-    """Return True if `text` has a version heading matching `version`."""
-    return any(heading_version(h) == version for _, h in parse_headings(text))
+    """Return True if `text` has a version heading matching `version`.
+
+    Compares normalized PEP 440 versions, so "1.2.3" matches a "1.2.3.0"
+    heading but not a "1.2.3rc1" one.
+    """
+    try:
+        wanted = Version(version)
+    except InvalidVersion:
+        return False
+    for _, heading_text in parse_headings(text):
+        found = heading_version(heading_text)
+        if found is not None and Version(found) == wanted:
+            return True
+    return False
 
 
 def unreleased_section_text(text: str) -> str | None:

@@ -54,7 +54,12 @@ LEGACY_TEXT_ALIASES = {
 
 LICENSE_FILE_STEMS = ("license", "licence", "copying")
 
-_SPDX_TOKEN_RE = re.compile(r"\(|\)|AND|OR|WITH|[A-Za-z0-9][A-Za-z0-9.+-]*")
+# The operator alternatives need a trailing word-boundary guard, or an
+# identifier that merely starts with one (a hypothetical "ANDover-1.0") would
+# be split into an operator plus a stray identifier.
+_SPDX_TOKEN_RE = re.compile(
+    r"\(|\)|(?:AND|OR|WITH)(?![A-Za-z0-9.+-])|[A-Za-z0-9][A-Za-z0-9.+-]*"
+)
 
 
 def _tokenize_spdx(expression: str) -> list[str] | None:
@@ -227,12 +232,27 @@ class LicenseCheck(Check):
                     "automatically; set an explicit SPDX expression "
                     'manually, e.g. license = "MIT".'
                 )
-        else:
-            key, value = "file", license_table.get("file")
+        elif "file" in license_table:
+            key, value = "file", license_table["file"]
             base_explanation += (
                 " A license expression cannot be inferred from a file "
                 "reference; set an explicit SPDX expression manually, "
                 'e.g. license = "MIT".'
+            )
+        else:
+            # Neither key: reporting `{ file = "None" }` would name a key the
+            # file does not contain.
+            return Issue(
+                check=self.name,
+                severity=Severity.WARNING,
+                description="license is an empty or unrecognized TOML table",
+                file=pyproject_path.relative_to(self.project_dir),
+                impact=Impact.IMPORTANT,
+                explanation=(
+                    "PEP 639 requires an SPDX license expression, e.g. "
+                    'license = "MIT". A license table with neither a `text` '
+                    "nor a `file` key declares nothing."
+                ),
             )
 
         description = (

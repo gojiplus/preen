@@ -4,7 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from preen.adopt import AdoptionReport, build_todos, copy_managed_files
+from preen.adopt import (
+    AdoptionReport,
+    _preserve_ci_inputs,
+    build_todos,
+    copy_managed_files,
+    mine_answers,
+)
 
 RENDERED_FILES = {
     ".github/workflows/ci.yml": "rendered ci\n",
@@ -126,3 +132,90 @@ def test_todos_flag_flat_layout(tmp_path: Path) -> None:
     (repo / "pyproject.toml").write_text('[project]\nname = "flatpkg"\n')
     todos = build_todos(repo, "flatpkg")
     assert any("src/" in t for t in todos)
+
+
+CANON_SHIM = """\
+name: CI
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    uses: gojiplus/py-canon/.github/workflows/reusable-ci.yml@v1
+    with:
+      wheel-import: mypkg
+      coverage-floor: 70
+      python-versions: '["3.12", "3.14"]'
+"""
+
+RENDERED_SHIM = """\
+name: CI
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    uses: gojiplus/py-canon/.github/workflows/reusable-ci.yml@v1
+    with:
+      wheel-import: mypkg
+      coverage-floor: 0
+"""
+
+
+def test_ci_inputs_preserved_across_overwrite() -> None:
+    """The shim's repo-specific `with:` inputs survive adoption (issue #13)."""
+    merged, preserved = _preserve_ci_inputs(CANON_SHIM, RENDERED_SHIM)
+    assert "coverage-floor: 70" in merged
+    assert """python-versions: '["3.12", "3.14"]'""" in merged
+    assert any("coverage-floor" in p for p in preserved)
+    assert any("python-versions" in p for p in preserved)
+    # Everything the template owns is still the template's.
+    assert "uses: gojiplus/py-canon" in merged
+    assert merged.startswith("name: CI\n")
+
+
+def test_ci_inputs_unchanged_when_shim_already_matches() -> None:
+    merged, preserved = _preserve_ci_inputs(CANON_SHIM, CANON_SHIM)
+    assert merged == CANON_SHIM
+    assert preserved == []
+
+
+def test_ci_inputs_left_alone_for_hand_rolled_workflow() -> None:
+    """A repo's own CI workflow is not a shim; don't mine inputs from it."""
+    hand_rolled = "name: CI\non: push\njobs:\n  test:\n    with:\n      foo: bar\n"
+    merged, preserved = _preserve_ci_inputs(hand_rolled, RENDERED_SHIM)
+    assert merged == RENDERED_SHIM
+    assert preserved == []
+
+
+def test_ci_workflow_copy_preserves_inputs(rendered: Path, repo: Path) -> None:
+    ci = repo / ".github" / "workflows" / "ci.yml"
+    ci.parent.mkdir(parents=True)
+    ci.write_text(CANON_SHIM)
+    (rendered / ".github" / "workflows" / "ci.yml").write_text(RENDERED_SHIM)
+
+    report = AdoptionReport()
+    copy_managed_files(rendered, repo, "mypkg", report)
+
+    assert "coverage-floor: 70" in ci.read_text()
+    assert any("ci.yml" in p for p in report.preserved)
+
+
+def test_coverage_floor_mined_from_existing_shim(tmp_path: Path) -> None:
+    """Else the 0 default is persisted to .copier-answers and re-clobbers."""
+    repo = tmp_path / "repo"
+    (repo / ".github" / "workflows").mkdir(parents=True)
+    (repo / ".github" / "workflows" / "ci.yml").write_text(CANON_SHIM)
+    (repo / "pyproject.toml").write_text('[project]\nname = "mypkg"\n')
+    assert mine_answers(repo)["coverage_floor"] == 70
+
+
+def test_coverage_floor_defaults_to_zero_without_shim(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pyproject.toml").write_text('[project]\nname = "mypkg"\n')
+    assert mine_answers(repo)["coverage_floor"] == 0

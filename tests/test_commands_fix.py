@@ -127,3 +127,53 @@ def test_batch_mode_applies_without_prompting(tmp_path, monkeypatch) -> None:
     apply_fixes(tmp_path, interactive=False, auto=False, console=console)
 
     assert _FixableCheck.applied is True
+
+
+class _ConfirmOnlyCheck(Check):
+    """A check whose fix must never be applied unattended."""
+
+    applied = False
+
+    @property
+    def name(self) -> str:
+        return "confirm-only"
+
+    def run(self) -> CheckResult:
+        def _apply():
+            type(self).applied = True
+
+        issue = Issue(
+            check=self.name,
+            severity=Severity.WARNING,
+            description="rewrites content preen cannot judge",
+            proposed_fix=Fix(
+                description="risky",
+                diff="- Denis Leary\n+ Denis Leery\n",
+                apply=_apply,
+                requires_confirmation=True,
+            ),
+        )
+        return CheckResult(check=self.name, passed=False, issues=[issue])
+
+
+def test_auto_defers_fixes_requiring_confirmation(tmp_path, monkeypatch) -> None:
+    """--auto must not silently rewrite data fixtures (issue #19)."""
+    _ConfirmOnlyCheck.applied = False
+    monkeypatch.setattr("preen.commands.fix.ALL_CHECKS", [_ConfirmOnlyCheck])
+    console = _console()
+    apply_fixes(tmp_path, auto=True, console=console)
+
+    assert _ConfirmOnlyCheck.applied is False
+    output = console.file.getvalue()
+    assert "Deferred" in output
+    assert "1 issue(s) deferred for review" in output
+    assert "0 issue(s) fixed" in output
+
+
+def test_interactive_can_still_apply_confirmed_fix(tmp_path, monkeypatch) -> None:
+    """Deferral is about unattended runs, not a blanket refusal."""
+    _ConfirmOnlyCheck.applied = False
+    monkeypatch.setattr("preen.commands.fix.ALL_CHECKS", [_ConfirmOnlyCheck])
+    monkeypatch.setattr(rich.prompt.Confirm, "ask", staticmethod(lambda *a, **k: True))
+    apply_fixes(tmp_path, interactive=True, console=_console())
+    assert _ConfirmOnlyCheck.applied is True

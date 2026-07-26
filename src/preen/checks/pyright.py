@@ -42,8 +42,10 @@ class PyrightCheck(Check):
             ]
 
         # Parse general diagnostics
-        for diagnostic in data.get("generalDiagnostics", []):
-            issues.append(self._create_issue_from_diagnostic(diagnostic))
+        issues.extend(
+            self._create_issue_from_diagnostic(diagnostic)
+            for diagnostic in data.get("generalDiagnostics", [])
+        )
 
         return issues
 

@@ -94,8 +94,7 @@ class PydoclintCheck(Check):
                 "DOC103",
             ]:
                 return Impact.IMPORTANT
-            else:
-                return Impact.INFORMATIONAL
+            return Impact.INFORMATIONAL
 
         # Everything else is informational
         return Impact.INFORMATIONAL

@@ -5,7 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from preen.adopt import rewrite_pyproject
+from preen.adopt import CANON_TOOL_TOML, rewrite_pyproject
+
+# Derived rather than duplicated, so extending the standard's rule set does
+# not mean restating it in every assertion here.
+CANON = tomllib.loads(CANON_TOOL_TOML)["tool"]
+CANON_IGNORE = CANON["ruff"]["lint"]["ignore"]
+CANON_TEST_IGNORES = CANON["ruff"]["lint"]["per-file-ignores"]["tests/**"]
 
 LEGACY_PYPROJECT = """\
 # top-of-file comment that must survive
@@ -67,13 +73,13 @@ def test_legacy_tool_sections_removed(legacy_repo: Path) -> None:
 
 
 def test_standard_tool_sections_set(legacy_repo: Path) -> None:
-    changes = rewrite_pyproject(legacy_repo)
+    changes, _ = rewrite_pyproject(legacy_repo)
     data = _load(legacy_repo)
     ruff = data["tool"]["ruff"]
     assert ruff["line-length"] == 88
     assert "D" in ruff["lint"]["select"]
     assert ruff["lint"]["pydocstyle"]["convention"] == "google"
-    assert ruff["lint"]["per-file-ignores"]["tests/**"] == ["S101", "D"]
+    assert ruff["lint"]["per-file-ignores"]["tests/**"] == CANON_TEST_IGNORES
     assert data["tool"]["pyright"] == {
         "include": ["legacy_pkg"],
         "typeCheckingMode": "standard",
@@ -173,12 +179,12 @@ def test_ruff_extra_ignores_preserved(tmp_path: Path) -> None:
         "[tool.ruff]\nline-length = 100\n\n"
         '[tool.ruff.lint]\nselect = ["E"]\nignore = ["S603", "S607"]\n',
     )
-    changes = rewrite_pyproject(repo)
+    _, preserved = rewrite_pyproject(repo)
     data = _load(repo)
     ignore = data["tool"]["ruff"]["lint"]["ignore"]
     # Canon codes first (in canon order), then extra repo codes, sorted.
-    assert ignore == ["D203", "D213", "S603", "S607"]
-    assert any("preserved" in c and "S603" in c and "S607" in c for c in changes)
+    assert ignore == [*CANON_IGNORE, "S603", "S607"]
+    assert any("S603" in p and "S607" in p for p in preserved)
 
 
 def test_ruff_legacy_top_level_ignore_preserved(tmp_path: Path) -> None:
@@ -188,14 +194,16 @@ def test_ruff_legacy_top_level_ignore_preserved(tmp_path: Path) -> None:
     )
     rewrite_pyproject(repo)
     data = _load(repo)
-    assert data["tool"]["ruff"]["lint"]["ignore"] == ["D203", "D213", "S603"]
+    assert data["tool"]["ruff"]["lint"]["ignore"] == [*CANON_IGNORE, "S603"]
+    # Hoisted out of the deprecated top-level location, not left in both.
+    assert "ignore" not in data["tool"]["ruff"]
 
 
 def test_ruff_no_existing_section_ignore_is_canon_only(tmp_path: Path) -> None:
     repo = _write_pyproject(tmp_path, "")
     rewrite_pyproject(repo)
     data = _load(repo)
-    assert data["tool"]["ruff"]["lint"]["ignore"] == ["D203", "D213"]
+    assert data["tool"]["ruff"]["lint"]["ignore"] == CANON_IGNORE
 
 
 def test_ruff_ignore_merge_is_idempotent(tmp_path: Path) -> None:
@@ -208,7 +216,37 @@ def test_ruff_ignore_merge_is_idempotent(tmp_path: Path) -> None:
     rewrite_pyproject(repo)
     data = _load(repo)
     ignore = data["tool"]["ruff"]["lint"]["ignore"]
-    assert ignore == ["D203", "D213", "S603", "S607"]
+    assert ignore == [*CANON_IGNORE, "S603", "S607"]
+
+
+def test_repo_specific_ruff_settings_survive(tmp_path: Path) -> None:
+    """Settings canon says nothing about must not be dropped (issue #13)."""
+    repo = _write_pyproject(
+        tmp_path,
+        "[tool.ruff]\n"
+        'exclude = ["notebooks", "scripts"]\n\n'
+        "[tool.ruff.lint.flake8-bugbear]\n"
+        'extend-immutable-calls = ["typer.Option"]\n\n'
+        "[tool.ruff.lint.per-file-ignores]\n"
+        '"scripts/**" = ["T201"]\n'
+        '"tests/**" = ["ANN"]\n\n'
+        "[tool.pyright]\nreportMissingImports = false\n",
+    )
+    _, preserved = rewrite_pyproject(repo)
+    ruff = _load(repo)["tool"]["ruff"]
+
+    assert ruff["exclude"] == ["notebooks", "scripts"]
+    assert ruff["lint"]["flake8-bugbear"]["extend-immutable-calls"] == ["typer.Option"]
+    assert ruff["lint"]["per-file-ignores"]["scripts/**"] == ["T201"]
+    # Repo codes union onto canon's for a pattern canon also defines.
+    assert ruff["lint"]["per-file-ignores"]["tests/**"] == [*CANON_TEST_IGNORES, "ANN"]
+    assert _load(repo)["tool"]["pyright"]["reportMissingImports"] is False
+    # Canon still wins where it has an opinion.
+    assert ruff["line-length"] == 88
+    assert _load(repo)["tool"]["pyright"]["typeCheckingMode"] == "standard"
+
+    assert any("exclude" in p for p in preserved)
+    assert any("flake8-bugbear" in p for p in preserved)
 
 
 def _write_pyproject_with_requires(
@@ -245,3 +283,47 @@ def test_target_version_uses_actual_floor_below_fleet_standard(tmp_path: Path) -
     rewrite_pyproject(repo)
     data = _load(repo)
     assert data["tool"]["ruff"]["target-version"] == "py310"
+
+
+@pytest.mark.parametrize(
+    ("requires_python", "expected"),
+    [
+        (">=3.12", "py312"),
+        ("~=3.12", "py312"),
+        ("==3.12.*", "py312"),
+        (">3.11", "py311"),
+        (">=3.11,<4", "py311"),
+    ],
+)
+def test_target_version_handles_every_floor_specifier(
+    tmp_path: Path, requires_python: str, expected: str
+) -> None:
+    """~= and == pin a floor just as >= does (issue #15)."""
+    repo = _write_pyproject_with_requires(tmp_path, requires_python)
+    rewrite_pyproject(repo)
+    assert _load(repo)["tool"]["ruff"]["target-version"] == expected
+
+
+def test_dev_group_does_not_duplicate_included_group(tmp_path: Path) -> None:
+    """A requirement reached via include-group is already present (issue #18)."""
+    repo = _write_pyproject(
+        tmp_path,
+        "[dependency-groups]\n"
+        'dev = [{ include-group = "test" }]\n'
+        'test = ["pytest>=9"]\n',
+    )
+    rewrite_pyproject(repo)
+    dev = _load(repo)["dependency-groups"]["dev"]
+    assert not any(isinstance(e, str) and e.startswith("pytest") for e in dev)
+
+
+def test_dev_group_include_cycle_terminates(tmp_path: Path) -> None:
+    repo = _write_pyproject(
+        tmp_path,
+        "[dependency-groups]\n"
+        'dev = [{ include-group = "a" }]\n'
+        'a = [{ include-group = "dev" }, "pytest>=9"]\n',
+    )
+    rewrite_pyproject(repo)
+    dev = _load(repo)["dependency-groups"]["dev"]
+    assert not any(isinstance(e, str) and e.startswith("pytest") for e in dev)

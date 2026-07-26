@@ -94,7 +94,7 @@ def test_uv_missing_skips(tmp_path: Path, monkeypatch) -> None:
 
     def fake_run(cmd, **kwargs):
         if cmd[:2] == ["uv", "export"]:
-            raise FileNotFoundError()
+            raise FileNotFoundError
         raise AssertionError(f"unexpected call: {cmd}")
 
     monkeypatch.setattr("preen.checks.audit.subprocess.run", fake_run)
@@ -111,7 +111,7 @@ def test_pip_audit_missing_skips(tmp_path: Path, monkeypatch) -> None:
         if cmd[:2] == ["uv", "export"]:
             return _completed(cmd, returncode=0, stdout="requests==2.31.0\n")
         if cmd[0] in ("pip-audit", "uvx"):
-            raise FileNotFoundError()
+            raise FileNotFoundError
         raise AssertionError(f"unexpected call: {cmd}")
 
     monkeypatch.setattr("preen.checks.audit.subprocess.run", fake_run)
@@ -131,7 +131,7 @@ def test_pip_audit_via_uvx_fallback(tmp_path: Path, monkeypatch) -> None:
         if cmd[:2] == ["uv", "export"]:
             return _completed(cmd, returncode=0, stdout="requests==2.31.0\n")
         if cmd == ["pip-audit", "--version"]:
-            raise FileNotFoundError()
+            raise FileNotFoundError
         if cmd == ["uvx", "--version"]:
             return _completed(cmd, returncode=0, stdout="uvx 0.9\n")
         if cmd[:2] == ["uvx", "pip-audit"]:

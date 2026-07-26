@@ -30,6 +30,10 @@ class Fix:
     description: str
     diff: str
     apply: Callable[[], None]
+    #: Refuse to apply this fix non-interactively. For fixes that rewrite
+    #: content a tool cannot judge — a misspelling inside a data fixture may
+    #: be a real proper noun — a human has to look at the diff first.
+    requires_confirmation: bool = False
 
     def preview(self) -> str:
         """Return a preview of the fix as a diff."""
@@ -177,7 +181,6 @@ class Check(ABC):
     @abstractmethod
     def name(self) -> str:
         """Return the name of this check."""
-        pass
 
     @property
     def description(self) -> str:
@@ -191,7 +194,6 @@ class Check(ABC):
         Returns:
             CheckResult containing any issues found.
         """
-        pass
 
     def can_fix(self) -> bool:
         """Return True if this check can automatically fix issues."""

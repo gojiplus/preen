@@ -94,7 +94,7 @@ class InteractiveReleaseWorkflow:
                     issue.proposed_fix.apply()
                     self.console.print("  ✅ [green]Fixed[/green]")
                     continue
-                elif fix_choice == "skip":
+                if fix_choice == "skip":
                     continue
 
             # Ask override question
@@ -106,9 +106,8 @@ class InteractiveReleaseWorkflow:
             if not Confirm.ask(question, default=False):
                 self.console.print("❌ [red]Release cancelled by user[/red]")
                 return False
-            else:
-                self.console.print("  ⚠️  [yellow]Proceeding despite issue[/yellow]")
-                self.overrides[f"{issue.check}:{issue.description}"] = True
+            self.console.print("  ⚠️  [yellow]Proceeding despite issue[/yellow]")
+            self.overrides[f"{issue.check}:{issue.description}"] = True
 
         return True
 

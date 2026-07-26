@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from preen.checks.base import Impact
 from preen.checks.depgroups import DepgroupsCheck
 
@@ -153,3 +155,14 @@ def test_malformed_toml_passes(tmp_path: Path) -> None:
 
 def test_can_fix_is_false(tmp_path: Path) -> None:
     assert DepgroupsCheck(tmp_path).can_fix() is False
+
+
+@pytest.mark.parametrize("extra", ["type-check", "type_check", "Type-Checking"])
+def test_dev_type_extra_name_variants_flagged(tmp_path: Path, extra: str) -> None:
+    """Hyphen/underscore/case variants must all be recognized (issue #18)."""
+    (tmp_path / "pyproject.toml").write_text(
+        f'[project]\nname = "x"\n\n[project.optional-dependencies]\n'
+        f'"{extra}" = ["pyright"]\n\n[dependency-groups]\ndev = ["pytest"]\n'
+    )
+    result = DepgroupsCheck(tmp_path).run()
+    assert any("dev-type dependency" in i.description for i in result.issues)

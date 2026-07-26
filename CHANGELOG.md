@@ -4,6 +4,65 @@ All notable changes to this project are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- `preen adopt` no longer clobbers repo-specific configuration. The
+  `[tool.ruff]`, `[tool.pyright]` and `[tool.pydoclint]` sections are now
+  merged rather than replaced: canon wins on keys it defines, anything it says
+  nothing about (`exclude`, `[tool.ruff.lint.flake8-bugbear]`, extra
+  per-file-ignore patterns) survives, and `lint.ignore`/`select`/`extend-select`
+  plus per-file-ignore code lists union with canon's. Deprecated top-level
+  `[tool.ruff]` lint keys are hoisted under `[tool.ruff.lint]`. The adoption
+  report gained a "Preserved" section listing everything kept (#13).
+- `preen adopt` preserves the CI shim's `with:` inputs. `coverage-floor` is
+  mined from an existing `.github/workflows/ci.yml` — so it is also persisted
+  to `.copier-answers.yml` instead of being reset to 0 on every `preen update`
+  — and any input the template does not render (e.g. `python-versions`) is
+  re-applied after the overwrite (#13).
+- `preen fix codespell --auto` no longer rewrites data fixtures. Fixes are now
+  emitted per file instead of one repo-wide fix, and files outside prose/code
+  (`.md`, `.rst`, `.txt`, `.py`) or under `data`/`fixtures`/`testdata`/
+  `samples`/`golden` directories are deferred for human review rather than
+  applied unattended — a suggestion in a fixture is as likely to be a real
+  proper noun (#19).
+- The `codespell` check now passes `--toml`, so a repo's `[tool.codespell]`
+  configuration is actually honored; codespell reads `setup.cfg`/`.codespellrc`
+  but never discovers `pyproject.toml` on its own. The scan target is also
+  relative now, so repo-relative `skip` globs match (#19).
+- The changelog gate understands PEP 440. Version headings are matched to a
+  word boundary and validated with `packaging`, so a `## [0.2.0rc1]` heading no
+  longer falsely satisfies a 0.2.0 release, and releasing `1.2.3rc1` matches its
+  own heading instead of being forced down the rename path (#14).
+- `adopt` derives the `requires-python` floor from `~=` and `==` specifiers, not
+  just `>=`, so `~=3.12` no longer understates ruff's `target-version` (#15).
+- `preen release` checks whether the tag already exists on origin, failing
+  before the changelog is rewritten rather than at push. An unreachable origin
+  is treated as unknown, not as a block (#18).
+- `preen release` offers to bump `.claude-plugin/plugin.json` to the release
+  version and includes it in the release commit, so the hand-written manifest
+  stops drifting behind the tags (#18).
+- `adopt` resolves `{ include-group = ... }` when checking the dev group, so a
+  requirement already provided by an included group is not added a second time
+  with a weaker pin (#18).
+- The `depgroups` check recognizes `type-check`/`type_check`/`type-checking`
+  extra-name variants (#18).
+- The `license` check reports an empty `license = {}` table as such instead of
+  as `{ file = "None" }`, and its SPDX tokenizer no longer splits identifiers
+  that merely begin with `AND`/`OR`/`WITH` (#16).
+
+### Changed
+
+- Expanded the canon ruff rule set from 14 to 34 selectors, adding `PTH`, `RET`,
+  `PIE`, `FURB`, `PERF`, `DTZ`, `LOG`, `G`, `TC`, `FLY`, `RSE`, `SLOT`, `FA`,
+  `A`, `EXE`, `ICN`, `PGH`, `PLE`, `ARG` and `SLF` (~400 of ruff 0.15's 800
+  stable rules, up from ~400 enabled before). `ARG` and `SLF` are ignored under
+  `tests/**`.
+- Added `W191`, `D206` and `D300` to the canon ignore list. Selecting `W` and
+  `D` wholesale enabled three rules ruff's own documentation lists as always
+  incompatible with `ruff format`, which the standard also runs.
+
 ## [0.2.0] - 2026-07-24
 
 ### Added

@@ -58,7 +58,6 @@ dev = [
     "ruff>=0.14",
     "pyright>=1.1.390",
     "pydoclint>=0.5",
-    "pytest>=8",
 ]
 test = ["pytest>=9.1.1", "pytest-cov>=7.1.0"]
 docs = [
@@ -75,10 +74,15 @@ target-version = "py312"
 
 [tool.ruff.lint]
 external = ["DOC"]
-select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "D", "S", "SIM", "T20", "PT", "RUF"]
-# D203/D213: fleet standard (google convention). S603/S607: preen's job is
-# driving developer tools (ruff, git, uv, copier) via subprocess.
-ignore = ["D203", "D213", "S603", "S607"]
+select = [
+    "E", "W", "F", "I", "B", "C4", "UP", "N", "D", "S", "SIM", "T20", "PT", "RUF",
+    "PTH", "RET", "PIE", "FURB", "PERF", "DTZ", "LOG", "G", "TC", "FLY",
+    "RSE", "SLOT", "FA", "A", "EXE", "ICN", "PGH", "PLE", "ARG", "SLF",
+]
+# D203/D213: fleet standard (google convention). W191/D206/D300: ruff's docs
+# list these as always incompatible with `ruff format`. S603/S607: preen's job
+# is driving developer tools (ruff, git, uv, copier) via subprocess.
+ignore = ["D203", "D213", "W191", "D206", "D300", "S603", "S607"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["typer.Argument", "typer.Option"]
@@ -87,7 +91,7 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "D"]
+"tests/**" = ["S101", "D", "ARG", "SLF"]
 "docs/**" = ["D"]
 
 [tool.pyright]
@@ -101,6 +105,11 @@ check-return-types = false
 check-class-attributes = false
 allow-init-docstring = true
 exclude = '\.venv|tests|docs'
+
+[tool.codespell]
+# "Leary" is a surname in the worked example of why auto-fixing spelling in
+# data files is unsafe -- exactly the false positive that motivated the rule.
+ignore-words-list = "leary"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

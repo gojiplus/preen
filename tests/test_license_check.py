@@ -4,7 +4,7 @@ import tomllib
 from pathlib import Path
 
 from preen.checks.base import Impact
-from preen.checks.license import LicenseCheck
+from preen.checks.license import LicenseCheck, _tokenize_spdx
 
 MODERN_PYPROJECT = """\
 [project]
@@ -234,3 +234,26 @@ def test_fix_adds_license_files_end_to_end(tmp_path: Path) -> None:
 
 def test_can_fix_is_true(tmp_path: Path) -> None:
     assert LicenseCheck(tmp_path).can_fix() is True
+
+
+def test_empty_license_table_message(tmp_path: Path) -> None:
+    """`license = {}` must not be reported as `{ file = "None" }` (issue #16)."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nlicense = {}\nlicense-files = ["LICENSE"]\n'
+    )
+    result = LicenseCheck(tmp_path).run()
+    descriptions = [i.description for i in result.issues]
+    assert any("empty or unrecognized" in d for d in descriptions)
+    assert not any("None" in d for d in descriptions)
+
+
+def test_spdx_tokenizer_respects_word_boundaries() -> None:
+    """An identifier starting with AND/OR/WITH must not split (issue #16)."""
+    assert _tokenize_spdx("ANDover-1.0") == ["ANDover-1.0"]
+    assert _tokenize_spdx("ORbit-2.0") == ["ORbit-2.0"]
+    assert _tokenize_spdx("MIT AND Apache-2.0") == ["MIT", "AND", "Apache-2.0"]
+    assert _tokenize_spdx("GPL-2.0-only WITH Classpath-exception-2.0") == [
+        "GPL-2.0-only",
+        "WITH",
+        "Classpath-exception-2.0",
+    ]
