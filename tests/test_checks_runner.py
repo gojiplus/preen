@@ -103,3 +103,27 @@ class _RaisingCheck(Check):
 def test_raising_check_propagates(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="check blew up"):
         run_checks(tmp_path, [_PassingCheck, _RaisingCheck])
+
+
+def test_an_unknown_check_name_is_an_error_not_a_silent_no_op(tmp_path: Path) -> None:
+    """A name matching nothing used to filter everything out and report a pass.
+
+    ``--only ruff,tests`` is the obvious way to write it, and typer's repeatable
+    option turned it into the single name ``"ruff,tests"``, which matched no
+    check. Every check was filtered out, the results table came back empty, and
+    the CLI printed "All checks passed" -- a conformance tool certifying a repo
+    it never looked at.
+    """
+    with pytest.raises(ValueError, match="Unknown check"):
+        run_checks(tmp_path, [_PassingCheck, _OtherCheck], only=["passing,other"])
+
+    with pytest.raises(ValueError, match="Unknown check"):
+        run_checks(tmp_path, [_PassingCheck, _OtherCheck], skip=["typo"])
+
+
+def test_the_error_lists_what_is_available(tmp_path: Path) -> None:
+    """Naming the valid checks is what turns the error into a fix."""
+    with pytest.raises(ValueError, match="Available checks") as caught:
+        run_checks(tmp_path, [_PassingCheck, _OtherCheck], only=["nope"])
+    assert "passing" in str(caught.value)
+    assert "other" in str(caught.value)

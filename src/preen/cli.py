@@ -80,6 +80,27 @@ def update(
     run_update(repo)
 
 
+def _split_names(values: list[str] | None) -> list[str]:
+    """Flatten repeated and comma-separated check names into one list.
+
+    ``--only ruff --only tests`` is what typer gives natively, but the help text
+    reads like a list and ``--only ruff,tests`` is what people write. Accepting
+    both costs a line; accepting only the first cost a silent no-op run.
+
+    Args:
+        values: Raw option values, or None.
+
+    Returns:
+        list[str]: Names with surrounding whitespace and empty entries removed.
+    """
+    return [
+        name.strip()
+        for value in values or []
+        for name in value.split(",")
+        if name.strip()
+    ]
+
+
 @app.command()
 def check(
     path: str | None = typer.Argument(
@@ -95,9 +116,13 @@ def check(
     explain: bool = typer.Option(
         False, "--explain", help="Show explanations of why each issue matters."
     ),
-    skip: list[str] | None = typer.Option(None, "--skip", help="Skip specific checks."),
+    skip: list[str] | None = typer.Option(
+        None, "--skip", help="Skip specific checks. Repeatable, or comma-separated."
+    ),
     only: list[str] | None = typer.Option(
-        None, "--only", help="Run only specific checks."
+        None,
+        "--only",
+        help="Run only specific checks. Repeatable, or comma-separated.",
     ),
 ) -> None:
     """Run conformance checks on the package (pure detection, no fixing)."""
@@ -108,10 +133,19 @@ def check(
         "\n[bold cyan]preen check[/bold cyan] — package health check (detection only)\n"
     )
 
+    skip = _split_names(skip)
+    only = _split_names(only)
+
     # [tool.preen] skip_checks applies unless an explicit --only overrides it
     config_skips = [] if only else PreenConfig.from_pyproject(project_dir).skip_checks
-    merged_skip = [*(skip or []), *config_skips]
-    results = run_checks(project_dir, ALL_CHECKS, skip=merged_skip or None, only=only)
+    merged_skip = [*skip, *config_skips]
+    try:
+        results = run_checks(
+            project_dir, ALL_CHECKS, skip=merged_skip or None, only=only or None
+        )
+    except ValueError as error:
+        console.print(f"[bold red]{error}[/bold red]")
+        raise typer.Exit(2) from error
     educator = EducationalPrompt(console)
 
     table = Table(show_header=True, header_style="bold cyan")
