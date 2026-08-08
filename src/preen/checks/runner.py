@@ -22,13 +22,29 @@ def run_checks(
 
     Returns:
         Dictionary mapping check names to their results.
+
+    Raises:
+        ValueError: If ``skip`` or ``only`` names a check that does not exist.
     """
     results = {}
     skip = skip or []
 
-    for check_class in check_classes:
-        check = check_class(project_dir)
+    checks = [check_class(project_dir) for check_class in check_classes]
+    available = {check.name for check in checks}
 
+    # A name matching nothing used to filter silently, so `--only ruff,tests` --
+    # the obvious way to write it, and the way the help text reads -- selected
+    # zero checks and printed "All checks passed" over an empty table. A
+    # conformance tool reporting a pass it never established is worse than one
+    # that refuses.
+    unknown = sorted({*skip, *(only or [])} - available)
+    if unknown:
+        raise ValueError(
+            f"Unknown check(s): {', '.join(unknown)}. "
+            f"Available checks: {', '.join(sorted(available))}"
+        )
+
+    for check in checks:
         # Skip if in skip list
         if check.name in skip:
             continue
