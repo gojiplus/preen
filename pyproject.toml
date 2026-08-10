@@ -17,7 +17,6 @@ dependencies = [
     "typer>=0.27.0",
     "rich>=13.5",
     "PyYAML>=6.0",
-    "httpx>=0.24.0",
     "copier>=9",
     "tomlkit>=0.13",
     "packaging>=24",
@@ -26,6 +25,10 @@ dependencies = [
     "pydoclint>=0.9.1",
     "codespell>=2.4.3",
     "deptry>=0.20",
+    # The `links` check shells out to this rather than extracting URLs itself.
+    # It is the same checker r-canon runs for the R fleet, so both halves of
+    # the fleet agree on what a URL is.
+    "lychee-bin>=0.24.2",
 ]
 
 [project.urls]

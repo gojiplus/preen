@@ -1,22 +1,33 @@
-"""Link validation check."""
+r"""Link validation check.
 
-import re
+URL extraction is delegated to lychee rather than done here with a regex.
+
+The regex this replaced used explicit character classes for the path and query
+-- ``[-\\w/_.~%@+]`` and ``[-\\w&=%.]`` -- and both were missing legal URL
+characters. Parentheses, semicolons, commas, exclamation marks and a colon
+inside a query value all terminated the match early, so a URL was not skipped
+but *truncated*, which is worse: the shortened URL is a different URL. It may
+still answer 200, and the real link goes unchecked; or it may 404, and the
+check reports a dead link that is perfectly healthy. Five of seven realistic
+URLs truncated, including a Wikipedia article whose title ends in
+``(programming_language)``.
+
+lychee is the same checker the R half of the fleet runs via r-canon's
+reusable-link-check workflow, so both halves now agree on what a URL is.
+"""
+
+import json
+import shutil
+import subprocess
+import sysconfig
 from pathlib import Path
 from typing import ClassVar
-from urllib.parse import urlparse
 
 from .base import Check, CheckResult, Impact, Issue, Severity
 
 
 class LinkCheck(Check):
     """Check for broken or dead links in project files."""
-
-    # URL regex pattern to match HTTP/HTTPS URLs
-    URL_PATTERN = re.compile(
-        r"https?://(?:[-\w.])+(?:[:\d]+)?"
-        r"(?:/(?:[-\w/_.~%@+])*(?:\?(?:[-\w&=%.])*)?(?:#(?:[-\w.])*)?)?",
-        re.IGNORECASE,
-    )
 
     # File patterns to scan
     SCAN_PATTERNS: ClassVar[set[str]] = {
@@ -33,17 +44,25 @@ class LinkCheck(Check):
         "*.sh",
     }
 
-    # URLs to skip by default
-    DEFAULT_SKIP_PATTERNS: ClassVar[set[str]] = {
-        "localhost",
-        "127.0.0.1",
-        "0.0.0.0",  # noqa: S104 — skip-list entry, not a bind address
-        "example.com",
-        "example.org",
-        "test.com",
-        "placeholder.com",
-        "your-domain.com",
-    }
+    # Hosts that are placeholders rather than destinations. Anchored so that a
+    # real host merely containing one of these names is still checked.
+    DEFAULT_SKIP_PATTERNS: ClassVar[tuple[str, ...]] = (
+        r"^https?://localhost(:\d+)?([/?#]|$)",
+        r"^https?://127\.0\.0\.1(:\d+)?([/?#]|$)",
+        r"^https?://0\.0\.0\.0(:\d+)?([/?#]|$)",
+        r"^https?://([^/]*\.)?example\.(com|org|net)([/?#]|$)",
+        r"^https?://([^/]*\.)?test\.com([/?#]|$)",
+        r"^https?://([^/]*\.)?placeholder\.com([/?#]|$)",
+        r"^https?://([^/]*\.)?your-domain\.com([/?#]|$)",
+    )
+
+    # Anti-bot and auth responses do not mean the link is dead for a human
+    # reader, so they are collected by lychee and then dropped here rather than
+    # passed to --accept. Keeping lychee strict leaves the severity decision in
+    # one place.
+    IGNORED_STATUS_CODES: ClassVar[frozenset[int]] = frozenset({401, 403, 405, 429})
+
+    NETWORK_TIMEOUT_SECONDS: ClassVar[int] = 300
 
     @property
     def name(self) -> str:
@@ -55,72 +74,101 @@ class LinkCheck(Check):
         """Return a description of what this check does."""
         return "Check for broken or dead links in project files"
 
-    def _should_skip_url(self, url: str) -> bool:
-        """Check if URL should be skipped."""
-        parsed = urlparse(url)
-        domain = parsed.netloc.lower()
+    def _lychee_binary(self) -> str | None:
+        """Locate the lychee executable.
 
-        # Skip URLs with skip patterns
-        for pattern in self.DEFAULT_SKIP_PATTERNS:
-            if pattern in domain:
-                return True
+        Returns:
+            Path to the binary, or None if it cannot be found.
+        """
+        found = shutil.which("lychee")
+        if found:
+            return found
+        # lychee-bin installs into the interpreter's scripts directory, which is
+        # not necessarily on PATH when preen is invoked via its own entry point.
+        scripts = Path(sysconfig.get_path("scripts"))
+        for candidate in (scripts / "lychee", scripts / "lychee.exe"):
+            if candidate.is_file():
+                return str(candidate)
+        return None
 
-        # Skip non-HTTP(S) URLs
-        return parsed.scheme not in ("http", "https")
+    def _collect_files(self) -> list[Path]:
+        """Gather the project files whose links should be checked.
 
-    def _extract_urls_from_file(self, file_path: Path) -> list[tuple[str, int]]:
-        """Extract URLs from a file, returning (url, line_number) tuples."""
-        try:
-            content = file_path.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            return []
-
-        urls = []
-        for line_num, line in enumerate(content.splitlines(), 1):
-            for match in self.URL_PATTERN.finditer(line):
-                # pip VCS specs (git+https://...@ref) are not fetchable URLs
-                if line[: match.start()].endswith("+"):
-                    continue
-                url = match.group().rstrip(".,;:'\")")
-                if not self._should_skip_url(url):
-                    urls.append((url, line_num))
-
-        return urls
-
-    def _find_all_urls(self) -> dict[str, list[tuple[str, int]]]:
-        """Find all URLs in project files."""
-        url_map = {}
-
+        Returns:
+            Sorted list of absolute paths.
+        """
+        files: set[Path] = set()
         for pattern in self.SCAN_PATTERNS:
             for file_path in self.project_dir.glob(f"**/{pattern}"):
-                # Skip hidden files and directories
                 if any(part.startswith(".") for part in file_path.parts):
                     continue
-
                 if self.is_excluded(file_path.relative_to(self.project_dir)):
                     continue
+                files.add(file_path)
+        return sorted(files)
 
-                urls = self._extract_urls_from_file(file_path)
-                if urls:
-                    rel_path = str(file_path.relative_to(self.project_dir))
-                    url_map[rel_path] = urls
+    def _run_lychee(self, files: list[Path]) -> dict:
+        """Run lychee over the given files and return its parsed JSON report.
 
-        return url_map
+        Args:
+            files: Files to scan.
 
-    def _check_url_sync(self, url: str) -> tuple[str, int, str]:
-        """Check a single URL synchronously. Returns (url, status_code, error_msg)."""
+        Returns:
+            The parsed report, or an empty dict if lychee could not be run.
+        """
+        binary = self._lychee_binary()
+        if binary is None:
+            return {}
+
+        # --scheme keeps this to web URLs. lychee will otherwise resolve
+        # relative markdown links against the filesystem and report missing
+        # files, which the regex this replaced never looked at. That may be
+        # worth turning on, but it is a change of scope rather than a fix to
+        # extraction, and it belongs in its own change.
+        cmd = [
+            binary,
+            "--no-progress",
+            "--format",
+            "json",
+            "--max-retries",
+            "3",
+            "--scheme",
+            "http",
+            "--scheme",
+            "https",
+        ]
+        for pattern in self.DEFAULT_SKIP_PATTERNS:
+            cmd += ["--exclude", pattern]
+        cmd += [str(f) for f in files]
+
         try:
-            import httpx
+            # lychee exits non-zero when it finds broken links, so the exit code
+            # is a result rather than a failure; the report is on stdout either
+            # way.
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.NETWORK_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            return {}
 
-            with httpx.Client(timeout=10.0, follow_redirects=True) as client:
-                response = client.head(url)
-                return (url, response.status_code, "")
-
-        except Exception as e:
-            return (url, 0, str(e))
+        try:
+            return json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            return {}
 
     def _get_impact_for_file(self, file_path: Path) -> Impact:
-        """Determine impact level based on file location."""
+        """Determine impact level based on file location.
+
+        Args:
+            file_path: Path the link was found in.
+
+        Returns:
+            The impact level for issues in that file.
+        """
         file_str = str(file_path).lower()
 
         # Critical files
@@ -139,99 +187,90 @@ class LinkCheck(Check):
         # Everything else
         return Impact.INFORMATIONAL
 
+    def _issue_for(self, rel_path: Path, entry: dict) -> Issue | None:
+        """Turn one lychee error entry into an Issue.
+
+        Args:
+            rel_path: Project-relative path of the file the link appears in.
+            entry: One element of a lychee ``error_map`` list.
+
+        Returns:
+            The Issue, or None if this status should not be reported.
+        """
+        url = entry.get("url", "")
+        status = entry.get("status") or {}
+        code = status.get("code")
+        line = (entry.get("span") or {}).get("line")
+        impact = self._get_impact_for_file(rel_path)
+
+        if code is None:
+            # No HTTP status at all: DNS failure, TLS failure, connection
+            # refused, timeout.
+            detail = status.get("details") or status.get("text") or "unreachable"
+            return Issue(
+                check=self.name,
+                severity=Severity.ERROR,
+                description=f"Dead link: {url} - {detail}",
+                file=rel_path,
+                line=line,
+                impact=impact,
+                explanation=f"Link appears to be dead or unreachable: {detail}",
+            )
+
+        if code in self.IGNORED_STATUS_CODES:
+            return None
+
+        if 400 <= code < 500:
+            return Issue(
+                check=self.name,
+                severity=Severity.WARNING,
+                description=f"Broken link: {url} (HTTP {code})",
+                file=rel_path,
+                line=line,
+                impact=impact,
+                explanation=(
+                    f"Link returns HTTP {code}, indicating a client error "
+                    "(page not found, forbidden, etc.)"
+                ),
+            )
+
+        if 500 <= code < 600:
+            return Issue(
+                check=self.name,
+                severity=Severity.WARNING,
+                description=f"Server error for link: {url} (HTTP {code})",
+                file=rel_path,
+                line=line,
+                impact=impact,
+                explanation=f"Link returns HTTP {code}, indicating a server error",
+            )
+
+        return None
+
     def run(self) -> CheckResult:
-        """Run the link check."""
+        """Run the link check.
+
+        Returns:
+            The check result.
+        """
+        files = self._collect_files()
+        if not files:
+            return CheckResult(check=self.name, passed=True, issues=[])
+
+        report = self._run_lychee(files)
+        error_map = report.get("error_map") or {}
+
         issues = []
-
-        # Find all URLs
-        url_map = self._find_all_urls()
-
-        if not url_map:
-            return CheckResult(
-                check=self.name,
-                passed=True,
-                issues=[],
-            )
-
-        # Collect unique URLs to check
-        unique_urls = set()
-        for file_urls in url_map.values():
-            for url, _ in file_urls:
-                unique_urls.add(url)
-
-        if not unique_urls:
-            return CheckResult(
-                check=self.name,
-                passed=True,
-                issues=[],
-            )
-
-        # Check URLs
-        url_results = {}
-        for url in unique_urls:
-            url_results[url] = self._check_url_sync(url)
-
-        # Process results and create issues
-        for file_path, file_urls in url_map.items():
-            for url, line_num in file_urls:
-                _checked_url, status_code, error_msg = url_results[url]
-
-                impact = self._get_impact_for_file(Path(file_path))
-
-                # Determine if this is an issue
-                match status_code:
-                    case 0:  # Connection error
-                        issues.append(
-                            Issue(
-                                check=self.name,
-                                severity=Severity.ERROR,
-                                description=f"Dead link: {url} - {error_msg}",
-                                file=Path(file_path),
-                                line=line_num,
-                                impact=impact,
-                                explanation=(
-                                    "Link appears to be dead or unreachable: "
-                                    f"{error_msg}"
-                                ),
-                            )
-                        )
-                    case code if code in (401, 403, 405, 429):
-                        # Anti-bot / auth responses do not mean the link is
-                        # dead for a human reader
-                        pass
-                    case code if 400 <= code < 500:  # Client error
-                        issues.append(
-                            Issue(
-                                check=self.name,
-                                severity=Severity.WARNING,
-                                description=f"Broken link: {url} (HTTP {status_code})",
-                                file=Path(file_path),
-                                line=line_num,
-                                impact=impact,
-                                explanation=(
-                                    f"Link returns HTTP {status_code}, "
-                                    "indicating a client error (page not "
-                                    "found, forbidden, etc.)"
-                                ),
-                            )
-                        )
-                    case code if 500 <= code < 600:  # Server error
-                        issues.append(
-                            Issue(
-                                check=self.name,
-                                severity=Severity.WARNING,
-                                description=(
-                                    f"Server error for link: {url} (HTTP {status_code})"
-                                ),
-                                file=Path(file_path),
-                                line=line_num,
-                                impact=impact,
-                                explanation=(
-                                    f"Link returns HTTP {status_code}, "
-                                    "indicating a server error"
-                                ),
-                            )
-                        )
+        for raw_path, entries in error_map.items():
+            path = Path(raw_path)
+            try:
+                rel_path = path.relative_to(self.project_dir)
+            except ValueError:
+                rel_path = path
+            for entry in entries:
+                issue = self._issue_for(rel_path, entry)
+                if issue is not None:
+                    issues.append(issue)
 
         return CheckResult(
             check=self.name,
@@ -240,5 +279,9 @@ class LinkCheck(Check):
         )
 
     def can_fix(self) -> bool:
-        """Return True if this check can automatically fix issues."""
-        return False  # Link checking doesn't offer automatic fixes
+        """Return True if this check can automatically fix issues.
+
+        Returns:
+            False; broken links have no mechanical fix.
+        """
+        return False
