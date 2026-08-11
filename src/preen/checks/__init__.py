@@ -13,9 +13,11 @@ from .codespell import CodespellCheck
 from .depgroups import DepgroupsCheck
 from .deps import DepsCheck
 from .deptree import DeptreeCheck
+from .files import RequiredFilesCheck
 from .license import LicenseCheck
 from .links import LinkCheck
 from .metadata import MetadataCheck
+from .precommit import PreCommitCheck
 from .pydoclint import PydoclintCheck
 from .pyright import PyrightCheck
 from .ruff import RuffCheck
@@ -37,6 +39,8 @@ ALL_CHECKS: list[type[Check]] = [
     AuditCheck,
     CIMatrixCheck,
     StructureCheck,
+    RequiredFilesCheck,
+    PreCommitCheck,
     VersionCheck,
     LicenseCheck,
     LinkCheck,
