@@ -130,11 +130,15 @@ def test_server_error_flagged(tmp_path: Path, monkeypatch) -> None:
     assert "Server error" in result.issues[0].description
 
 
-@pytest.mark.parametrize("code", [401, 403, 405, 429])
+@pytest.mark.parametrize("code", [400, 401, 403, 405, 429])
 def test_auth_and_rate_limit_codes_not_flagged(
     tmp_path: Path, monkeypatch, code: int
 ) -> None:
-    """401/403/405/429 are anti-bot/auth noise, not real dead links."""
+    """400/401/403/405/429 mean the server answered, not that the link is dead.
+
+    A 400 is an API base URL saying "you gave me no parameters", which is proof
+    the endpoint is alive. See IGNORED_STATUS_CODES for the worked example.
+    """
     notes = tmp_path / "notes.txt"
     notes.write_text(_url("a-real-domain.test/x") + "\n")
     _stub(monkeypatch, _report(notes, _entry(_url("a-real-domain.test/x"), code=code)))
@@ -224,6 +228,53 @@ def test_real_lychee_extracts_urls_the_old_regex_truncated(tmp_path: Path) -> No
     ).stdout.split()
 
     assert sorted(dumped) == sorted(tricky)
+
+
+def _dump_after_excludes(doc: Path) -> list[str]:
+    """URLs lychee would fetch from `doc`, with the check's own excludes applied.
+
+    Args:
+        doc: File to extract URLs from.
+
+    Returns:
+        The URLs that survive DEFAULT_SKIP_PATTERNS. ``--dump`` extracts without
+        fetching, so this needs no network.
+    """
+    binary = shutil.which("lychee")
+    assert binary is not None
+    cmd = [binary, "--no-progress", "--dump", "--scheme", "http", "--scheme", "https"]
+    for pattern in LinkCheck.DEFAULT_SKIP_PATTERNS:
+        cmd += ["--exclude", pattern]
+    cmd.append(str(doc))
+    return subprocess.run(
+        cmd, capture_output=True, text=True, check=False
+    ).stdout.split()
+
+
+def test_template_urls_are_not_fetched(tmp_path: Path) -> None:
+    """A URL with a {placeholder} is source code, not a link.
+
+    The check scans .py files, so every f-string URL is extracted verbatim and
+    fetched with the braces still in it -- a 404 by construction that says
+    nothing about the real URL. gojiplus/get-weather-data had five of these and
+    nothing else wrong.
+    """
+    templates = [
+        _url("www.ncei.noaa.gov/pub/data/ghcn/daily/by_year/{year}.csv.gz"),
+        _url("api.example-real-host.org/v1/{station_id}/data"),
+    ]
+    doc = tmp_path / "fetch.py"
+    doc.write_text("".join(f'URL = "{u}"\n' for u in templates))
+
+    assert _dump_after_excludes(doc) == []
+
+
+def test_urls_without_placeholders_are_still_fetched(tmp_path: Path) -> None:
+    real = [_url("www.ncei.noaa.gov/pub/data/ghcn/daily/by_year/2024.csv.gz")]
+    doc = tmp_path / "fetch.py"
+    doc.write_text("".join(f'URL = "{u}"\n' for u in real))
+
+    assert _dump_after_excludes(doc) == real
 
 
 def test_can_fix_false(tmp_path: Path) -> None:

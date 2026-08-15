@@ -54,13 +54,33 @@ class LinkCheck(Check):
         r"^https?://([^/]*\.)?test\.com([/?#]|$)",
         r"^https?://([^/]*\.)?placeholder\.com([/?#]|$)",
         r"^https?://([^/]*\.)?your-domain\.com([/?#]|$)",
+        # A URL carrying a {placeholder} is a template in source, not a link:
+        # this check scans .py files, so every f-string and .format() target is
+        # extracted verbatim. Fetching one with the braces still in it 404s by
+        # construction, which says nothing about whether the real URL works.
+        # lychee percent-encodes the braces, so match both forms.
+        #
+        # gojiplus/get-weather-data had five of these and nothing else wrong,
+        # among them .../ghcn/daily/by_year/%7Byear%7D.csv.gz -- that is
+        # `{year}`.
+        r"(\{|%7[Bb])",
     )
 
     # Anti-bot and auth responses do not mean the link is dead for a human
     # reader, so they are collected by lychee and then dropped here rather than
     # passed to --accept. Keeping lychee strict leaves the severity decision in
     # one place.
-    IGNORED_STATUS_CODES: ClassVar[frozenset[int]] = frozenset({401, 403, 405, 429})
+    # 400 joins them for the same reason: an API base URL answers a bare GET
+    # with "you did not give me parameters", which proves the endpoint is alive
+    # rather than dead. gojiplus/get-weather-data documents three NOAA bases
+    # that each 400 on their own and return 200 with the query the code
+    # actually sends:
+    #
+    #   .../access/services/data/v1                                    -> 400
+    #   .../access/services/data/v1?dataset=daily-summaries&stations=.. -> 200
+    IGNORED_STATUS_CODES: ClassVar[frozenset[int]] = frozenset(
+        {400, 401, 403, 405, 429}
+    )
 
     NETWORK_TIMEOUT_SECONDS: ClassVar[int] = 300
 
