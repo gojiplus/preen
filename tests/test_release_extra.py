@@ -64,7 +64,7 @@ def test_suggest_next_no_tag_defaults_to_initial() -> None:
     assert _suggest_next(None) == "0.1.0"
 
 
-def test_suggest_next_unparseable_tag_defaults_to_initial() -> None:
+def test_suggest_next_unparsable_tag_defaults_to_initial() -> None:
     assert _suggest_next("not-a-version") == "0.1.0"
 
 
