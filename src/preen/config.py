@@ -17,6 +17,13 @@ class PreenConfig:
     # Checks
     skip_checks: list[str] = field(default_factory=list)
 
+    # Regexes for URLs the `links` check should not fetch. Some endpoints are
+    # real but do not answer a bare GET: an API base that needs a path or a
+    # query returns 404 or 400 while being perfectly alive. Silencing one of
+    # those by skipping the whole `links` check also stops the README being
+    # checked, which is where a broken link actually costs a reader something.
+    link_ignore: list[str] = field(default_factory=list)
+
     @classmethod
     def from_pyproject(cls, project_dir: Path) -> "PreenConfig":
         """Load configuration from pyproject.toml.
