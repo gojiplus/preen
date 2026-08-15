@@ -277,5 +277,41 @@ def test_urls_without_placeholders_are_still_fetched(tmp_path: Path) -> None:
     assert _dump_after_excludes(doc) == real
 
 
+def test_link_ignore_from_pyproject_is_applied(tmp_path: Path) -> None:
+    """A repo can declare endpoints that are alive but 404 on a bare GET.
+
+    themains/know-your-ip documents two: `rdap.arin.net/registry/` 404s on its
+    own and returns 200 for `.../registry/ip/8.8.8.8`, and
+    `api.platform.censys.io` is an API base the package only ever calls with a
+    path. Skipping the whole `links` check to silence them would also stop the
+    README being checked, which is where a broken link actually costs a reader
+    something.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.preen]\nlink_ignore = ["^https://rdap\\\\.arin\\\\.net/"]\n'
+    )
+    doc = tmp_path / "notes.md"
+    kept = _url("a-real-domain.example-host.org/x")
+    doc.write_text(f"{_url('rdap.arin.net/registry/')}\n{kept}\n")
+
+    binary = shutil.which("lychee")
+    assert binary is not None
+    cmd = [binary, "--no-progress", "--dump", "--scheme", "http", "--scheme", "https"]
+    for pattern in LinkCheck.DEFAULT_SKIP_PATTERNS:
+        cmd += ["--exclude", pattern]
+    from preen.config import PreenConfig
+
+    ignore = PreenConfig.from_pyproject(tmp_path).link_ignore
+    assert ignore, "link_ignore did not load from pyproject"
+    for pattern in ignore:
+        cmd += ["--exclude", pattern]
+    cmd.append(str(doc))
+
+    dumped = subprocess.run(
+        cmd, capture_output=True, text=True, check=False
+    ).stdout.split()
+    assert dumped == [kept]
+
+
 def test_can_fix_false(tmp_path: Path) -> None:
     assert LinkCheck(tmp_path).can_fix() is False

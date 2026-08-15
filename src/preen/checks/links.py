@@ -23,6 +23,7 @@ import sysconfig
 from pathlib import Path
 from typing import ClassVar
 
+from ..config import PreenConfig
 from .base import Check, CheckResult, Impact, Issue, Severity
 
 
@@ -158,6 +159,9 @@ class LinkCheck(Check):
             "https",
         ]
         for pattern in self.DEFAULT_SKIP_PATTERNS:
+            cmd += ["--exclude", pattern]
+        # A repo's own known-good endpoints, from [tool.preen] link_ignore.
+        for pattern in PreenConfig.from_pyproject(self.project_dir).link_ignore:
             cmd += ["--exclude", pattern]
         cmd += [str(f) for f in files]
 
