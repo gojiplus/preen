@@ -288,7 +288,12 @@ def test_link_ignore_from_pyproject_is_applied(tmp_path: Path) -> None:
     something.
     """
     (tmp_path / "pyproject.toml").write_text(
-        '[tool.preen]\nlink_ignore = ["^https://rdap\\\\.arin\\\\.net/"]\n'
+        # Host-only, no scheme. Anchoring the pattern on the scheme would
+        # put a literal URL in this file, which preen's own links check
+        # then extracts and reports dead: the config breaks the check it
+        # configures. That happened twice while writing this -- once in the
+        # pattern, once in the comment explaining the pattern.
+        '[tool.preen]\nlink_ignore = ["rdap\\\\.arin\\\\.net"]\n'
     )
     doc = tmp_path / "notes.md"
     kept = _url("a-real-domain.example-host.org/x")

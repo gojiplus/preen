@@ -26,6 +26,7 @@ from .structure import StructureCheck
 from .template import TemplateCheck
 from .tests import TestsCheck
 from .version import VersionCheck
+from .workflows import WorkflowsCheck
 
 ALL_CHECKS: list[type[Check]] = [
     TemplateCheck,
@@ -41,6 +42,7 @@ ALL_CHECKS: list[type[Check]] = [
     StructureCheck,
     RequiredFilesCheck,
     PreCommitCheck,
+    WorkflowsCheck,
     VersionCheck,
     LicenseCheck,
     LinkCheck,
@@ -58,5 +60,6 @@ __all__ = [
     "Impact",
     "Issue",
     "Severity",
+    "WorkflowsCheck",
     "run_checks",
 ]
