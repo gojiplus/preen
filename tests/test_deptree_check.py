@@ -40,7 +40,7 @@ def test_self_referential_module_not_flagged_as_cycle(tmp_path: Path) -> None:
     assert result.passed
 
 
-def test_unparseable_file_skipped_not_crashed(tmp_path: Path) -> None:
+def test_unparsable_file_skipped_not_crashed(tmp_path: Path) -> None:
     (tmp_path / "broken.py").write_text("def broken(:\n")
     (tmp_path / "fine.py").write_text("import os\n")
     result = DeptreeCheck(tmp_path).run()

@@ -32,7 +32,7 @@ def test_missing_config_flagged(tmp_path: Path) -> None:
     assert "No pre-commit config" in result.issues[0].description
 
 
-def test_unparseable_config_is_an_error(tmp_path: Path) -> None:
+def test_unparsable_config_is_an_error(tmp_path: Path) -> None:
     """Broken YAML is the case worth catching hardest.
 
     pre-commit errors out rather than running, so the hooks silently stop

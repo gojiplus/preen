@@ -85,7 +85,7 @@ class PreCommitCheck(Check):
         try:
             parsed = yaml.safe_load(path.read_text(encoding="utf-8"))
         except (yaml.YAMLError, OSError) as exc:
-            # An unparseable config is the failure worth catching: pre-commit
+            # An unparsable config is the failure worth catching: pre-commit
             # errors out rather than running, so the hooks stop happening and
             # nothing else reports it.
             issues.append(
