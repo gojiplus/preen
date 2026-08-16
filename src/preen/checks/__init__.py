@@ -22,6 +22,7 @@ from .pydoclint import PydoclintCheck
 from .pyright import PyrightCheck
 from .ruff import RuffCheck
 from .runner import run_checks
+from .runtime_assets import RuntimeAssetsCheck
 from .structure import StructureCheck
 from .template import TemplateCheck
 from .tests import TestsCheck
@@ -40,6 +41,7 @@ ALL_CHECKS: list[type[Check]] = [
     AuditCheck,
     CIMatrixCheck,
     StructureCheck,
+    RuntimeAssetsCheck,
     RequiredFilesCheck,
     PreCommitCheck,
     WorkflowsCheck,
@@ -59,6 +61,7 @@ __all__ = [
     "Fix",
     "Impact",
     "Issue",
+    "RuntimeAssetsCheck",
     "Severity",
     "WorkflowsCheck",
     "run_checks",
