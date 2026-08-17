@@ -30,11 +30,20 @@ workflow's test matrix must cover the `requires-python` floor.
 Project layout: `tests/` and `examples/` at the repo root, `src/` layout,
 no committed `__pycache__` or `.pyc` files.
 
+### `runtime-assets`
+
+Packaged runtime data must carry a schema. Tabular data uses Parquet;
+structured records may use Protobuf. CSV, TSV, compressed variants, and opaque
+archives inside import packages are critical failures. Serialized model files
+are also critical: publish them on Hugging Face and resolve them at runtime.
+Modules that access Hugging Face must declare a revision pinned to the full
+40-character commit SHA.
+
 ### `version`
 
-No hardcoded version strings: the git tag is the version, so literal
-`__version__ = "..."` assignments (and copies of a static `project.version`)
-are flagged.
+`project.version` is authoritative and the matching Git tag identifies a release.
+Literal `__version__ = "..."` assignments and other copies are flagged; runtime code
+should read installed package metadata.
 
 ### `changelog`
 

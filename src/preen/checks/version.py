@@ -1,9 +1,9 @@
 """Version hardcoding detection check.
 
-Under the fleet standard the git tag is the version (uv-dynamic-versioning),
-so no version string belongs in source. This check flags literal
-``__version__ = "..."`` assignments and, for repos that still declare a static
-``project.version``, copies of that string sprinkled through the tree.
+Under the fleet standard, ``project.version`` is authoritative and the matching Git tag
+identifies a release. No copy belongs in source. This check flags literal
+``__version__ = "..."`` assignments and copies of the project version sprinkled through
+the tree.
 """
 
 import re
@@ -112,8 +112,8 @@ class VersionCheck(Check):
                         line=line_num,
                         impact=Impact.IMPORTANT,
                         explanation=(
-                            "The standard derives the version from the git tag; "
-                            "use importlib.metadata.version() instead."
+                            "The standard keeps the version in project metadata; use "
+                            "importlib.metadata.version() instead."
                         ),
                     )
                 )

@@ -1,5 +1,6 @@
 """Tests for adopt's tomlkit pyproject surgery."""
 
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -132,16 +133,15 @@ def test_comments_and_untouched_sections_survive(legacy_repo: Path) -> None:
 def test_release_migration_converts_build_system(legacy_repo: Path) -> None:
     rewrite_pyproject(legacy_repo, release_migration=True)
     data = _load(legacy_repo)
-    assert data["build-system"]["requires"] == ["hatchling", "uv-dynamic-versioning"]
-    assert data["build-system"]["build-backend"] == "hatchling.build"
-    assert "version" not in data["project"]
-    assert "version" in data["project"]["dynamic"]
-    assert data["tool"]["hatch"]["version"]["source"] == "uv-dynamic-versioning"
-    assert data["tool"]["uv-dynamic-versioning"]["vcs"] == "git"
+    assert data["build-system"]["requires"] == ["uv_build>=0.12.5,<0.13"]
+    assert data["build-system"]["build-backend"] == "uv_build"
+    assert data["project"]["version"] == "1.2.3"
+    assert "dynamic" not in data["project"]
     # Flat layout detected.
-    assert data["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"] == [
-        "legacy_pkg"
-    ]
+    assert data["tool"]["uv"]["build-backend"] == {
+        "module-name": "legacy_pkg",
+        "module-root": "",
+    }
 
 
 def test_release_migration_src_layout(tmp_path: Path) -> None:
@@ -153,9 +153,43 @@ def test_release_migration_src_layout(tmp_path: Path) -> None:
     (pkg / "__init__.py").write_text("")
     rewrite_pyproject(tmp_path, release_migration=True)
     data = _load(tmp_path)
-    assert data["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"] == [
-        "src/srcpkg"
-    ]
+    assert data["tool"]["uv"]["build-backend"] == {"module-name": "srcpkg"}
+
+
+def test_release_migration_recovers_dynamic_version_from_tag(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "tagged"\ndynamic = ["version"]\n'
+    )
+    package = tmp_path / "src" / "tagged"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    for command in (
+        ["git", "init", "-q"],
+        ["git", "config", "user.email", "test@example.com"],
+        ["git", "config", "user.name", "Test"],
+        ["git", "add", "-A"],
+        ["git", "commit", "-q", "-m", "init"],
+        ["git", "tag", "v2.4.0"],
+    ):
+        subprocess.run(command, cwd=tmp_path, check=True)
+
+    rewrite_pyproject(tmp_path, release_migration=True)
+
+    data = _load(tmp_path)
+    assert data["project"]["version"] == "2.4.0"
+    assert "dynamic" not in data["project"]
+
+
+def test_release_migration_refuses_to_invent_version(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "untagged"\ndynamic = ["version"]\n'
+    )
+    package = tmp_path / "src" / "untagged"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+
+    with pytest.raises(ValueError, match=r"needs project\.version"):
+        rewrite_pyproject(tmp_path, release_migration=True)
 
 
 def test_missing_pyproject_raises(tmp_path: Path) -> None:
