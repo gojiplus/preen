@@ -6,7 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-17
+
+### Added
+
+- Added the `runtime-assets` check: runtime tables must use schema-bearing formats,
+  serialized model weights must live on Hugging Face, and Hub revisions must be pinned
+  to full commit SHAs.
+
 ### Fixed
+
+- Replaced the serial, hand-rolled HTTP link checker with `lychee`, which validates
+  unique links concurrently and correctly parses legal URL characters. Repository-level
+  `link_ignore` patterns cover known-good API bases without disabling link validation.
+- `--release-migration` now writes the actual py-canon standard: `uv_build` with an
+  explicit project version. It no longer reintroduces Hatchling and
+  `uv-dynamic-versioning`.
+- The codespell check now scans only tracked or non-ignored prose, code, and config files,
+  in bounded batches. Ignored caches and training-data directories no longer produce
+  hundreds of thousands of false findings or megabytes of output.
 
 - `preen adopt` no longer clobbers repo-specific configuration. The
   `[tool.ruff]`, `[tool.pyright]` and `[tool.pydoclint]` sections are now

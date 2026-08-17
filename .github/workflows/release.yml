@@ -2,10 +2,22 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: >-
+          Upload to PyPI. Only takes effect when the run is started from a tag;
+          from a branch this is a build-and-check rehearsal.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -13,12 +25,17 @@ jobs:
     permissions:
       contents: write
       id-token: write
+    with:
+      github-release: ${{ github.event_name == 'push' }}
 
   # PyPI trusted publishing rejects reusable workflows (the OIDC claims
   # must reference this repo's workflow file), so the publish step lives
   # here rather than in py-canon's reusable-release.
   publish:
     needs: release
+    if: >-
+      startsWith(github.ref, 'refs/tags/') &&
+      (github.event_name == 'push' || inputs.publish)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: pypi
@@ -33,3 +50,4 @@ jobs:
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           attestations: true
+          skip-existing: true

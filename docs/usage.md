@@ -38,8 +38,8 @@ them into the canon list, and deriving `target-version` from the repo's
 Ends with an adoption report of what was written, skipped, and left for
 you.
 
-Add `--release-migration` to convert the build backend to hatchling +
-uv-dynamic-versioning (the git tag becomes the version).
+Add `--release-migration` to convert the build backend to `uv_build` with an explicit
+project version. A legacy dynamic version is recovered from the latest `v*` tag.
 
 ## Staying current: `preen update`
 

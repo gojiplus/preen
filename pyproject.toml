@@ -6,7 +6,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Gaurav Sood", email = "contact@gsood.com" }]
 requires-python = ">=3.12"
-dynamic = ["version"]
+version = "0.3.0"
 keywords = ["packaging", "release", "conformance", "copier", "cli", "python"]
 classifiers = [
     "Intended Audience :: Developers",
@@ -41,18 +41,11 @@ Repository = "https://github.com/gojiplus/preen"
 preen = "preen.cli:run"
 
 [build-system]
-requires = ["hatchling>=1.27", "uv-dynamic-versioning"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.12.5,<0.13"]
+build-backend = "uv_build"
 
-[tool.hatch.version]
-source = "uv-dynamic-versioning"
-
-[tool.uv-dynamic-versioning]
-vcs = "git"
-style = "pep440"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/preen"]
+[tool.uv.build-backend]
+module-name = "preen"
 
 [dependency-groups]
 dev = [
@@ -111,8 +104,9 @@ exclude = '\.venv|tests|docs'
 
 [tool.codespell]
 # "Leary" is a surname in the worked example of why auto-fixing spelling in
-# data files is unsafe -- exactly the false positive that motivated the rule.
-ignore-words-list = "leary"
+# data files is unsafe; "sav" is a serialized-model filename extension checked
+# by runtime-assets.
+ignore-words-list = "leary,sav"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

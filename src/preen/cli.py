@@ -55,8 +55,8 @@ def adopt(
     release_migration: bool = typer.Option(
         False,
         "--release-migration",
-        help="Also convert the build backend to hatchling + uv-dynamic-versioning "
-        "(tag-derived version).",
+        help="Also convert the build backend to uv_build with an explicit project "
+        "version.",
     ),
 ) -> None:
     """Retrofit an existing package repo onto the py-canon template.

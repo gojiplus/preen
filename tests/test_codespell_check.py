@@ -76,7 +76,7 @@ def test_misspellings_parsed_into_issues(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_impact_downgraded_for_non_doc_files(tmp_path: Path, monkeypatch) -> None:
-    misc = tmp_path / "data.json"
+    misc = tmp_path / "config.yaml"
     misc.write_text("{}\n")
     output = f"{misc}:1: {_TEH} ==> the\n"
 
@@ -122,6 +122,7 @@ def test_nonzero_exit_truly_no_output_reports_error(
     single informational "codespell error" note instead of silently
     passing.
     """
+    (tmp_path / "README.md").write_text("ordinary text\n")
 
     def fake_run(cmd, **kwargs):
         if cmd == ["codespell", "--version"]:
@@ -189,6 +190,54 @@ def test_codespell_target_is_relative(tmp_path: Path) -> None:
     assert (
         CodespellCheck(tmp_path)._get_codespell_command(Path("a/b.md"))[-1] == "a/b.md"
     )
+
+
+def test_candidate_files_honor_gitignore_and_skip_data(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / ".gitignore").write_text("cache/\n")
+    (tmp_path / "README.md").write_text("checked\n")
+    (tmp_path / "cache").mkdir()
+    (tmp_path / "cache" / "page.html").write_text("ignored\n")
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "training.txt").write_text("external text\n")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "module.py").write_text("checked = True\n")
+
+    assert CodespellCheck(tmp_path)._candidate_files() == [
+        Path("README.md"),
+        Path("src/module.py"),
+    ]
+
+
+def test_candidate_files_fall_back_when_git_fails(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "README.md").write_text("checked\n")
+
+    def fail_git(*args, **kwargs):
+        raise FileNotFoundError
+
+    monkeypatch.setattr("preen.checks.codespell.subprocess.run", fail_git)
+
+    assert CodespellCheck(tmp_path)._candidate_files() == [Path("README.md")]
+
+
+def test_candidate_files_are_batched(tmp_path: Path, monkeypatch) -> None:
+    candidates = [Path(f"docs/page-{index}.md") for index in range(201)]
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        if cmd == ["codespell", "--version"]:
+            return _completed(cmd, returncode=0, stdout="codespell 2.4\n")
+        calls.append(cmd)
+        return _completed(cmd, returncode=0)
+
+    monkeypatch.setattr(CodespellCheck, "_candidate_files", lambda self: candidates)
+    monkeypatch.setattr("preen.checks.codespell.subprocess.run", fake_run)
+
+    assert CodespellCheck(tmp_path).run().passed
+    assert len(calls) == 2
+    assert calls[0][-200:] == [str(path) for path in candidates[:200]]
+    assert calls[1][-1] == str(candidates[-1])
 
 
 def test_fix_per_file_and_data_needs_confirmation(tmp_path: Path) -> None:

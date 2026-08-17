@@ -20,6 +20,7 @@ htmlcov/
 # Docs
 docs/_build/
 _site/
+_doctest/
 
 # OS
 .DS_Store

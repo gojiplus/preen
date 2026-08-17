@@ -10,10 +10,18 @@ from .base import Check, CheckResult, Fix, Impact, Issue, Severity
 # to apply unattended.
 AUTO_FIXABLE_SUFFIXES = frozenset({".md", ".rst", ".txt", ".py"})
 
+CHECKABLE_SUFFIXES = frozenset(
+    {".md", ".rst", ".txt", ".py", ".toml", ".yaml", ".yml", ".cfg", ".ini", ".sh"}
+)
+
 # Directory names that hold test data rather than prose. A "misspelling" in a
 # fixture is as likely to be a real proper noun -- auto-applying the
 # suggestion once turned "Denis Leary" into "Leery" in a transcript fixture.
 NEVER_AUTO_DIRS = frozenset({"data", "fixtures", "testdata", "samples", "golden"})
+
+NEVER_CHECK_DIRS = NEVER_AUTO_DIRS | {"cache"}
+
+COMMAND_BATCH_SIZE = 200
 
 
 def is_auto_fixable(file_path: Path) -> bool:
@@ -105,12 +113,14 @@ class CodespellCheck(Check):
         # Informational for other files
         return Impact.INFORMATIONAL
 
-    def _get_codespell_command(self, target: Path | None = None) -> list[str]:
+    def _get_codespell_command(
+        self, target: Path | list[Path] | None = None
+    ) -> list[str]:
         """Build codespell command with appropriate options.
 
         Args:
-            target: Repo-relative path to check, defaulting to the whole
-                project.
+            target: Repo-relative path or paths to check, defaulting to the
+                whole project.
 
         Returns:
             The argv list.
@@ -147,13 +157,58 @@ class CodespellCheck(Check):
 
         # Relative to the cwd the command runs in, so that repo-relative skip
         # globs in [tool.codespell] match the paths codespell actually sees.
-        cmd.append(str(target) if target is not None else ".")
+        if isinstance(target, list):
+            cmd.extend(str(path) for path in target)
+        else:
+            cmd.append(str(target) if target is not None else ".")
 
         return cmd
 
+    def _candidate_files(self) -> list[Path]:
+        """Return text/code files that are tracked or not ignored by Git.
+
+        Returns:
+            Sorted repo-relative paths suitable for passing to codespell.
+        """
+        paths: list[Path] | None = None
+        if (self.project_dir / ".git").exists():
+            try:
+                result = subprocess.run(
+                    [
+                        "git",
+                        "ls-files",
+                        "-z",
+                        "--cached",
+                        "--others",
+                        "--exclude-standard",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    cwd=self.project_dir,
+                )
+            except (subprocess.SubprocessError, FileNotFoundError):
+                pass
+            else:
+                paths = [Path(value) for value in result.stdout.split("\0") if value]
+        if paths is None:
+            paths = [
+                path.relative_to(self.project_dir)
+                for path in self.project_dir.rglob("*")
+                if path.is_file()
+            ]
+
+        return sorted(
+            path
+            for path in paths
+            if path.suffix.lower() in CHECKABLE_SUFFIXES
+            and not self.is_excluded(path)
+            and not any(part.lower() in NEVER_CHECK_DIRS for part in path.parts)
+        )
+
     def run(self) -> CheckResult:
         """Run codespell check."""
-        issues = []
+        issues: list[Issue] = []
 
         # Check if codespell is available
         try:
@@ -184,44 +239,39 @@ class CodespellCheck(Check):
                 ],
             )
 
-        # Run codespell
-        cmd = self._get_codespell_command()
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            cwd=self.project_dir,
-        )
+        candidates = self._candidate_files()
+        for start in range(0, len(candidates), COMMAND_BATCH_SIZE):
+            cmd = self._get_codespell_command(
+                candidates[start : start + COMMAND_BATCH_SIZE]
+            )
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=self.project_dir,
+            )
 
-        # codespell returns:
-        # 0: No misspellings found
-        # >0: Misspellings found (exit code represents number of files with issues)
+            # codespell returns 0 when clean and a positive count otherwise.
+            if result.returncode == 0:
+                continue
+            output = result.stdout or result.stderr
+            if output:
+                issues.extend(self._parse_codespell_output(output))
+                continue
+            issues.append(
+                Issue(
+                    check=self.name,
+                    severity=Severity.WARNING,
+                    description=(
+                        "codespell error: "
+                        f"codespell exited with code {result.returncode}"
+                    ),
+                    impact=Impact.INFORMATIONAL,
+                    explanation="codespell had trouble analyzing some files",
+                )
+            )
 
-        match result.returncode:
-            case 0:
-                # No misspellings found - issues list stays empty
-                pass
-            case code if code > 0 and (result.stdout or result.stderr):
-                # Misspellings found - check both stdout and stderr
-                output = result.stdout or result.stderr
-                if output:
-                    issues = self._parse_codespell_output(output)
-                    self._attach_fixes(issues)
-            case code if code > 0:
-                # Non-zero exit code but no output - likely an error
-                error_msg = (
-                    result.stderr.strip()
-                    or f"codespell exited with code {result.returncode}"
-                )
-                issues.append(
-                    Issue(
-                        check=self.name,
-                        severity=Severity.WARNING,
-                        description=f"codespell error: {error_msg}",
-                        impact=Impact.INFORMATIONAL,
-                        explanation="codespell had trouble analyzing some files",
-                    )
-                )
+        self._attach_fixes(issues)
 
         return CheckResult(
             check=self.name,

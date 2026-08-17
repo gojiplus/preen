@@ -604,8 +604,8 @@ def rewrite_pyproject(
 
     Args:
         repo: Repository directory containing pyproject.toml.
-        release_migration: Also convert the build backend to hatchling +
-            uv-dynamic-versioning with a tag-derived version.
+        release_migration: Also convert the build backend to ``uv_build`` with
+            an explicit project version.
 
     Returns:
         A (changes, preserved) pair of human-readable lists.
@@ -754,7 +754,7 @@ def _group_requirements(
 
 
 def _migrate_release(doc: Any, repo: Path) -> list[str]:
-    """Convert build backend to hatchling + uv-dynamic-versioning.
+    """Convert build metadata to the fleet's ``uv_build`` standard.
 
     Args:
         doc: Parsed tomlkit document.
@@ -766,43 +766,79 @@ def _migrate_release(doc: Any, repo: Path) -> list[str]:
     changes: list[str] = []
 
     build = _ensure_table(doc, "build-system")
-    build["requires"] = ["hatchling", "uv-dynamic-versioning"]
-    build["build-backend"] = "hatchling.build"
-    changes.append("build-system -> hatchling + uv-dynamic-versioning")
+    build["requires"] = ["uv_build>=0.12.5,<0.13"]
+    build["build-backend"] = "uv_build"
+    changes.append("build-system -> uv_build")
 
     project = _ensure_table(doc, "project")
-    dynamic = project.get("dynamic")
-    if dynamic is None or "version" not in list(dynamic):
-        new_dynamic = list(dynamic) if dynamic is not None else []
-        new_dynamic.append("version")
-        project["dynamic"] = new_dynamic
-        changes.append('added "version" to project.dynamic')
-    if "version" in project:
-        del project["version"]
-        changes.append("removed static project.version")
+    if "version" not in project:
+        project["version"] = _version_from_latest_tag(repo)
+        changes.append(f"project.version = {project['version']!r} (from latest tag)")
+    dynamic = list(project.get("dynamic", []))
+    if "version" in dynamic:
+        dynamic.remove("version")
+        if dynamic:
+            project["dynamic"] = dynamic
+        else:
+            del project["dynamic"]
+        changes.append('removed "version" from project.dynamic')
 
     tool = _ensure_table(doc, "tool")
-    hatch = _ensure_table(tool, "hatch")
-    version = _ensure_table(hatch, "version")
-    version["source"] = "uv-dynamic-versioning"
-
-    udv = _ensure_table(tool, "uv-dynamic-versioning")
-    udv["vcs"] = "git"
-    udv["style"] = "pep440"
+    for legacy in ("hatch", "uv-dynamic-versioning"):
+        if legacy in tool:
+            del tool[legacy]
+            changes.append(f"deleted [tool.{legacy}]")
 
     project_name = str(project.get("name", repo.resolve().name))
     package_name = detect_package_name(repo, project_name)
+    uv = _ensure_table(tool, "uv")
+    backend = _ensure_table(uv, "build-backend")
+    backend["module-name"] = package_name
     if (repo / "src" / package_name).is_dir():
-        packages = [f"src/{package_name}"]
+        if "module-root" in backend:
+            del backend["module-root"]
     else:
-        packages = [package_name]
-    build_table = _ensure_table(hatch, "build")
-    targets = _ensure_table(build_table, "targets")
-    wheel = _ensure_table(targets, "wheel")
-    wheel["packages"] = packages
-    changes.append(f"wheel packages = {packages}")
+        backend["module-root"] = ""
+    changes.append(f"uv_build module = {package_name!r}")
 
     return changes
+
+
+def _version_from_latest_tag(repo: Path) -> str:
+    """Return the latest PEP 440 version from a ``v*`` Git tag.
+
+    Args:
+        repo: Repository whose current released version is needed.
+
+    Returns:
+        Normalized PEP 440 version without the leading ``v``.
+
+    Raises:
+        ValueError: If a dynamic-version project has no usable release tag.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError(
+            "release migration needs project.version or a reachable v* Git tag"
+        ) from exc
+    candidate = result.stdout.strip().removeprefix("v")
+    if result.returncode != 0 or not candidate:
+        raise ValueError(
+            "release migration needs project.version or a reachable v* Git tag"
+        )
+    try:
+        return str(Version(candidate))
+    except InvalidVersion as exc:
+        message = f"latest Git tag is not a PEP 440 version: {candidate}"
+        raise ValueError(message) from exc
 
 
 def build_todos(repo: Path, package_name: str) -> list[str]:

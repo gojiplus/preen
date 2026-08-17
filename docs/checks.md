@@ -41,9 +41,9 @@ Modules that access Hugging Face must declare a revision pinned to the full
 
 ### `version`
 
-No hardcoded version strings: the git tag is the version, so literal
-`__version__ = "..."` assignments (and copies of a static `project.version`)
-are flagged.
+`project.version` is authoritative and the matching Git tag identifies a release.
+Literal `__version__ = "..."` assignments and other copies are flagged; runtime code
+should read installed package metadata.
 
 ### `changelog`
 

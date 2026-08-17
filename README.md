@@ -68,8 +68,9 @@ ignores already present, and setting `target-version` from the repo's own
 survive) and deletes legacy `[tool.black]`, `[tool.isort]`, `[tool.flake8]`,
 and `[tool.mypy]` sections.
 
-Pass `--release-migration` to also convert the build backend to hatchling +
-uv-dynamic-versioning, so the git tag becomes the version.
+Pass `--release-migration` to also convert the build backend to `uv_build`. An existing
+`project.version` is preserved; a legacy dynamic-version project takes its current
+version from its latest `v*` tag.
 
 ### Checks
 
@@ -92,8 +93,9 @@ unambiguous, drops redundant `License ::` classifiers, and adds a missing
 
 ### Releasing
 
-The fleet standard derives versions from git tags (uv-dynamic-versioning) —
-no bump commits. `preen release` runs the checks, then refuses to proceed
+The fleet standard keeps one explicit version in `pyproject.toml`, set with
+`uv version X.Y.Z`; the matching `vX.Y.Z` tag identifies the release. `preen release`
+runs the checks, then refuses to proceed
 unless the version is PEP 440-valid, the tag doesn't already exist, and
 CHANGELOG.md has an entry for it (offering to rename `[Unreleased]` to the
 new version and commit that rename if the Unreleased section has content).
