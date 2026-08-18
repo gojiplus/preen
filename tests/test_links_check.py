@@ -178,6 +178,31 @@ def test_collect_files_finds_scannable_files(tmp_path: Path) -> None:
     assert found == {"README.md", "notes.txt"}
 
 
+def test_collect_files_honors_gitignore(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / ".gitignore").write_text("cache/\n")
+    (tmp_path / "README.md").write_text("checked\n")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "scraped.json").write_text(
+        f'{{"url": "{_url("dead.example-real.test/x")}"}}\n'
+    )
+
+    assert LinkCheck(tmp_path)._collect_files() == [tmp_path / "README.md"]
+
+
+def test_collect_files_falls_back_when_git_fails(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "README.md").write_text("checked\n")
+
+    def fail_git(*args, **kwargs):
+        raise FileNotFoundError
+
+    monkeypatch.setattr("preen.checks.links.subprocess.run", fail_git)
+
+    assert LinkCheck(tmp_path)._collect_files() == [tmp_path / "README.md"]
+
+
 def test_missing_binary_reports_nothing_rather_than_crashing(
     tmp_path: Path, monkeypatch
 ) -> None:
