@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-17
+
+### Fixed
+
+- The link check now scans only Git-tracked or non-ignored source and documentation
+  files. Local caches and downloaded datasets no longer turn one check into minutes of
+  unrelated network probes and hundreds of false failures.
+
 ## [0.3.0] - 2026-08-17
 
 ### Added

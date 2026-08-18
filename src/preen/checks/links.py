@@ -118,15 +118,41 @@ class LinkCheck(Check):
         Returns:
             Sorted list of absolute paths.
         """
-        files: set[Path] = set()
-        for pattern in self.SCAN_PATTERNS:
-            for file_path in self.project_dir.glob(f"**/{pattern}"):
-                if any(part.startswith(".") for part in file_path.parts):
-                    continue
-                if self.is_excluded(file_path.relative_to(self.project_dir)):
-                    continue
-                files.add(file_path)
-        return sorted(files)
+        paths: list[Path] | None = None
+        if (self.project_dir / ".git").exists():
+            try:
+                result = subprocess.run(
+                    [
+                        "git",
+                        "ls-files",
+                        "-z",
+                        "--cached",
+                        "--others",
+                        "--exclude-standard",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    cwd=self.project_dir,
+                )
+            except (subprocess.SubprocessError, FileNotFoundError):
+                pass
+            else:
+                paths = [Path(value) for value in result.stdout.split("\0") if value]
+        if paths is None:
+            paths = [
+                path.relative_to(self.project_dir)
+                for path in self.project_dir.rglob("*")
+                if path.is_file()
+            ]
+
+        return sorted(
+            self.project_dir / path
+            for path in paths
+            if any(path.match(pattern) for pattern in self.SCAN_PATTERNS)
+            and not any(part.startswith(".") for part in path.parts)
+            and not self.is_excluded(path)
+        )
 
     def _run_lychee(self, files: list[Path]) -> dict:
         """Run lychee over the given files and return its parsed JSON report.
