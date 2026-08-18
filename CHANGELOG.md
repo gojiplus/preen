@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- A template-sync test compares `preen.adopt.CANON_TOOL_TOML` against py-canon's
+  `template/pyproject.toml.jinja`, so the two copies of the canonical `[tool.*]`
+  configuration can no longer drift silently.
+
+### Fixed
+
+- `preen adopt` now renders the template at the latest concrete `vX.Y.Z` release
+  tag and records it in `.copier-answers.yml`. Copier's `git describe` could
+  record the moving `v1` tag instead, which made `copier update` compare the tag
+  against itself and no-op forever.
+- The template check now flags a `.copier-answers.yml` that records a moving
+  major tag (`_commit: v1`) as an important issue, even offline.
+
 ## [0.3.2] - 2026-08-17
 
 ### Changed
