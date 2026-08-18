@@ -21,6 +21,7 @@ from packaging.version import InvalidVersion, Version
 from tomlkit.items import Table
 
 CANON_TEMPLATE = "gh:gojiplus/py-canon"
+UV_BUILD_REQUIREMENT = "uv_build>=0.12.5,<0.13"
 
 # [tool.*] sections merged onto the repo's own (see `_merge_canon`).
 CANON_TOOL_TOML = """
@@ -470,7 +471,7 @@ def _ensure_table(parent: Any, key: str) -> Table:
     Returns:
         The existing or newly created table.
     """
-    if key not in parent:
+    if key not in parent or not isinstance(parent[key], dict):
         table = tomlkit.table(True)
         parent[key] = table
         return table
@@ -766,7 +767,10 @@ def _migrate_release(doc: Any, repo: Path) -> list[str]:
     changes: list[str] = []
 
     build = _ensure_table(doc, "build-system")
-    build["requires"] = ["uv_build>=0.12.5,<0.13"]
+    for key in list(build):
+        if key not in {"requires", "build-backend"}:
+            del build[key]
+    build["requires"] = [UV_BUILD_REQUIREMENT]
     build["build-backend"] = "uv_build"
     changes.append("build-system -> uv_build")
 
@@ -816,7 +820,24 @@ def _version_from_latest_tag(repo: Path) -> str:
     Raises:
         ValueError: If a dynamic-version project has no usable release tag.
     """
+    missing_version = (
+        "release migration needs project.version or a reachable v* Git tag"
+    )
     try:
+        top_level = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if (
+            top_level.returncode != 0
+            or not top_level.stdout.strip()
+            or Path(top_level.stdout.strip()).resolve() != repo.resolve()
+        ):
+            raise ValueError(missing_version)
         result = subprocess.run(
             ["git", "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"],
             cwd=repo,
@@ -826,14 +847,10 @@ def _version_from_latest_tag(repo: Path) -> str:
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ValueError(
-            "release migration needs project.version or a reachable v* Git tag"
-        ) from exc
+        raise ValueError(missing_version) from exc
     candidate = result.stdout.strip().removeprefix("v")
     if result.returncode != 0 or not candidate:
-        raise ValueError(
-            "release migration needs project.version or a reachable v* Git tag"
-        )
+        raise ValueError(missing_version)
     try:
         return str(Version(candidate))
     except InvalidVersion as exc:

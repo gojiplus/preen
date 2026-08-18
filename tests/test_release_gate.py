@@ -45,7 +45,7 @@ HAS_TARGET_VERSION = """\
 """
 
 
-def _init_repo(repo: Path, changelog: str | None) -> None:
+def _init_repo(repo: Path, changelog: str | None, version: str = "1.2.3") -> None:
     """Init a git repo at `repo`, optionally with a CHANGELOG.md, and commit."""
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     subprocess.run(
@@ -53,6 +53,9 @@ def _init_repo(repo: Path, changelog: str | None) -> None:
     )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
     (repo / "README.md").write_text("hello\n")
+    (repo / "pyproject.toml").write_text(
+        f'[project]\nname = "example"\nversion = "{version}"\n'
+    )
     if changelog is not None:
         (repo / "CHANGELOG.md").write_text(changelog)
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
@@ -125,7 +128,7 @@ def test_existing_tag_aborts(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_missing_changelog_entry_aborts(tmp_path: Path, monkeypatch) -> None:
-    _init_repo(tmp_path, UNRELEASED_EMPTY)
+    _init_repo(tmp_path, UNRELEASED_EMPTY, version="9.9.9")
     monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
     console = _console()
 
@@ -142,7 +145,7 @@ def test_missing_changelog_entry_aborts(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_no_changelog_file_aborts(tmp_path: Path, monkeypatch) -> None:
-    _init_repo(tmp_path, None)
+    _init_repo(tmp_path, None, version="1.0.0")
     monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
     console = _console()
 
@@ -181,7 +184,7 @@ def test_version_heading_present_skips_rename_prompt(
 
 
 def test_unreleased_rename_offered_and_accepted(tmp_path: Path, monkeypatch) -> None:
-    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+    _init_repo(tmp_path, UNRELEASED_NONEMPTY, version="1.0.0")
     monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
     console = _console()
 
@@ -201,7 +204,7 @@ def test_unreleased_rename_offered_and_accepted(tmp_path: Path, monkeypatch) -> 
 
 
 def test_unreleased_rename_declined_aborts(tmp_path: Path, monkeypatch) -> None:
-    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+    _init_repo(tmp_path, UNRELEASED_NONEMPTY, version="1.0.0")
     monkeypatch.setattr(
         rich.prompt.Confirm, "ask", _confirm_by_keyword({"Rename": False})
     )
@@ -223,7 +226,7 @@ def test_unreleased_rename_declined_aborts(tmp_path: Path, monkeypatch) -> None:
 def test_accept_rename_then_decline_final_confirm_leaves_tree_clean(
     tmp_path: Path, monkeypatch
 ) -> None:
-    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+    _init_repo(tmp_path, UNRELEASED_NONEMPTY, version="1.0.0")
     before = (tmp_path / "CHANGELOG.md").read_text()
     monkeypatch.setattr(
         rich.prompt.Confirm,
@@ -256,7 +259,7 @@ def test_accept_rename_then_decline_final_confirm_leaves_tree_clean(
 def test_full_accept_commits_renamed_changelog_before_tagging(
     tmp_path: Path, monkeypatch
 ) -> None:
-    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+    _init_repo(tmp_path, UNRELEASED_NONEMPTY, version="1.0.0")
     monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
 
     real_git = release_mod._git
@@ -304,7 +307,7 @@ def test_full_accept_commits_renamed_changelog_before_tagging(
 def test_dry_run_does_not_modify_changelog_or_create_tag(
     tmp_path: Path, monkeypatch
 ) -> None:
-    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+    _init_repo(tmp_path, UNRELEASED_NONEMPTY, version="1.0.0")
     before = (tmp_path / "CHANGELOG.md").read_text()
     monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
     console = _console()
@@ -347,7 +350,7 @@ def test_dry_run_with_existing_version_entry_no_rename_mentioned(
 
 
 def test_dry_run_is_fully_non_interactive(tmp_path: Path, monkeypatch) -> None:
-    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+    _init_repo(tmp_path, UNRELEASED_NONEMPTY, version="0.1.0")
 
     def _no_prompt(*args: object, **kwargs: object) -> bool:
         raise AssertionError("dry-run must not prompt")
@@ -368,7 +371,7 @@ def test_dry_run_is_fully_non_interactive(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_release_commit_excludes_prestaged_files(tmp_path: Path, monkeypatch) -> None:
-    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+    _init_repo(tmp_path, UNRELEASED_NONEMPTY, version="1.0.0")
     (tmp_path / "unrelated.txt").write_text("staged but not part of the release\n")
     subprocess.run(["git", "add", "unrelated.txt"], cwd=tmp_path, check=True)
     monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
@@ -405,7 +408,7 @@ def test_release_commit_excludes_prestaged_files(tmp_path: Path, monkeypatch) ->
 
 
 def test_accepted_flow_prints_branch_push_reminder(tmp_path: Path, monkeypatch) -> None:
-    _init_repo(tmp_path, UNRELEASED_NONEMPTY)
+    _init_repo(tmp_path, UNRELEASED_NONEMPTY, version="1.0.0")
     monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
 
     real_git = release_mod._git
@@ -440,7 +443,7 @@ def test_prerelease_heading_does_not_satisfy_final_release(
     tmp_path: Path, monkeypatch
 ) -> None:
     """`## [0.2.0rc1]` must not gate-pass releasing 0.2.0 (issue #14)."""
-    _init_repo(tmp_path, PRERELEASE_ONLY)
+    _init_repo(tmp_path, PRERELEASE_ONLY, version="0.2.0")
     monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
     console = _console()
     with pytest.raises(typer.Exit):
@@ -453,7 +456,7 @@ def test_prerelease_matches_its_own_heading_without_rename(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Releasing 0.2.0rc1 finds its heading instead of forcing the rename."""
-    _init_repo(tmp_path, PRERELEASE_ONLY)
+    _init_repo(tmp_path, PRERELEASE_ONLY, version="0.2.0rc1")
     monkeypatch.setattr(rich.prompt.Confirm, "ask", _confirm_always(True))
     console = _console()
     release_package(

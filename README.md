@@ -68,9 +68,11 @@ ignores already present, and setting `target-version` from the repo's own
 survive) and deletes legacy `[tool.black]`, `[tool.isort]`, `[tool.flake8]`,
 and `[tool.mypy]` sections.
 
-Pass `--release-migration` to also convert the build backend to `uv_build`. An existing
-`project.version` is preserved; a legacy dynamic-version project takes its current
-version from its latest `v*` tag.
+Pass `--release-migration` to also convert the build backend to the fleet's
+current `uv_build` series. The minimum is the latest tested release and the upper
+bound prevents an unreviewed backend-series upgrade. An existing `project.version`
+is preserved; a legacy dynamic-version project takes its current version from its
+latest `v*` tag.
 
 ### Checks
 
@@ -80,8 +82,9 @@ structure), `deps` (deptry), `deptree` (circular imports), `depgroups` (PEP
 735 dependency-groups usage), `audit` (pip-audit over the locked
 dependencies), `ci-matrix` (canon shim, or a matrix covering the
 requires-python floor), `structure`, `version` (hardcoded version strings),
-`license` (PEP 639 license metadata), `links`, `metadata` (requires-python
-upper bound, PEP 561 `py.typed`), `pydoclint`, `pyright`, and `codespell`.
+`license` (PEP 639 license metadata), `links`, `metadata` (build backend,
+requires-python upper bound, PEP 561 `py.typed`), `pydoclint`, `pyright`, and
+`codespell`.
 
 Issues carry an impact level: **critical** blocks release, **important** can
 be overridden with informed consent, **info** is advisory. `preen release`
@@ -95,10 +98,10 @@ unambiguous, drops redundant `License ::` classifiers, and adds a missing
 
 The fleet standard keeps one explicit version in `pyproject.toml`, set with
 `uv version X.Y.Z`; the matching `vX.Y.Z` tag identifies the release. `preen release`
-runs the checks, then refuses to proceed
-unless the version is PEP 440-valid, the tag doesn't already exist, and
-CHANGELOG.md has an entry for it (offering to rename `[Unreleased]` to the
-new version and commit that rename if the Unreleased section has content).
+runs the checks, then refuses to proceed unless the version is committed in
+`pyproject.toml`, is PEP 440-valid, the tag doesn't already exist, and
+CHANGELOG.md has an entry for it (offering to rename `[Unreleased]` to the new
+version and commit that rename if the Unreleased section has content).
 It then asks for confirmation, tags `vX.Y.Z`, and pushes the tag; the repo's
 release workflow does the rest (build, PEP 740 attestations, PyPI trusted
 publishing, GitHub Release). Use `--dry-run` to see the plan without

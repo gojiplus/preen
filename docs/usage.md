@@ -38,8 +38,10 @@ them into the canon list, and deriving `target-version` from the repo's
 Ends with an adoption report of what was written, skipped, and left for
 you.
 
-Add `--release-migration` to convert the build backend to `uv_build` with an explicit
-project version. A legacy dynamic version is recovered from the latest `v*` tag.
+Add `--release-migration` to convert the build backend to the fleet's current
+`uv_build` series with an explicit project version. The minimum is the latest
+tested release and the upper bound prevents an unreviewed backend-series upgrade.
+A legacy dynamic version is recovered from the latest `v*` tag.
 
 ## Staying current: `preen update`
 
@@ -73,15 +75,16 @@ preen fix ruff --auto  # auto-apply ruff fixes
 ## Releasing: `preen release`
 
 ```bash
-preen release            # prompts for the version
+preen release            # uses project.version
 preen release 1.2.0      # tag v1.2.0
 preen release --dry-run  # show the plan (fully non-interactive)
 ```
 
 Runs the checks, walks through any issues (critical issues block; important
-ones can be overridden with informed consent), then gates the tag on three
-things: the version must be PEP 440-valid, the `vX.Y.Z` tag must not
-already exist, and `CHANGELOG.md` must contain an entry for the version.
+ones can be overridden with informed consent), then gates the tag on four
+things: the version must be PEP 440-valid, it must match the committed
+`project.version`, the `vX.Y.Z` tag must not already exist, and `CHANGELOG.md`
+must contain an entry for the version.
 If there's no entry but a non-empty `[Unreleased]` section, preen offers to
 rename it to `[X.Y.Z] - <date>` and commits that rename (only
 `CHANGELOG.md`) before tagging, so the tagged commit contains the entry.
