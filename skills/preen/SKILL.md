@@ -22,8 +22,8 @@ the CLI; do not reimplement its checks or fixes by hand.
   onto the template: mines answers from `pyproject.toml` and the git
   remote, copies in only the managed files, rewrites `[tool.ruff]`,
   `[tool.pyright]`, `[tool.pydoclint]` to the standard. `--release-migration`
-  also converts the build backend to hatchling + uv-dynamic-versioning
-  (tag-derived version).
+  also converts the build backend to the current `uv_build` series with one
+  explicit `project.version`.
 - `preen update [PATH]` — pull the latest template changes into an
   already-adopted repo.
 - `preen check [PATH] [--strict] [--explain] [--skip CHECK] [--only CHECK]`
@@ -50,10 +50,11 @@ the CLI; do not reimplement its checks or fixes by hand.
 4. Never hand-edit files carrying a copier "managed by / do not edit"
    header (e.g. `.copier-answers.yml`, CI/docs shims copied in by
    `adopt`/`update`). Run `preen update` to pull template changes instead.
-5. Never hand-bump a version string. The git tag is the version
-   (uv-dynamic-versioning) — `preen release` tags and pushes, and refuses
-   to proceed without a CHANGELOG.md entry for the release (it offers to
-   rename `[Unreleased]` to the new version when that section has content).
+5. Keep the single version in `project.version`; set it with `uv version X.Y.Z`
+   and commit the refreshed `uv.lock`. `preen release` verifies the requested
+   tag matches that committed version and refuses to proceed without a
+   CHANGELOG.md entry for the release (it offers to rename `[Unreleased]` when
+   that section has content).
 6. After `preen adopt`, read the printed ADOPTION REPORT, then run
    `uv lock && uv sync --all-groups` before running `preen check`.
 

@@ -254,7 +254,7 @@ def fix(
 @app.command()
 def release(
     version: str | None = typer.Argument(
-        None, help="Version to release (X.Y.Z). Prompted if omitted."
+        None, help="Version to release (X.Y.Z). Uses project.version if omitted."
     ),
     path: str | None = typer.Option(
         None, "--path", "-p", help="Path to project directory. Defaults to cwd."

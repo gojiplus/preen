@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-17
+
+### Changed
+
+- `preen adopt --release-migration` and the metadata check now share one current
+  `uv_build>=0.12.5,<0.13` requirement. Existing projects using Hatchling, stale
+  `uv_build` series, extra build requirements, or malformed build metadata are
+  migrated or reported consistently.
+- `preen release` now uses `project.version` when no version is supplied and
+  refuses to create a mismatched tag. The bundled coding skill now documents
+  the same static-version and `uv_build` policy.
+
 ## [0.3.1] - 2026-08-17
 
 ### Fixed

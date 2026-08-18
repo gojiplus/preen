@@ -144,6 +144,37 @@ def test_release_migration_converts_build_system(legacy_repo: Path) -> None:
     }
 
 
+def test_release_migration_removes_stale_backend_path(legacy_repo: Path) -> None:
+    pyproject = legacy_repo / "pyproject.toml"
+    pyproject.write_text(
+        pyproject.read_text().replace(
+            'build-backend = "setuptools.build_meta"',
+            'build-backend = "setuptools.build_meta"\nbackend-path = ["backend"]',
+        )
+    )
+
+    rewrite_pyproject(legacy_repo, release_migration=True)
+
+    assert "backend-path" not in _load(legacy_repo)["build-system"]
+
+
+def test_release_migration_replaces_malformed_build_system(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        'build-system = "setuptools"\n\n[project]\nname = "pkg"\nversion = "0.1.0"\n'
+    )
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+
+    rewrite_pyproject(tmp_path, release_migration=True)
+
+    data = _load(tmp_path)
+    assert data["build-system"] == {
+        "requires": ["uv_build>=0.12.5,<0.13"],
+        "build-backend": "uv_build",
+    }
+
+
 def test_release_migration_src_layout(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "srcpkg"\nversion = "0.1.0"\n'
@@ -190,6 +221,31 @@ def test_release_migration_refuses_to_invent_version(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match=r"needs project\.version"):
         rewrite_pyproject(tmp_path, release_migration=True)
+
+
+def test_release_migration_does_not_use_parent_repository_tag(tmp_path: Path) -> None:
+    for command in (
+        ["git", "init", "-q"],
+        ["git", "config", "user.email", "test@example.com"],
+        ["git", "config", "user.name", "Test"],
+    ):
+        subprocess.run(command, cwd=tmp_path, check=True)
+    (tmp_path / "tracked").write_text("parent repository\n")
+    subprocess.run(["git", "add", "tracked"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "parent"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "tag", "v9.9.9"], cwd=tmp_path, check=True)
+
+    package_repo = tmp_path / "package"
+    package_repo.mkdir()
+    (package_repo / "pyproject.toml").write_text(
+        '[project]\nname = "untagged"\ndynamic = ["version"]\n'
+    )
+    package = package_repo / "src" / "untagged"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+
+    with pytest.raises(ValueError, match=r"needs project\.version"):
+        rewrite_pyproject(package_repo, release_migration=True)
 
 
 def test_missing_pyproject_raises(tmp_path: Path) -> None:

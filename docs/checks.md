@@ -65,12 +65,14 @@ string, drops the redundant classifiers, and adds `license-files`.
 
 ### `metadata`
 
-Two independent pyproject.toml checks. `requires-python`: important if it
-has an upper bound (`<`, `<=`, `==`, `===`, `~=`), which caps installs on
-future Pythons for no benefit (sp-repo-review PP004); info if it's absent
-entirely. `py.typed`: important if `[tool.pyright]` or `[tool.mypy]` is
-configured but the package directory has no PEP 561 `py.typed` marker. No
-auto-fix for either.
+Three independent pyproject.toml checks. `build-system`: important if an
+existing table does not use the fleet's current `uv_build` requirement and
+backend exactly; `preen adopt --release-migration` applies that standard.
+`requires-python`: important if it has an upper bound (`<`, `<=`, `==`, `===`,
+`~=`), which caps installs on future Pythons for no benefit (sp-repo-review
+PP004); info if it's absent entirely. `py.typed`: important if `[tool.pyright]`
+or `[tool.mypy]` is configured but the package directory has no PEP 561
+`py.typed` marker.
 
 ## Code quality
 

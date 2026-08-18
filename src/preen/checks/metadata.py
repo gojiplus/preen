@@ -1,14 +1,15 @@
-"""Project metadata checks: requires-python upper bound, py.typed marker.
+"""Project metadata checks: build backend, Python support, and typing marker.
 
-Two independent findings live here because both are small, pyproject.toml-only
-metadata checks that don't fit the scope of any existing check module.
+These findings are small, pyproject.toml-only metadata checks that don't fit the
+scope of any existing check module.
 """
 
 import re
 import tomllib
+from pathlib import Path
 from typing import Any
 
-from ..adopt import detect_package_name
+from ..adopt import UV_BUILD_REQUIREMENT, detect_package_name
 from .base import Check, CheckResult, Impact, Issue, Severity
 
 # Any of these operators in a requires-python specifier caps the ceiling:
@@ -18,7 +19,7 @@ _CAP_PATTERN = re.compile(r"~=|===|<=|==|<")
 
 
 class MetadataCheck(Check):
-    """Check requires-python has no upper cap and typed projects ship py.typed."""
+    """Check build, Python, and typing metadata against the fleet standard."""
 
     @property
     def name(self) -> str:
@@ -28,7 +29,7 @@ class MetadataCheck(Check):
     @property
     def description(self) -> str:
         """Return a description of what this check does."""
-        return "Check requires-python has no upper cap and typed projects ship py.typed"
+        return "Check build, Python, and typing metadata"
 
     def run(self) -> CheckResult:
         """Run the metadata checks.
@@ -42,10 +43,45 @@ class MetadataCheck(Check):
             return CheckResult(check=self.name, passed=True, issues=[])
 
         data = self._load_pyproject()
-        issues = self._check_requires_python(data) + self._check_py_typed(data)
+        issues = (
+            self._check_build_system(data)
+            + self._check_requires_python(data)
+            + self._check_py_typed(data)
+        )
 
         blocking = [i for i in issues if i.severity != Severity.INFO]
         return CheckResult(check=self.name, passed=not blocking, issues=issues)
+
+    def _check_build_system(self, data: dict[str, Any]) -> list[Issue]:
+        """Flag an existing build system that differs from the fleet standard."""
+        if "build-system" not in data:
+            return []
+        build = data["build-system"]
+        expected_requires = [UV_BUILD_REQUIREMENT]
+        if (
+            isinstance(build, dict)
+            and set(build) == {"requires", "build-backend"}
+            and build.get("build-backend") == "uv_build"
+            and build.get("requires") == expected_requires
+        ):
+            return []
+        return [
+            Issue(
+                check=self.name,
+                severity=Severity.WARNING,
+                description=(
+                    "build-system must use "
+                    f'{UV_BUILD_REQUIREMENT!r} with backend "uv_build"'
+                ),
+                file=Path("pyproject.toml"),
+                impact=Impact.IMPORTANT,
+                explanation=(
+                    "The py-canon fleet uses one current uv_build requirement so "
+                    "backend upgrades are deliberate and stale build shims cannot "
+                    "linger unnoticed. Run preen adopt --release-migration to migrate."
+                ),
+            )
+        ]
 
     def _load_pyproject(self) -> dict[str, Any]:
         """Return the parsed pyproject.toml, or {} if missing/unparsable."""

@@ -1,21 +1,22 @@
-"""Tag-driven release command in the devtools::release() spirit.
+"""Static-version, tag-driven release command in the devtools::release() spirit.
 
-Under the fleet standard the git tag *is* the version: pushing ``vX.Y.Z``
-triggers the repo's release workflow (build, attestations, trusted
-publishing, GitHub Release). This command runs the checks, asks for
-informed consent, then tags and pushes.
+Under the fleet standard ``project.version`` is authoritative and the matching
+``vX.Y.Z`` tag triggers the repo's release workflow (build, attestations, trusted
+publishing, GitHub Release). This command runs the checks, verifies that the tag
+and project metadata agree, asks for informed consent, then tags and pushes.
 """
 
 import datetime
 import json
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 
 import typer
 from packaging.version import InvalidVersion, Version
 from rich.console import Console
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Confirm
 
 from ..checks import ALL_CHECKS, run_checks
 from ..checks.changelog import (
@@ -132,21 +133,73 @@ def _write_plugin_version(manifest: Path, version: str) -> None:
     manifest.write_text(updated, encoding="utf-8")
 
 
-def _suggest_next(latest: str | None) -> str:
-    """Suggest the next patch version after the latest tag.
+def _project_version(project_dir: Path) -> Version:
+    """Return the project's required explicit version.
 
     Args:
-        latest: Latest tag (e.g. ``v1.2.3``) or None.
+        project_dir: Repository directory containing ``pyproject.toml``.
 
     Returns:
-        Suggested version without the ``v`` prefix.
+        The normalized declared version.
+
+    Raises:
+        ValueError: If project metadata or its explicit version is absent or
+            invalid.
     """
-    if latest:
-        match = re.match(r"v?(\d+)\.(\d+)\.(\d+)", latest)
-        if match:
-            major, minor, patch = (int(g) for g in match.groups())
-            return f"{major}.{minor}.{patch + 1}"
-    return "0.1.0"
+    pyproject = project_dir / "pyproject.toml"
+    try:
+        with pyproject.open("rb") as file:
+            project = tomllib.load(file).get("project", {})
+    except FileNotFoundError:
+        raise ValueError("pyproject.toml is required for release") from None
+    except OSError as error:
+        raise ValueError(f"cannot read pyproject.toml: {error}") from None
+    except tomllib.TOMLDecodeError:
+        raise ValueError("pyproject.toml is not valid TOML") from None
+    if not isinstance(project, dict):
+        raise ValueError("pyproject.toml [project] must be a table")
+    version = project.get("version")
+    if version is None:
+        raise ValueError("project.version must be declared explicitly")
+    if not isinstance(version, str):
+        raise ValueError("project.version must be a string")
+    try:
+        return Version(version)
+    except InvalidVersion:
+        raise ValueError(f"project.version {version!r} is not PEP 440-valid") from None
+
+
+def _lockfile_error(project_dir: Path) -> str | None:
+    """Return why a tracked lockfile cannot be released, if applicable.
+
+    Args:
+        project_dir: Repository directory containing the project metadata.
+
+    Returns:
+        An actionable error when ``uv.lock`` is dirty or stale, otherwise None.
+    """
+    lockfile = project_dir / "uv.lock"
+    status = _git(project_dir, "status", "--porcelain", "--", "uv.lock").stdout.strip()
+    if status:
+        return "uv.lock has uncommitted changes; commit the refreshed lockfile"
+    if not lockfile.exists():
+        return None
+    try:
+        result = subprocess.run(
+            ["uv", "lock", "--check"],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return f"cannot verify uv.lock: {error}"
+    if result.returncode != 0:
+        return (
+            "uv.lock is not up to date with pyproject.toml; run `uv lock` and commit it"
+        )
+    return None
 
 
 def release_package(
@@ -160,7 +213,8 @@ def release_package(
 
     Args:
         project_dir: Path to project directory.
-        version: Version to release (without the ``v``); prompted if omitted.
+        version: Version to release (without the ``v``); uses
+            ``project.version`` if omitted.
         skip_checks: Skip running checks (if you just ran them).
         dry_run: Show what would happen without doing it.
         console: Rich console for output.
@@ -201,18 +255,40 @@ def release_package(
     latest = _latest_tag(project_dir)
     if latest:
         console.print(f"Latest release tag: [bold]{latest}[/bold]")
-    if version is None:
-        if dry_run:
-            version = _suggest_next(latest)
-            console.print(f"No version given; assuming [bold]{version}[/bold]")
-        else:
-            version = Prompt.ask("Version to release", default=_suggest_next(latest))
-    version = version.lstrip("v")
+    pyproject_status = _git(
+        project_dir, "status", "--porcelain", "--", "pyproject.toml"
+    ).stdout.strip()
+    if pyproject_status:
+        console.print(
+            "[red]pyproject.toml has uncommitted changes[/red]; commit the "
+            "release version before tagging."
+        )
+        raise typer.Exit(1)
     try:
-        Version(version)
+        project_version = _project_version(project_dir)
+    except ValueError as error:
+        console.print(f"[red]{error}[/red]")
+        raise typer.Exit(1) from None
+    lockfile_error = _lockfile_error(project_dir)
+    if lockfile_error:
+        console.print(f"[red]{lockfile_error}[/red]")
+        raise typer.Exit(1)
+    if version is None:
+        version = str(project_version)
+        console.print(f"Using project.version [bold]{version}[/bold]")
+    try:
+        requested_version = Version(version)
     except InvalidVersion:
         console.print(f"[red]'{version}' is not a valid PEP 440 version[/red]")
         raise typer.Exit(1) from None
+    if requested_version != project_version:
+        console.print(
+            f"[red]Requested version {requested_version} does not match "
+            "project.version "
+            f"{project_version}[/red]; run `uv version {version}` first."
+        )
+        raise typer.Exit(1)
+    version = str(project_version)
     tag = f"v{version}"
 
     if _tag_exists(project_dir, tag):
