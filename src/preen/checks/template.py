@@ -29,6 +29,22 @@ def _version_key(tag: str) -> tuple[int, ...] | None:
     return (*parts, 0, 0, 0)[:3]
 
 
+def _tracks_latest_major(commit: object, latest: str) -> bool:
+    """Return whether a moving major tag covers the latest release tag.
+
+    Args:
+        commit: Copier's recorded template revision.
+        latest: Latest semantic-version tag from py-canon.
+
+    Returns:
+        True for revisions such as ``v1`` when the latest tag is in major 1.
+    """
+    recorded = str(commit).strip()
+    match = re.fullmatch(r"v(\d+)", recorded)
+    latest_key = _version_key(latest)
+    return bool(match and latest_key and int(match.group(1)) == latest_key[0])
+
+
 def latest_canon_tag(url: str = CANON_URL, timeout: float = 10.0) -> str | None:
     """Return the latest ``v*`` tag of the template repo, or None if offline.
 
@@ -133,10 +149,14 @@ class TemplateCheck(Check):
                     impact=Impact.INFORMATIONAL,
                 )
             )
-        elif commit != latest and (
-            commit is None
-            or _version_key(str(commit)) is None
-            or _version_key(str(commit)) != _version_key(latest)
+        elif (
+            not _tracks_latest_major(commit, latest)
+            and commit != latest
+            and (
+                commit is None
+                or _version_key(str(commit)) is None
+                or _version_key(str(commit)) != _version_key(latest)
+            )
         ):
             issues.append(
                 Issue(

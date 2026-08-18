@@ -36,6 +36,32 @@ def test_equivalent_tags_pass(tmp_path: Path, monkeypatch) -> None:
     assert result.passed
 
 
+def test_moving_major_tag_tracks_latest_patch(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / ".copier-answers.yml").write_text(
+        "_commit: v1\n_src_path: gh:gojiplus/py-canon\nproject_name: x\n"
+    )
+    monkeypatch.setattr(template_mod, "latest_canon_tag", lambda: "v1.0.1")
+
+    result = TemplateCheck(tmp_path).run()
+
+    assert result.passed
+    assert result.issues == []
+
+
+def test_moving_major_tag_does_not_track_next_major(
+    tmp_path: Path, monkeypatch
+) -> None:
+    (tmp_path / ".copier-answers.yml").write_text(
+        "_commit: v1\n_src_path: gh:gojiplus/py-canon\nproject_name: x\n"
+    )
+    monkeypatch.setattr(template_mod, "latest_canon_tag", lambda: "v2.0.0")
+
+    result = TemplateCheck(tmp_path).run()
+
+    assert not result.passed
+    assert any(issue.impact == Impact.IMPORTANT for issue in result.issues)
+
+
 def test_stale_commit_is_important(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / ".copier-answers.yml").write_text(
         "_commit: v1.0.0\n_src_path: gh:gojiplus/py-canon\nproject_name: x\n"

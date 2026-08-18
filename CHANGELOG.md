@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-08-17
+
+### Fixed
+
+- The template-drift check now treats a recorded moving major tag such as
+  `v1` as current for every release in that major. Publishing py-canon
+  `v1.0.1` no longer makes every correctly configured fleet repository fail
+  conformance.
+
 ## [0.3.2] - 2026-08-17
 
 ### Changed
