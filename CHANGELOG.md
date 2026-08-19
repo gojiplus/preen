@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-19
+
+### Fixed
+
+- Template drift is advisory, not blocking. A repo recording an older concrete
+  py-canon tag now reports an info-level note instead of an important finding,
+  so a py-canon release no longer fails `--strict` in every adopted repo at
+  once — v1.1.1 turned the whole fleet red the moment it was tagged. A moving
+  major tag (`_commit: v1`) is still important: that one is a real config
+  error, since it makes `copier update` no-op forever.
+
 ## [0.4.0] - 2026-08-18
 
 ### Added

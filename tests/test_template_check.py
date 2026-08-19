@@ -42,20 +42,19 @@ def test_moving_tag_commit_is_important(tmp_path: Path, monkeypatch) -> None:
     assert "preen adopt" in (important[0].explanation or "")
 
 
-def test_stale_commit_is_important(tmp_path: Path, monkeypatch) -> None:
+def test_stale_commit_is_advisory(tmp_path: Path, monkeypatch) -> None:
+    """Drift does not fail the repo: the template moved, the repo did not."""
     (tmp_path / ".copier-answers.yml").write_text(
         "_commit: v1.0.0\n_src_path: gh:gojiplus/py-canon\nproject_name: x\n"
     )
     monkeypatch.setattr(template_mod, "latest_canon_tag", lambda: "v1.2.0")
     result = TemplateCheck(tmp_path).run()
-    assert not result.passed
-    important = [i for i in result.issues if i.impact == Impact.IMPORTANT]
-    assert len(important) == 1
-    assert "v1.0.0" in important[0].description
-    assert "v1.2.0" in important[0].description
-    # An INFO issue lists the drift.
-    infos = [i for i in result.issues if i.severity == Severity.INFO]
-    assert len(infos) == 1
+    assert result.passed
+    assert all(i.severity == Severity.INFO for i in result.issues)
+    drift = [i for i in result.issues if "drift" in i.description.lower()]
+    assert len(drift) == 1
+    assert "v1.0.0" in drift[0].description
+    assert "v1.2.0" in drift[0].description
 
 
 def test_offline_skips_gracefully(tmp_path: Path, monkeypatch) -> None:

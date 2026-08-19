@@ -170,25 +170,23 @@ class TemplateCheck(Check):
             or _version_key(str(commit)) is None
             or _version_key(str(commit)) != _version_key(latest)
         ):
+            # Advisory, not blocking. The repo did nothing wrong: the template
+            # moved. Gating on this means every py-canon release turns the
+            # whole fleet red at once -- v1.1.1 did exactly that -- and the
+            # only cure is a PR to every repo before anyone's CI can pass
+            # again. Recording a stale-but-concrete tag still lets `copier
+            # update` do its job, which is what the record is for.
             issues.append(
                 Issue(
                     check=self.name,
-                    severity=Severity.WARNING,
+                    severity=Severity.INFO,
                     description=(
                         f"Template drift: {ANSWERS_FILE} records "
                         f"_commit={commit!r} but the latest py-canon tag is "
                         f"{latest!r}"
                     ),
-                    impact=Impact.IMPORTANT,
-                    explanation="Run 'preen update' to pull template changes.",
-                )
-            )
-            issues.append(
-                Issue(
-                    check=self.name,
-                    severity=Severity.INFO,
-                    description=f"Drift: {commit!r} -> {latest!r}",
                     impact=Impact.INFORMATIONAL,
+                    explanation="Run 'preen update' to pull template changes.",
                 )
             )
 

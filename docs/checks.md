@@ -11,11 +11,13 @@ Every issue a check reports carries an impact level:
 ### `template`
 
 Copier adoption and drift. Critical if the repo has no
-`.copier-answers.yml`; important if the recorded `_commit` differs from the
-latest py-canon `v*` tag (queried via `git ls-remote`, skipped gracefully
-offline), or if it records a moving major tag like `v1`, which makes
-`copier update` compare the tag against itself and no-op — re-run
-`preen adopt` to pin the concrete release tag.
+`.copier-answers.yml`. Important if it records a moving major tag like `v1`,
+which makes `copier update` compare the tag against itself and no-op — re-run
+`preen adopt` to pin the concrete release tag. Drift between the recorded
+concrete tag and the latest py-canon `v*` tag (queried via `git ls-remote`,
+skipped gracefully offline) is **informational**: the repo did nothing wrong
+when the template moves, and gating on it would turn the whole fleet red on
+every py-canon release.
 
 ### `workflows`
 
