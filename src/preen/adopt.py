@@ -266,7 +266,10 @@ def mine_answers(repo: Path) -> dict[str, Any]:
 
 
 def render_template(
-    answers: dict[str, Any], dst: Path, template: str = CANON_TEMPLATE
+    answers: dict[str, Any],
+    dst: Path,
+    template: str = CANON_TEMPLATE,
+    vcs_ref: str | None = None,
 ) -> None:
     """Render the copier template into a directory.
 
@@ -274,6 +277,7 @@ def render_template(
         answers: Copier answers (mined from the repo).
         dst: Destination directory (a temp dir).
         template: Copier template source.
+        vcs_ref: Template ref to render; None lets copier pick a tag.
     """
     from copier import run_copy
 
@@ -284,8 +288,31 @@ def render_template(
         defaults=True,
         unsafe=True,
         quiet=True,
-        vcs_ref=None,
+        vcs_ref=vcs_ref,
     )
+
+
+def _pin_answers_commit(rendered: Path, tag: str) -> None:
+    """Force the rendered answers file to record a concrete release tag.
+
+    Copier derives ``_commit`` from ``git describe``, which can resolve to a
+    moving major tag like ``v1`` when it points at the same commit as the
+    release tag — and a moving-tag record makes ``copier update`` no-op
+    forever. Rewriting the line keeps the record deterministic.
+
+    Args:
+        rendered: Directory containing the rendered template.
+        tag: The concrete ``vX.Y.Z`` tag that was rendered.
+    """
+    answers_path = rendered / ".copier-answers.yml"
+    if not answers_path.exists():
+        return
+    lines = answers_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if line.startswith("_commit:"):
+            lines[i] = f"_commit: {tag}\n"
+            break
+    answers_path.write_text("".join(lines), encoding="utf-8")
 
 
 def copy_managed_files(
@@ -985,9 +1012,16 @@ def adopt_repo(
     answers = mine_answers(repo)
     report = AdoptionReport()
 
+    # Imported lazily: preen.checks.metadata imports back from this module.
+    from .checks.template import latest_canon_tag
+
+    release_tag = latest_canon_tag(concrete_only=True)
+
     with tempfile.TemporaryDirectory(prefix="preen-adopt-") as tmp:
         rendered = Path(tmp) / "rendered"
-        render_template(answers, rendered, template=template)
+        render_template(answers, rendered, template=template, vcs_ref=release_tag)
+        if release_tag is not None:
+            _pin_answers_commit(rendered, release_tag)
         copy_managed_files(rendered, repo, str(answers["package_name"]), report)
 
     changes, preserved = rewrite_pyproject(repo, release_migration=release_migration)

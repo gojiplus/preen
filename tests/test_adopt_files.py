@@ -219,3 +219,22 @@ def test_coverage_floor_defaults_to_zero_without_shim(tmp_path: Path) -> None:
     repo.mkdir()
     (repo / "pyproject.toml").write_text('[project]\nname = "mypkg"\n')
     assert mine_answers(repo)["coverage_floor"] == 0
+
+
+def test_pin_answers_commit_rewrites_moving_tag(tmp_path: Path) -> None:
+    """git describe can record `v1`; the pin forces the concrete release tag."""
+    from preen.adopt import _pin_answers_commit
+
+    answers = tmp_path / ".copier-answers.yml"
+    answers.write_text(
+        "# Managed by copier\n_commit: v1\n_src_path: gh:gojiplus/py-canon\n"
+    )
+    _pin_answers_commit(tmp_path, "v1.0.1")
+    assert "_commit: v1.0.1\n" in answers.read_text()
+    assert "_src_path: gh:gojiplus/py-canon" in answers.read_text()
+
+
+def test_pin_answers_commit_tolerates_missing_file(tmp_path: Path) -> None:
+    from preen.adopt import _pin_answers_commit
+
+    _pin_answers_commit(tmp_path, "v1.0.1")
