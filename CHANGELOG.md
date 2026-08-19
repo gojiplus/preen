@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The canon-template sync test no longer compares ruff's `target-version`.
+  `adopt` derives it from each repo's own `requires-python` floor, so it is a
+  template default rather than a value the two copies must agree on — and
+  comparing it turned every fleet floor change into a spurious drift failure.
+
 ## [0.4.1] - 2026-08-19
 
 ### Fixed
