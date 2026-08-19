@@ -21,3 +21,4 @@ jobs:
       wheel-import: preen
       coverage-floor: 70
       python-versions: '["3.12", "3.14"]'
+      run-preen: true

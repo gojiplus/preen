@@ -12,6 +12,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `template/pyproject.toml.jinja`, so the two copies of the canonical `[tool.*]`
   configuration can no longer drift silently.
 
+### Changed
+
+- Preen now holds itself to the fleet standard it enforces: CI runs
+  `preen check --strict` (`run-preen: true`), and its own
+  `.copier-answers.yml` records the concrete `v1.0.1` release tag instead of
+  the moving `v1`.
+- Documented the `workflows`, `files`, and `precommit` checks in
+  `docs/checks.md` and the README check list; they shipped undocumented.
+
 ### Fixed
 
 - `preen adopt` now renders the template at the latest concrete `vX.Y.Z` release

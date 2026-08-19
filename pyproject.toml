@@ -118,3 +118,6 @@ source = ["src"]
 src_layout = true
 tests_at_root = true
 skip_checks = []
+# The sync test builds this URL from two string literals; the link scanner
+# extracts the bare prefix, which 404s while the full joined URL is valid.
+link_ignore = ["https://raw.githubusercontent.com/gojiplus/py-canon/*"]

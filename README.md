@@ -77,14 +77,17 @@ latest `v*` tag.
 ### Checks
 
 `preen check` runs: `template` (copier adoption + drift against the latest
-py-canon tag), `ruff`, `tests`, `citation`, `changelog` (Keep a Changelog
-structure), `deps` (deptry), `deptree` (circular imports), `depgroups` (PEP
-735 dependency-groups usage), `audit` (pip-audit over the locked
-dependencies), `ci-matrix` (canon shim, or a matrix covering the
-requires-python floor), `structure`, `version` (hardcoded version strings),
-`license` (PEP 639 license metadata), `links`, `metadata` (build backend,
-requires-python upper bound, PEP 561 `py.typed`), `pydoclint`, `pyright`, and
-`codespell`.
+py-canon tag), `workflows` (the four canon workflows are callers of the
+reusable workflows, not stale copies), `ruff`, `tests`, `citation`,
+`changelog` (Keep a Changelog structure), `deps` (deptry), `deptree`
+(circular imports), `depgroups` (PEP 735 dependency-groups usage), `audit`
+(pip-audit over the locked dependencies), `ci-matrix` (canon shim, or a
+matrix covering the requires-python floor), `structure`, `runtime-assets`
+(schema-bearing data formats, pinned Hugging Face revisions), `files`
+(README and `.gitignore` exist), `precommit` (`.pre-commit-config.yaml`
+exists and parses), `version` (hardcoded version strings), `license` (PEP
+639 license metadata), `links`, `metadata` (build backend, requires-python
+upper bound, PEP 561 `py.typed`), `pydoclint`, `pyright`, and `codespell`.
 
 Issues carry an impact level: **critical** blocks release, **important** can
 be overridden with informed consent, **info** is advisory. `preen release`

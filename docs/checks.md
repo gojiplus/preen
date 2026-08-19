@@ -13,7 +13,17 @@ Every issue a check reports carries an impact level:
 Copier adoption and drift. Critical if the repo has no
 `.copier-answers.yml`; important if the recorded `_commit` differs from the
 latest py-canon `v*` tag (queried via `git ls-remote`, skipped gracefully
-offline).
+offline), or if it records a moving major tag like `v1`, which makes
+`copier update` compare the tag against itself and no-op — re-run
+`preen adopt` to pin the concrete release tag.
+
+### `workflows`
+
+The four canon workflow files (`ci.yml`, `docs.yml`, `release.yml`,
+`dependabot-auto-merge.yml`) must be thin callers of py-canon's reusable
+workflows, not materialized copies. Important for each file that exists but
+does not call the matching `gojiplus/py-canon/.github/workflows/reusable-*`
+workflow — a copy stops receiving fleet fixes the moment it is written.
 
 ### `ci-matrix`
 
@@ -24,6 +34,18 @@ workflow's test matrix must cover the `requires-python` floor.
 ### `citation`
 
 `CITATION.cff` exists, parses as YAML, and has the core CFF keys.
+
+### `files`
+
+`README` (any of the common spellings) and `.gitignore` exist
+(sp-repo-review PY002/PY008). `preen fix files` writes a standard Python
+`.gitignore` when it is missing.
+
+### `precommit`
+
+`.pre-commit-config.yaml` exists and parses as YAML. Deliberately does not
+police which hooks it configures — CI is the gate; pre-commit is the fast
+local echo of it.
 
 ### `structure`
 
