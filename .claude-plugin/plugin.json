@@ -1,6 +1,6 @@
 {
   "name": "preen",
   "description": "Python package hygiene via the preen CLI — conformance checks, adoption onto the py-canon standard, guided tag-driven releases",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "author": { "name": "Gaurav Sood" }
 }
