@@ -20,9 +20,13 @@ TEMPLATE_URL = (
     "template/pyproject.toml.jinja"
 )
 
-# Tables the adopt flow merges verbatim; target-version is repo-specific in
-# adopt but shares the template's floor default, so it participates too.
 SYNCED_TABLES = ("ruff", "pyright", "pydoclint")
+
+# `adopt` derives ruff's target-version from each repo's own requires-python
+# floor (see `_target_version`), so canon's value is a template default rather
+# than a constant the two copies must agree on. Comparing it would fail every
+# time the fleet floor moves, for no drift.
+DERIVED_KEYS = {"ruff": ("target-version",)}
 
 
 def _fetch_template() -> str:
@@ -42,7 +46,12 @@ def test_canon_tool_toml_matches_template() -> None:
     preen_tools = tomllib.loads(CANON_TOOL_TOML)["tool"]
 
     for table in SYNCED_TABLES:
-        assert preen_tools[table] == template_tools[table], (
+        ours = dict(preen_tools[table])
+        theirs = dict(template_tools[table])
+        for key in DERIVED_KEYS.get(table, ()):
+            ours.pop(key, None)
+            theirs.pop(key, None)
+        assert ours == theirs, (
             f"[tool.{table}] differs between preen.adopt.CANON_TOOL_TOML and "
             "py-canon's template/pyproject.toml.jinja — update both together"
         )
