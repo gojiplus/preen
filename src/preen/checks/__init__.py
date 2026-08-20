@@ -13,6 +13,7 @@ from .codespell import CodespellCheck
 from .depgroups import DepgroupsCheck
 from .deps import DepsCheck
 from .deptree import DeptreeCheck
+from .dropped_args import DroppedArgsCheck
 from .files import RequiredFilesCheck
 from .license import LicenseCheck
 from .links import LinkCheck
@@ -38,6 +39,7 @@ ALL_CHECKS: list[type[Check]] = [
     DepsCheck,
     DeptreeCheck,
     DepgroupsCheck,
+    DroppedArgsCheck,
     AuditCheck,
     CIMatrixCheck,
     StructureCheck,

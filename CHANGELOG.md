@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- A `dropped-args` check: a parameter the caller accepts and then fails to
+  forward, so the callee falls back to its own default and a documented knob
+  silently does nothing. ruff's `ARG001` does not cover this shape — it fires
+  when a parameter is never read, whereas here the caller reads it and the call
+  it makes has a valid signature. One package in the fleet shipped three of
+  them, all of which passed their tests, CI, ruff and pyright: a confidence
+  level that left one interval at 95% while its neighbour honoured the request,
+  a subsampling cap that never reached the routine that subsamples, and a
+  coverage simulation whose bootstrap arm reported identical coverage at every
+  nominal level. Mark a deliberate drop `# preen: allow-dropped-arg`.
+
 ### Fixed
 
 - `preen update` exits 1 when the merge leaves conflict markers, and names the

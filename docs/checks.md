@@ -138,6 +138,25 @@ etc.) left in `[project.optional-dependencies]` instead of
 `[dependency-groups]`. Info: a name defined in both sections. No auto-fix —
 move entries manually or with `uv add --group`.
 
+### `dropped-args`
+
+A parameter the caller accepts and then fails to forward. Function `f` takes
+`p` and calls `g`, which also takes `p` and gives it a default; the call omits
+`p`, so `g` uses its default and `f`'s `p` reaches nothing. Important, because
+the failure is silent: the code runs, the tests pass, and a documented knob
+does nothing.
+
+ruff's `ARG001` does not cover this. `ARG001` fires when a parameter is never
+read in the body, but here `f` may read `p` elsewhere and the call to `g` has
+a valid signature. Only comparing the two signatures shows it.
+
+The check resolves callees by name within the package and skips a name defined
+more than once, since a bare call cannot then be attributed with confidence. A
+`**kwargs` forward counts as passing everything. No auto-fix: forwarding the
+parameter is usually right, but sometimes the callee is meant to use its own
+default, and only the author knows which. Mark a deliberate one with `# preen:
+allow-dropped-arg` on the call or the line above it.
+
 ### `audit`
 
 Known vulnerabilities in locked dependencies, via `pip-audit` over a `uv
