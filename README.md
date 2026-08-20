@@ -80,7 +80,8 @@ latest `v*` tag.
 py-canon tag), `workflows` (the four canon workflows are callers of the
 reusable workflows, not stale copies), `ruff`, `tests`, `citation`,
 `changelog` (Keep a Changelog structure), `deps` (deptry), `deptree`
-(circular imports), `depgroups` (PEP 735 dependency-groups usage), `audit`
+(circular imports), `depgroups` (PEP 735 dependency-groups usage),
+`dropped-args` (a parameter a caller accepts but never forwards), `audit`
 (pip-audit over the locked dependencies), `ci-matrix` (canon shim, or a
 matrix covering the requires-python floor), `structure`, `runtime-assets`
 (schema-bearing data formats, pinned Hugging Face revisions), `files`

@@ -52,6 +52,26 @@ preen update
 Runs `copier update` for a repo with a `.copier-answers.yml`, merging
 template changes with conflict markers inline, and prints the changed files.
 
+If the merge leaves conflicts, `preen update` exits 1 rather than 0, so a
+script cannot walk past an unresolved tree. When the conflict is in
+`pyproject.toml`, it also names every `[project]` key the merge would change,
+current value first:
+
+```
+pyproject.toml: the template is offering to replace [project] metadata
+  version
+    keep:    '0.8.0'
+    offered: '0.1.0'
+  dependencies
+    keep:    ['pandas', 'pyarrow>=15']
+    offered: []
+```
+
+The template renders `[project]` from the scaffold answers, so its side of the
+merge is always the state the repo had on day one. Taking it would publish an
+empty wheel under a version the project released long ago. Keep the current
+values; the template's business is the `[tool.*]` configuration.
+
 ## Checking: `preen check`
 
 ```bash
