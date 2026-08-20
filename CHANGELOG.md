@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `preen update` exits 1 when the merge leaves conflict markers, and names the
+  `[project]` keys at risk. copier renders `[project]` from the scaffold
+  answers, so a template edit anywhere near that table conflicts with the
+  project's real metadata and offers `version = "0.1.0"` and
+  `dependencies = []` as the "after updating" side. Previously the command
+  printed one line of advice and exited 0, so nothing downstream caught a
+  wrong resolution: the `version` check looks for hardcoded `__version__`
+  copies, not for a version that went backwards. py-canon v1.2.0 changed two
+  lines and produced exactly this conflict in an adopted repo.
+
 - The canon-template sync test no longer compares ruff's `target-version`.
   `adopt` derives it from each repo's own `requires-python` floor, so it is a
   template default rather than a value the two copies must agree on — and
