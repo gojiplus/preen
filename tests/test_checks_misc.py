@@ -41,11 +41,96 @@ def _write_pyproject(repo: Path, floor: str = "3.11") -> None:
     )
 
 
-def test_ci_matrix_shim_passes(tmp_path: Path) -> None:
-    _write_pyproject(tmp_path)
+def _stub_reusable(monkeypatch, versions: set[str] | None) -> None:
+    """Answer the reusable-workflow lookup without touching the network.
+
+    Args:
+        monkeypatch: pytest fixture.
+        versions: What the reusable workflow defaults to, or None for offline.
+    """
+    monkeypatch.setattr(CIMatrixCheck, "_reusable_default", lambda self, ref: versions)
+
+
+def test_ci_matrix_shim_covering_the_floor_passes(tmp_path, monkeypatch) -> None:
+    _write_pyproject(tmp_path, floor="3.12")
     _write_ci(tmp_path, CANON_SHIM)
+    _stub_reusable(monkeypatch, {"3.12", "3.14"})
     result = CIMatrixCheck(tmp_path).run()
     assert result.passed
+    assert result.issues == []
+
+
+def test_ci_matrix_shim_with_an_unresolvable_leg_fails(tmp_path, monkeypatch) -> None:
+    """A default below the floor gives CI a job that cannot install (issue #57).
+
+    Recognising the shim was the whole check, so preen reported green on a repo
+    whose 'uv sync' exits 2 on every push.
+    """
+    _write_pyproject(tmp_path, floor="3.13")
+    _write_ci(tmp_path, CANON_SHIM)
+    _stub_reusable(monkeypatch, {"3.12", "3.14"})
+
+    result = CIMatrixCheck(tmp_path).run()
+
+    assert not result.passed
+    assert "3.12" in result.issues[0].description
+    assert "below the requires-python floor 3.13" in result.issues[0].description
+
+
+def test_ci_matrix_shim_never_testing_the_floor_is_advisory(
+    tmp_path, monkeypatch
+) -> None:
+    """CI is green; only the floor claim is unverified.
+
+    A shim inherits its matrix from py-canon, so gating here would turn every
+    repo still declaring a 3.11 floor red the day canon raised its default --
+    for a change none of them made. Three of the five fleet repos checked while
+    writing this were in exactly that position.
+    """
+    _write_pyproject(tmp_path, floor="3.11")
+    _write_ci(tmp_path, CANON_SHIM)
+    _stub_reusable(monkeypatch, {"3.12", "3.14"})
+
+    result = CIMatrixCheck(tmp_path).run()
+
+    assert result.passed
+    assert result.issues[0].impact.value == "info"
+    assert "never the requires-python floor 3.11" in result.issues[0].description
+
+
+def test_ci_matrix_shim_honors_an_explicit_python_versions_input(
+    tmp_path, monkeypatch
+) -> None:
+    """An explicit input overrides the default, and must be read as one."""
+    _write_pyproject(tmp_path, floor="3.13")
+    _write_ci(
+        tmp_path,
+        CANON_SHIM.replace(
+            "      wheel-import: mypkg\n",
+            '      python-versions: \'["3.13", "3.14"]\'\n',
+        ),
+    )
+    _stub_reusable(monkeypatch, {"3.12", "3.14"})
+
+    result = CIMatrixCheck(tmp_path).run()
+
+    assert result.passed
+
+
+def test_ci_matrix_offline_reports_info_rather_than_passing_silently(
+    tmp_path, monkeypatch
+) -> None:
+    """Unverifiable is not the same as verified; it must still not gate."""
+    _write_pyproject(tmp_path, floor="3.13")
+    _write_ci(tmp_path, CANON_SHIM)
+    _stub_reusable(monkeypatch, None)
+
+    result = CIMatrixCheck(tmp_path).run()
+
+    assert result.passed
+    assert len(result.issues) == 1
+    assert result.issues[0].impact.value == "info"
+    assert "Could not read the reusable workflow" in result.issues[0].description
 
 
 def test_ci_matrix_covering_floor_passes(tmp_path: Path) -> None:
@@ -94,6 +179,91 @@ def test_citation_missing_keys(tmp_path: Path) -> None:
     assert not result.passed
 
 
+def _write_citation(repo: Path, version: str | None) -> None:
+    """Write a CFF file, optionally carrying a version key.
+
+    Args:
+        repo: Project root.
+        version: Version to record, or None to omit the key.
+    """
+    lines = ["cff-version: 1.2.0", 'title: "x"']
+    if version is not None:
+        lines.append(f"version: {version}")
+    lines += ["authors:", '  - family-names: "Y"']
+    (repo / "CITATION.cff").write_text("\n".join(lines) + "\n")
+
+
+def test_citation_version_drift_is_important(tmp_path: Path) -> None:
+    """A parseable CFF can still cite a release from a decade ago (issue #50).
+
+    get-weather-data passed this check while CITATION.cff said 0.1.31, dated
+    2016, against an actual 6.1.0 -- and that number is what a citation copies.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "6.1.0"\n'
+    )
+    _write_citation(tmp_path, "0.1.31")
+
+    result = CitationCheck(tmp_path).run()
+
+    assert not result.passed
+    assert "cites version 0.1.31" in result.issues[0].description
+    assert result.issues[0].proposed_fix is not None
+
+
+def test_citation_version_match_passes(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "6.1.0"\n'
+    )
+    _write_citation(tmp_path, "6.1.0")
+
+    assert CitationCheck(tmp_path).run().passed
+
+
+def test_citation_without_a_version_key_is_informational(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "6.1.0"\n'
+    )
+    _write_citation(tmp_path, None)
+
+    result = CitationCheck(tmp_path).run()
+
+    assert result.passed
+    assert result.issues[0].impact.value == "info"
+
+
+def test_citation_fix_rewrites_only_the_version_line(tmp_path: Path) -> None:
+    """A targeted substitution, so a hand-written file keeps its comments."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "2.0.0"\n'
+    )
+    (tmp_path / "CITATION.cff").write_text(
+        "cff-version: 1.2.0\n# cite the paper, not the code\n"
+        'title: "x"\nversion: 1.0.0\nauthors:\n  - family-names: "Y"\n'
+    )
+
+    issue = CitationCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+
+    text = (tmp_path / "CITATION.cff").read_text()
+    assert "version: 2.0.0" in text
+    assert "# cite the paper, not the code" in text
+    assert CitationCheck(tmp_path).run().passed
+
+
+def test_citation_version_is_not_compared_without_a_static_project_version(
+    tmp_path: Path,
+) -> None:
+    """A dynamic version has nothing to disagree with."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\ndynamic = ["version"]\n'
+    )
+    _write_citation(tmp_path, "0.1.31")
+
+    assert CitationCheck(tmp_path).run().passed
+
+
 def test_mine_answers(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(
         "[project]\n"
@@ -124,3 +294,52 @@ def test_detect_package_name_single_src_package(tmp_path: Path) -> None:
     pkg.mkdir(parents=True)
     (pkg / "__init__.py").write_text("")
     assert detect_package_name(tmp_path, "my-pkg") == "othername"
+
+
+REUSABLE_WORKFLOW = """\
+name: Reusable CI
+on:
+  workflow_call:
+    inputs:
+      python-versions:
+        description: 'JSON array of Python versions to test'
+        type: string
+        default: '["3.12", "3.14"]'
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+"""
+
+
+def test_reusable_default_is_read_from_a_bare_on_key(tmp_path, monkeypatch) -> None:
+    """YAML 1.1 files a workflow's `on:` block under the boolean True.
+
+    Looking it up as the string "on" finds nothing, and a lookup that finds
+    nothing reads as "no default declared" -- another silent pass.
+    """
+
+    class _Response:
+        def read(self):
+            return REUSABLE_WORKFLOW.encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(
+        "preen.checks.ci_matrix.urllib.request.urlopen",
+        lambda url, timeout: _Response(),
+    )
+
+    versions = CIMatrixCheck(tmp_path)._reusable_default(
+        {
+            "owner": "gojiplus",
+            "repo": "py-canon",
+            "path": ".github/workflows/reusable-ci.yml",
+            "ref": "v1",
+        }
+    )
+
+    assert versions == {"3.12", "3.14"}

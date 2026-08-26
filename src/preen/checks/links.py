@@ -151,7 +151,7 @@ class LinkCheck(Check):
             for path in paths
             if any(path.match(pattern) for pattern in self.SCAN_PATTERNS)
             and not any(part.startswith(".") for part in path.parts)
-            and not self.is_excluded(path)
+            and not self.is_lint_excluded(path)
         )
 
     def _run_lychee(self, files: list[Path]) -> dict:

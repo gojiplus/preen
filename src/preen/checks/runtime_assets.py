@@ -5,6 +5,8 @@ import re
 import tomllib
 from pathlib import Path
 
+import pathspec
+
 from .base import Check, CheckResult, Impact, Issue, Severity
 
 TABULAR_SUFFIXES = (
@@ -71,9 +73,61 @@ class RuntimeAssetsCheck(Check):
             )
         except (OSError, tomllib.TOMLDecodeError):
             return []
-        package_name = str(project.get("name", "")).replace("-", "_")
-        candidate = self.project_dir / package_name
+        # An explicit module-name wins: a repo whose import package does not
+        # match its normalized distribution name would otherwise resolve to no
+        # package at all, and a check with nothing to look at reports a pass.
+        module_name = str(self._build_backend_config().get("module-name", "")) or str(
+            project.get("name", "")
+        ).replace("-", "_")
+        candidate = self.project_dir / module_name
         return [candidate] if candidate.is_dir() else []
+
+    def _build_backend_config(self) -> dict:
+        """Return the repo's ``[tool.uv.build-backend]`` table.
+
+        Returns:
+            The table, or an empty dict when absent or unreadable.
+        """
+        pyproject = self.project_dir / "pyproject.toml"
+        if not pyproject.exists():
+            return {}
+        try:
+            data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError):
+            return {}
+        table = data.get("tool", {}).get("uv", {}).get("build-backend", {})
+        return table if isinstance(table, dict) else {}
+
+    def _wheel_exclusions(self) -> pathspec.PathSpec | None:
+        """Build the matcher for files the wheel will not contain.
+
+        uv's ``source-exclude`` drops a file from the sdist *and* the wheel;
+        ``wheel-exclude`` drops it from the wheel only. Either way the file is
+        not installed, so it is not a runtime asset.
+
+        Matching uses pathspec's gitignore engine rather than a copy of
+        uv's glob dialect: both anchor a leading ``/`` to the project root and
+        let a bare pattern match at any depth.
+
+        Returns:
+            The matcher, or None when the repo declares no build excludes.
+        """
+        config = self._build_backend_config()
+        patterns = [
+            str(entry)
+            for key in ("source-exclude", "wheel-exclude")
+            for entry in config.get(key, [])
+            if isinstance(entry, str)
+        ]
+        if not patterns:
+            return None
+        try:
+            return pathspec.PathSpec.from_lines("gitignore", patterns)
+        except (ValueError, TypeError):
+            # An uninterpretable pattern must not quietly widen the exclusion:
+            # fall back to treating nothing as excluded, so findings stay
+            # critical rather than being downgraded on a guess.
+            return None
 
     def _files(self) -> list[Path]:
         """Return files under the import packages.
@@ -83,11 +137,17 @@ class RuntimeAssetsCheck(Check):
         """
         files: list[Path] = []
         for root in self._package_roots():
-            files.extend(
-                path.relative_to(self.project_dir)
-                for path in root.rglob("*")
-                if path.is_file() and not self.is_excluded(path)
-            )
+            for path in root.rglob("*"):
+                if not path.is_file():
+                    continue
+                # Project-relative, not absolute: is_excluded matches on any
+                # path component, so an absolute path let the user's own
+                # checkout location decide -- a repo cloned under ~/build or
+                # ~/dist had every packaged asset silently skipped.
+                relative = path.relative_to(self.project_dir)
+                if self.is_excluded(relative):
+                    continue
+                files.append(relative)
         return sorted(files)
 
     def _format_issues(self, files: list[Path]) -> list[Issue]:
@@ -99,50 +159,73 @@ class RuntimeAssetsCheck(Check):
         Returns:
             One issue per invalid artifact.
         """
+        excluded = self._wheel_exclusions()
         issues = []
         for path in files:
             lower_name = path.name.lower()
             if lower_name.endswith(TABULAR_SUFFIXES):
-                issues.append(
-                    Issue(
-                        check=self.name,
-                        severity=Severity.ERROR,
-                        description=(
-                            "Packaged runtime table uses CSV or TSV. Use typed "
-                            "Parquet for tabular data, or Protobuf for structured "
-                            "records."
-                        ),
-                        file=path,
-                        impact=Impact.CRITICAL,
-                    )
+                description = (
+                    "Packaged runtime table uses CSV or TSV. Use typed "
+                    "Parquet for tabular data, or Protobuf for structured "
+                    "records."
                 )
             elif lower_name.endswith(MODEL_SUFFIXES):
-                issues.append(
-                    Issue(
-                        check=self.name,
-                        severity=Severity.ERROR,
-                        description=(
-                            "Serialized model is stored in the Python package. "
-                            "Publish it on Hugging Face and download a pinned revision."
-                        ),
-                        file=path,
-                        impact=Impact.CRITICAL,
-                    )
+                description = (
+                    "Serialized model is stored in the Python package. "
+                    "Publish it on Hugging Face and download a pinned revision."
                 )
             elif lower_name.endswith(ARCHIVE_SUFFIXES):
-                issues.append(
-                    Issue(
-                        check=self.name,
-                        severity=Severity.ERROR,
-                        description=(
-                            "Opaque archive is stored inside the Python package. "
-                            "Ship schema-bearing resources directly."
-                        ),
-                        file=path,
-                        impact=Impact.CRITICAL,
-                    )
+                description = (
+                    "Opaque archive is stored inside the Python package. "
+                    "Ship schema-bearing resources directly."
                 )
+            else:
+                continue
+            issues.append(self._asset_issue(path, description, excluded))
         return issues
+
+    def _asset_issue(
+        self, path: Path, description: str, excluded: pathspec.PathSpec | None
+    ) -> Issue:
+        """Build one packaged-asset finding, graded by whether it ships.
+
+        A file the build backend keeps out of every artifact is not a packaging
+        defect: nothing installs it, so no user ever resolves it at runtime. It
+        is still source-tree clutter worth naming, so it is reported at info
+        rather than dropped -- and the message says which key excluded it, so a
+        reader does not have to guess why this one is quieter.
+
+        Args:
+            path: Project-relative path of the asset.
+            description: The finding text for a file that does ship.
+            excluded: Matcher for files the wheel will not contain.
+
+        Returns:
+            The Issue.
+        """
+        if excluded is not None and excluded.match_file(path.as_posix()):
+            return Issue(
+                check=self.name,
+                severity=Severity.INFO,
+                description=(
+                    f"{path.name} sits inside the import package but "
+                    "[tool.uv.build-backend] excludes it from the wheel, so it "
+                    "is source-tree hygiene rather than a packaging defect."
+                ),
+                file=path,
+                impact=Impact.INFORMATIONAL,
+                explanation=(
+                    "Verify with 'uv build' that no artifact contains it; "
+                    "moving it out of the package makes that unnecessary."
+                ),
+            )
+        return Issue(
+            check=self.name,
+            severity=Severity.ERROR,
+            description=description,
+            file=path,
+            impact=Impact.CRITICAL,
+        )
 
     def _revision_issues(self, files: list[Path]) -> list[Issue]:
         """Validate explicit remote Hugging Face calls.
@@ -291,4 +374,5 @@ class RuntimeAssetsCheck(Check):
         """
         files = self._files()
         issues = [*self._format_issues(files), *self._revision_issues(files)]
-        return CheckResult(check=self.name, passed=not issues, issues=issues)
+        blocking = [issue for issue in issues if issue.severity != Severity.INFO]
+        return CheckResult(check=self.name, passed=not blocking, issues=issues)

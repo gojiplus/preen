@@ -11,7 +11,10 @@ Every issue a check reports carries an impact level:
 ### `template`
 
 Copier adoption and drift. Critical if the repo has no
-`.copier-answers.yml`. Important if it records a moving major tag like `v1`,
+`.copier-answers.yml`. Important if `_commit` is not a release tag at all — a
+mangled value like `v1.0.1.0.1`, a `git describe` string like
+`v1.2.0-3-gabc1234`, or a bare SHA — since `copier update` cannot resolve any
+of them. Important if it records a moving major tag like `v1`,
 which makes `copier update` compare the tag against itself and no-op — re-run
 `preen adopt` to pin the concrete release tag. Drift between the recorded
 concrete tag and the latest py-canon `v*` tag (queried via `git ls-remote`,
@@ -29,13 +32,24 @@ workflow — a copy stops receiving fleet fixes the moment it is written.
 
 ### `ci-matrix`
 
-Passes if `.github/workflows/ci.yml` is a canon shim (calls
-`gojiplus/py-canon/.github/workflows/reusable-ci.yml`). Otherwise the
-workflow's test matrix must cover the `requires-python` floor.
+The Python versions CI actually runs must cover the `requires-python` floor.
+For a canon shim (one calling
+`gojiplus/py-canon/.github/workflows/reusable-ci.yml`) that means the
+`python-versions` input if the shim passes one, and otherwise the reusable
+workflow's own default, fetched from the ref on the `uses:` line. Important
+when a version below the floor is in the matrix — that leg cannot resolve and
+`uv sync` exits 2. A floor that is merely never run is advisory on a shim,
+since the matrix came from py-canon rather than from the repo; on a
+hand-written matrix it stays important. When the reusable workflow cannot be
+fetched, the comparison is skipped with an info note rather than reported as
+verified.
 
 ### `citation`
 
-`CITATION.cff` exists, parses as YAML, and has the core CFF keys.
+`CITATION.cff` exists, parses as YAML, and has the core CFF keys. Its `version`
+must match `project.version`: important when the two disagree, info when the
+key is absent. `preen fix citation` rewrites the version line in place, leaving
+the rest of a hand-written file alone.
 
 ### `files`
 
@@ -62,6 +76,12 @@ archives inside import packages are critical failures. Serialized model files
 are also critical: publish them on Hugging Face and resolve them at runtime.
 Modules that access Hugging Face must declare a revision pinned to the full
 40-character commit SHA.
+
+A file that `[tool.uv.build-backend]` keeps out of the wheel — via
+`source-exclude` or `wheel-exclude` — is reported at info instead: nothing
+installs it, so it is source-tree hygiene rather than a packaging defect.
+Unlike the scanning checks, this one ignores `[tool.ruff]` excludes: whether a
+file ships in the wheel is not a question a lint setting gets to answer.
 
 ### `version`
 

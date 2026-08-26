@@ -164,7 +164,7 @@ class StructureCheck(Check):
         return [
             p
             for p in self.project_dir.rglob(pattern)
-            if not self.is_excluded(p.relative_to(self.project_dir))
+            if not self.is_lint_excluded(p.relative_to(self.project_dir))
         ]
 
     def _check_common_antipatterns(self) -> list[Issue]:

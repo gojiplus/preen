@@ -136,7 +136,7 @@ class CodespellCheck(Check):
 
         # Add skip patterns for common directories/files that don't need spell checking
         skip_patterns = [
-            *sorted(self.excluded_dirs()),
+            *sorted(self.lint_excluded_dirs()),
             "*.pyc",
             "*.egg-info",
             "*.ipynb",
@@ -202,7 +202,7 @@ class CodespellCheck(Check):
             path
             for path in paths
             if path.suffix.lower() in CHECKABLE_SUFFIXES
-            and not self.is_excluded(path)
+            and not self.is_lint_excluded(path)
             and not any(part.lower() in NEVER_CHECK_DIRS for part in path.parts)
         )
 

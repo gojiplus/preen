@@ -24,7 +24,7 @@ class DeptreeCheck(Check):
         return [
             path
             for path in self.project_dir.rglob("*.py")
-            if not self.is_excluded(path.relative_to(self.project_dir))
+            if not self.is_lint_excluded(path.relative_to(self.project_dir))
         ]
 
     def _extract_imports(self, file_path: Path) -> set[str]:

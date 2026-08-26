@@ -28,6 +28,28 @@ EXCLUDE_PARTS = {
 }
 
 
+def static_pyproject_version(project_dir: Path) -> str | None:
+    """Return a project's static ``project.version``.
+
+    Args:
+        project_dir: Path to the project root.
+
+    Returns:
+        The declared version string, or None when it is dynamic, absent, or
+        pyproject.toml cannot be read.
+    """
+    pyproject_path = project_dir / "pyproject.toml"
+    if not pyproject_path.exists():
+        return None
+    try:
+        with pyproject_path.open("rb") as handle:
+            data = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    version = data.get("project", {}).get("version")
+    return str(version) if version is not None else None
+
+
 class VersionCheck(Check):
     """Check for hardcoded version strings outside pyproject.toml."""
 
@@ -78,16 +100,12 @@ class VersionCheck(Check):
         ]
 
     def _static_pyproject_version(self) -> str | None:
-        """Return the static project.version, or None when dynamic/absent."""
-        pyproject_path = self.project_dir / "pyproject.toml"
-        if not pyproject_path.exists():
-            return None
-        try:
-            with pyproject_path.open("rb") as f:
-                data = tomllib.load(f)
-        except (OSError, tomllib.TOMLDecodeError):
-            return None
-        return data.get("project", {}).get("version")
+        """Return the static project.version, or None when dynamic/absent.
+
+        Returns:
+            The declared version string, if there is one.
+        """
+        return static_pyproject_version(self.project_dir)
 
     def _check_literal_dunder_versions(self) -> list[Issue]:
         """Flag literal ``__version__ = "x.y.z"`` assignments in Python files."""

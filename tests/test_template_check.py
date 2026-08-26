@@ -89,3 +89,54 @@ def test_latest_canon_tag_concrete_only(monkeypatch) -> None:
     monkeypatch.setattr(template_mod.subprocess, "run", lambda *a, **k: FakeResult())
     assert template_mod.latest_canon_tag() == "v2"
     assert template_mod.latest_canon_tag(concrete_only=True) == "v1.0.1"
+
+
+def test_mangled_commit_is_reported_not_truncated(tmp_path: Path, monkeypatch) -> None:
+    """A doubled substring replacement must not read as the tag it mangles.
+
+    sharepack carried `_commit: v1.0.1.0.1`. The version parser kept the first
+    three components, so it compared equal to `v1.0.1` and the corruption
+    passed every check until someone read the file (issue #55).
+    """
+    (tmp_path / ".copier-answers.yml").write_text(
+        "_commit: v1.0.1.0.1\n_src_path: gh:gojiplus/py-canon\n"
+    )
+    monkeypatch.setattr(
+        template_mod, "latest_canon_tag", lambda: (_ for _ in ()).throw(AssertionError)
+    )
+
+    result = TemplateCheck(tmp_path).run()
+
+    assert not result.passed
+    assert len(result.issues) == 1
+    issue = result.issues[0]
+    assert issue.impact == Impact.IMPORTANT
+    assert issue.severity == Severity.ERROR
+    assert "malformed _commit='v1.0.1.0.1'" in issue.description
+
+
+def test_git_describe_commit_is_named_as_such(tmp_path: Path, monkeypatch) -> None:
+    """`v1.2.0-3-gabc1234` means the template was adopted off a tag."""
+    (tmp_path / ".copier-answers.yml").write_text(
+        "_commit: v1.2.0-3-gabc1234\n_src_path: gh:gojiplus/py-canon\n"
+    )
+    monkeypatch.setattr(template_mod, "latest_canon_tag", lambda: "v1.2.0")
+
+    result = TemplateCheck(tmp_path).run()
+
+    assert not result.passed
+    assert "git describe" in result.issues[0].description
+
+
+def test_version_key_keeps_every_component() -> None:
+    assert template_mod._version_key("v1.0.1.0.1") != template_mod._version_key(
+        "v1.0.1"
+    )
+    assert template_mod._version_key("v1.0.1") == (1, 0, 1)
+    assert template_mod._version_key("v1") == (1,)
+    assert template_mod._version_key("not-a-tag") is None
+
+
+def test_shorter_and_longer_tags_still_compare_as_versions() -> None:
+    assert template_mod._same_version("v1", "v1.0.0")
+    assert not template_mod._same_version("v1.0.1", "v1.0.1.0.1")
