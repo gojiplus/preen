@@ -6,6 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `preen adopt` emits the template's dependency-group shape: a `test` group
+  holding pytest and pytest-cov, with `dev` reaching it through
+  `{ include-group = "test" }`. The reusable CI installs that group by name --
+  its wheel job runs `uv pip install dist/*.whl --group test` against a clean
+  environment -- so the flat `dev` group adopt used to write failed with
+  `error: The dependency group 'test' was not found` on the first push after
+  every release-migration adoption. A direct pytest pin in `dev` is removed
+  rather than left beside the include, and `pre-commit` joins the dev group,
+  which the template has and adopt did not.
+
+  `tests/test_canon_template_sync.py` now compares `[dependency-groups]`
+  against the template as well as `[tool.*]`. That table drifting unwatched is
+  why this was possible.
+
 ### Added
 
 - A `pytest-config` check for sp-repo-review PP301-PP309: `minversion`,

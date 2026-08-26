@@ -63,11 +63,27 @@ exclude = '\\.venv|tests|docs'
 
 LEGACY_TOOL_SECTIONS = ("black", "isort", "flake8", "mypy")
 
+# The template's `dev` group, in its order. pydoclint is deliberately absent:
+# canon's lint job runs it through `uvx --from pydoclint==<pin>`, not `uv run`,
+# so it does not have to be installable from the repo's environment -- and
+# `test_canon_dependency_groups_match_template` fails if adopt and the template
+# disagree about any of this.
 DEV_GROUP_REQUIRED = {
     "ruff": "ruff>=0.14",
     "pyright": "pyright>=1.1.390",
-    "pydoclint": "pydoclint>=0.5",
+    "pre-commit": "pre-commit>=4",
+}
+
+#: `dev` reaches pytest through the test group rather than pinning it twice.
+DEV_GROUP_INCLUDES = ("test",)
+
+# A separate group because the reusable CI installs it separately: the wheel
+# job runs `uv pip install dist/*.whl --group test` against a clean env, which
+# exits 2 when no such group exists. Emitting a flat `dev` sent every
+# release-migration adoption red on its first push (issue #54).
+TEST_GROUP_REQUIRED = {
     "pytest": "pytest>=8",
+    "pytest-cov": "pytest-cov>=6",
 }
 
 # Tools the standard retires; their dev-group entries go with them.
@@ -681,6 +697,8 @@ def rewrite_pyproject(
             changes.append(f"deleted [tool.{section}]")
 
     changes.extend(_ensure_docs_group(doc))
+    # Before the dev group, which reaches pytest through it.
+    changes.extend(_ensure_test_group(doc))
     changes.extend(_ensure_dev_group(doc))
 
     if release_migration:
@@ -713,12 +731,43 @@ def _ensure_docs_group(doc: Any) -> list[str]:
     return changes
 
 
+def _ensure_test_group(doc: Any) -> list[str]:
+    """Ensure [dependency-groups].test exists and carries pytest.
+
+    The reusable CI installs this group by name -- the wheel job runs
+    ``uv pip install dist/*.whl --group test`` against a clean environment --
+    so a repo without one fails that job with exit 2 no matter what its `dev`
+    group contains.
+
+    Args:
+        doc: Parsed tomlkit document.
+
+    Returns:
+        List of changes made.
+    """
+    changes: list[str] = []
+    groups = _ensure_table(doc, "dependency-groups")
+    if "test" not in groups:
+        groups["test"] = tomlkit.array()
+        changes.append("created [dependency-groups].test")
+    test = groups["test"]
+    present = _group_requirements(groups, "test")
+    for name, spec in TEST_GROUP_REQUIRED.items():
+        if name not in present:
+            test.append(spec)  # type: ignore[union-attr]
+            changes.append(f"added {spec!r} to test group")
+    return changes
+
+
 def _ensure_dev_group(doc: Any) -> list[str]:
     """Ensure [dependency-groups].dev carries the standard toolchain.
 
-    CI's lint job runs ruff/pyright/pydoclint via ``uv run``, so they
-    must be installable from the dev group. Entries for retired tools
-    (black, isort, flake8, mypy) are dropped.
+    CI's lint job runs ruff and pyright via ``uv run``, so they must be
+    installable from the dev group, and pre-commit is the local echo of that
+    gate. pytest arrives through ``{ include-group = "test" }`` rather than a
+    direct pin: two pins for one distribution is the drift this shape exists to
+    prevent. Entries for retired tools (black, isort, flake8, mypy) are
+    dropped, as is a direct pytest pin the include now supersedes.
 
     Args:
         doc: Parsed tomlkit document.
@@ -732,11 +781,20 @@ def _ensure_dev_group(doc: Any) -> list[str]:
         groups["dev"] = tomlkit.array()
         changes.append("created [dependency-groups].dev")
     dev = groups["dev"]
+
+    superseded = set(TEST_GROUP_REQUIRED)
     kept = []
     for entry in dev:
-        if isinstance(entry, str) and _requirement_name(entry) in DEV_GROUP_RETIRED:
-            changes.append(f"removed {entry!r} from dev group (retired tool)")
-            continue
+        if isinstance(entry, str):
+            name = _requirement_name(entry)
+            if name in DEV_GROUP_RETIRED:
+                changes.append(f"removed {entry!r} from dev group (retired tool)")
+                continue
+            if name in superseded:
+                changes.append(
+                    f"removed {entry!r} from dev group (provided by the test group)"
+                )
+                continue
         kept.append(entry)
     if len(kept) != len(dev):
         new = tomlkit.array()
@@ -744,6 +802,17 @@ def _ensure_dev_group(doc: Any) -> list[str]:
             new.append(entry)
         groups["dev"] = new
         dev = new
+
+    included = {
+        str(entry["include-group"])
+        for entry in dev
+        if isinstance(entry, dict) and "include-group" in entry
+    }
+    for group in DEV_GROUP_INCLUDES:
+        if group not in included:
+            dev.append(tomlkit.inline_table().append("include-group", group))  # type: ignore[union-attr]
+            changes.append(f"added {{ include-group = {group!r} }} to dev group")
+
     present = _group_requirements(groups, "dev")
     for name, spec in DEV_GROUP_REQUIRED.items():
         if name not in present:

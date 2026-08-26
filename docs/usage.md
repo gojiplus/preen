@@ -35,6 +35,15 @@ to the standard — preserving repo-specific ruff ignore codes by merging
 them into the canon list, and deriving `target-version` from the repo's
 `requires-python` floor (falling back to py311) — and deletes legacy
 `[tool.black]`, `[tool.isort]`, `[tool.flake8]`, `[tool.mypy]` sections.
+
+Dependency groups are brought to the template's shape: `test` holds pytest and
+pytest-cov, `dev` holds the lint toolchain plus
+`{ include-group = "test" }`, and `docs` holds the Sphinx stack. That split is
+not cosmetic — the reusable CI installs `test` by name in a clean environment
+(`uv pip install dist/*.whl --group test`), so a repo without one fails its
+wheel job. A pytest pin already sitting directly in `dev` is dropped, since the
+include now provides it.
+
 Ends with an adoption report of what was written, skipped, and left for
 you.
 
