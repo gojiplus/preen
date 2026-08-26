@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-26
+
 ### Added
 
 - A `pytest-config` check for sp-repo-review PP301-PP309: `minversion`,
@@ -55,6 +57,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   nominal level. Mark a deliberate drop `# preen: allow-dropped-arg`.
 
 ### Fixed
+
+- The version check's own test fixtures use an implausible version. preen's
+  release bumped `project.version` to 0.5.0, which those fixtures happened to
+  contain, so the check reported five hardcoded copies of the project version
+  in preen's own suite — correctly, on the evidence available to it. A fixture
+  version should be one the project will never carry.
 
 - `check-yield-types = false` follows py-canon's pydoclint config, in the table
   `adopt` writes and in the fallback the `pydoclint` check uses. The standard
