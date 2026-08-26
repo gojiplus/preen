@@ -142,16 +142,36 @@ class Check(ABC):
             project_dir: Path to the project directory.
         """
         self.project_dir = project_dir
-        self._excluded_dirs: frozenset[str] | None = None
+        self._lint_excluded_dirs: frozenset[str] | None = None
 
     def excluded_dirs(self) -> frozenset[str]:
-        """Directory names out of scope for checks.
+        """Directory names no check should ever look at.
 
-        Combines DEFAULT_EXCLUDES with the repo's own ``[tool.ruff]``
-        ``exclude``/``extend-exclude`` entries, so checks honor the same
-        scoping the repo's lint config declares (e.g. research-script dirs).
+        Caches, build output and virtualenvs -- nothing a repo can configure.
+
+        Returns:
+            The default exclusion set.
         """
-        if self._excluded_dirs is None:
+        return self.DEFAULT_EXCLUDES
+
+    def lint_excluded_dirs(self) -> frozenset[str]:
+        """Directory names a *scanner* should skip.
+
+        Adds the repo's own ``[tool.ruff]`` ``exclude``/``extend-exclude``
+        entries to :meth:`excluded_dirs`, for checks where "don't lint this"
+        genuinely means "don't read this" -- spell checking, link scanning,
+        import graphs.
+
+        Deliberately not the default. Folding these into every check let a
+        lint-scope setting switch off a packaging one: ``extend-exclude =
+        ["data"]`` made ``indicate/data/**`` invisible to ``runtime-assets``,
+        so the wheel-contents check passed on a tree full of ``.safetensors``
+        (issue #59).
+
+        Returns:
+            The default exclusion set plus ruff's directory-name excludes.
+        """
+        if self._lint_excluded_dirs is None:
             names = set(self.DEFAULT_EXCLUDES)
             pyproject = self.project_dir / "pyproject.toml"
             if pyproject.exists():
@@ -170,12 +190,32 @@ class Check(ABC):
                         # Only plain directory names scope cleanly here
                         if "*" not in entry and "/" not in entry:
                             names.add(entry)
-            self._excluded_dirs = frozenset(names)
-        return self._excluded_dirs
+            self._lint_excluded_dirs = frozenset(names)
+        return self._lint_excluded_dirs
 
     def is_excluded(self, path: Path) -> bool:
-        """Return True if path lies under an excluded directory."""
+        """Return True if a project-relative path lies under an excluded dir.
+
+        Args:
+            path: Path to test. Must be project-relative: an absolute path
+                lets a component of the user's checkout location (``build``,
+                ``dist``, ``venv``) match and silently drop the file.
+
+        Returns:
+            True when any component is an excluded directory name.
+        """
         return any(part in self.excluded_dirs() for part in path.parts)
+
+    def is_lint_excluded(self, path: Path) -> bool:
+        """Return True if a project-relative path is out of scope for scanning.
+
+        Args:
+            path: Project-relative path to test.
+
+        Returns:
+            True when any component is in :meth:`lint_excluded_dirs`.
+        """
+        return any(part in self.lint_excluded_dirs() for part in path.parts)
 
     @property
     @abstractmethod

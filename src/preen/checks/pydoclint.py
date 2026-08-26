@@ -4,6 +4,7 @@ import re
 import subprocess
 import tomllib
 from pathlib import Path
+from typing import ClassVar
 
 # from typing import List  # No longer needed with Python 3.12+
 from .base import Check, CheckResult, Impact, Issue, Severity
@@ -21,6 +22,23 @@ class PydoclintCheck(Check):
     # purpose: its error messages link to violation_codes.html#notes-on-doc103,
     # and that lowercase mention must not read as a violation.
     _VIOLATION_RE = re.compile(r"\bDOC\d{3}\b")
+
+    # The two layouts _VIOLATION_RE deliberately does not distinguish. 0.9.1
+    # emits the block form; the flat form is kept because pydoclint has used it
+    # and a parser that silently matches neither is what issue #58 was.
+    _BLOCK_FILE_RE = re.compile(r"^(?!\s)(?P<path>\S.*\.py)\s*$")
+    _BLOCK_VIOLATION_RE = re.compile(
+        r"^\s+(?P<line>\d+): (?P<code>DOC\d{3}):?\s+(?P<text>.+)$"
+    )
+    _FLAT_VIOLATION_RE = re.compile(
+        r"^(?!\s)(?P<path>.+?):(?P<line>\d+): (?P<code>DOC\d{3}):?\s+(?P<text>.+)$"
+    )
+
+    #: Codes that report a --arg-type-hints-* option disagreeing with the
+    #: code, rather than a docstring that contradicts it.
+    OPTION_CODES: ClassVar[frozenset[str]] = frozenset(
+        {"DOC106", "DOC107", "DOC108", "DOC109", "DOC110", "DOC111"}
+    )
 
     @classmethod
     def _looks_like_violations(cls, text: str) -> bool:
@@ -74,104 +92,143 @@ class PydoclintCheck(Check):
             return False
 
     def _parse_pydoclint_output(self, output: str) -> list[Issue]:
-        """Parse pydoclint output and convert to Issue objects."""
+        """Turn a pydoclint report into Issues.
+
+        Handles both layouts pydoclint uses: a flat ``path:10: DOC101 ...``
+        line, and the block form 0.9.1 emits, where a bare file path is
+        followed by indented ``    4: DOC101: ...`` lines.
+
+        Args:
+            output: Captured pydoclint output.
+
+        Returns:
+            One Issue per violation line, in report order.
+        """
         issues = []
+        current_file: Path | None = None
 
-        # Pattern to match pydoclint output format:
-        # path/to/file.py:line: DOC001 Missing docstring in function
-        pattern = r"^(.+?):(\d+): (DOC\d+) (.+)$"
-
-        for line in output.strip().split("\n"):
+        for line in output.splitlines():
             if not line.strip():
                 continue
 
-            match = re.match(pattern, line)
-            if match:
-                file_path, line_num, code, description = match.groups()
-
-                # Convert absolute path to relative
-                try:
-                    rel_path = Path(file_path).relative_to(self.project_dir)
-                except ValueError:
-                    # If path is not under project_dir, use as-is
-                    rel_path = Path(file_path)
-
-                # Determine impact based on file location and violation type
-                impact = self._get_impact_for_violation(rel_path, code, description)
-
-                # Determine severity - most docstring issues are warnings
-                severity = (
-                    Severity.ERROR
-                    if (
-                        "missing" in description.lower()
-                        and any(
-                            critical in rel_path.name
-                            for critical in ["__init__.py", "cli.py"]
-                        )
-                    )
-                    or any(critical in str(rel_path) for critical in ["api/", "public"])
-                    else Severity.WARNING
-                )
-
+            block = self._BLOCK_VIOLATION_RE.match(line)
+            if block and current_file is not None:
                 issues.append(
-                    Issue(
-                        check=self.name,
-                        severity=severity,
-                        description=f"{code}: {description}",
-                        file=rel_path,
-                        line=int(line_num),
-                        impact=impact,
-                        explanation=self._get_explanation_for_code(code),
+                    self._issue_for_violation(
+                        current_file,
+                        int(block.group("line")),
+                        block.group("code"),
+                        block.group("text"),
                     )
                 )
+                continue
+
+            flat = self._FLAT_VIOLATION_RE.match(line)
+            if flat:
+                issues.append(
+                    self._issue_for_violation(
+                        Path(flat.group("path")),
+                        int(flat.group("line")),
+                        flat.group("code"),
+                        flat.group("text"),
+                    )
+                )
+                continue
+
+            header = self._BLOCK_FILE_RE.match(line)
+            if header:
+                current_file = Path(header.group("path"))
 
         return issues
 
-    def _get_impact_for_violation(
-        self, file_path: Path, code: str, description: str
-    ) -> Impact:
-        """Determine impact level based on file location and violation type."""
-        # Critical for public APIs and main module files
-        if file_path.name in ["__init__.py", "cli.py"] or any(
-            critical in str(file_path) for critical in ["api/", "public"]
+    def _issue_for_violation(
+        self, file_path: Path, line: int, code: str, description: str
+    ) -> Issue:
+        """Build one Issue from a parsed violation.
+
+        Args:
+            file_path: Path pydoclint reported, absolute or project-relative.
+            line: Line number of the violation.
+            code: The DOC code.
+            description: pydoclint's own message for the violation.
+
+        Returns:
+            The Issue.
+        """
+        try:
+            rel_path = file_path.relative_to(self.project_dir)
+        except ValueError:
+            rel_path = file_path
+
+        impact = self._get_impact_for_violation(rel_path, code)
+        severity = Severity.ERROR if impact == Impact.CRITICAL else Severity.WARNING
+
+        return Issue(
+            check=self.name,
+            severity=severity,
+            description=f"{code}: {description}",
+            file=rel_path,
+            line=line,
+            impact=impact,
+            explanation=self._get_explanation_for_code(code),
+        )
+
+    def _get_impact_for_violation(self, file_path: Path, code: str) -> Impact:
+        """Classify a violation by where it is and what it says.
+
+        Args:
+            file_path: Project-relative path of the file.
+            code: The DOC code.
+
+        Returns:
+            The impact level.
+        """
+        # DOC106-DOC111 report that a repo's type-hint options disagree with its
+        # code, which is a configuration preference rather than a docstring that
+        # misleads a reader.
+        if code in self.OPTION_CODES:
+            return Impact.INFORMATIONAL
+
+        if file_path.suffix != ".py":
+            return Impact.INFORMATIONAL
+
+        if file_path.name in ("__init__.py", "cli.py") or any(
+            part in ("api", "public") for part in file_path.parts
         ):
             return Impact.CRITICAL
 
-        # Important for most Python files with docstring issues
-        if file_path.suffix == ".py":
-            # Missing docstrings are more important than formatting issues
-            if "missing" in description.lower() or code in [
-                "DOC101",
-                "DOC102",
-                "DOC103",
-            ]:
-                return Impact.IMPORTANT
-            return Impact.INFORMATIONAL
-
-        # Everything else is informational
-        return Impact.INFORMATIONAL
+        return Impact.IMPORTANT
 
     def _get_explanation_for_code(self, code: str) -> str:
-        """Provide explanation for common pydoclint error codes."""
-        explanations = {
-            "DOC101": "Missing docstring in public method",
-            "DOC102": "Missing docstring in public function",
-            "DOC103": "Missing docstring in public class",
-            "DOC201": "Function/method has no argument documented",
-            "DOC202": "Function/method has argument documented but not defined",
-            "DOC203": "Function/method has return documented but no return statement",
-            "DOC501": "Function/method has exception documented but not raised",
-            "DOC502": "Function/method has exception raised but not documented",
+        """Explain what family of problem a DOC code belongs to.
+
+        pydoclint already states the specific violation in its own message, so
+        this adds the family rather than restating it. The per-code table this
+        replaced had drifted wrong -- it called DOC101 "missing docstring in
+        public method" when it means the docstring documents fewer arguments
+        than the signature takes.
+
+        Args:
+            code: The DOC code.
+
+        Returns:
+            A one-line explanation.
+        """
+        families = {
+            "0": "The docstring could not be parsed in the configured style.",
+            "1": (
+                "The documented arguments do not match the ones the function "
+                "actually takes, so the docstring misleads a caller."
+            ),
+            "2": (
+                "The documented return value does not match what the function returns."
+            ),
+            "3": "Class and __init__ docstring content is in the wrong place.",
+            "4": "The documented yields do not match what the function yields.",
+            "5": "The documented exceptions do not match what the code raises.",
+            "6": "The documented class attributes do not match the class.",
         }
-
-        base_explanation = explanations.get(
-            code, "Docstring formatting or completeness issue"
-        )
-
-        return (
-            f"{base_explanation}. Good documentation improves code "
-            "maintainability and helps other developers understand your code."
-        )
+        return families.get(code[3:4], "Docstring formatting or completeness issue.")
 
     def run(self) -> CheckResult:
         """Run pydoclint check."""
@@ -217,20 +274,45 @@ class PydoclintCheck(Check):
             # with a .venv that is every installed dependency -- 34,696 lines of
             # findings about OpenSSL and friends, none of them this repo's.
             cmd += ["--style=google", f"--exclude={self.DEFAULT_EXCLUDE}"]
+        # "." rather than an absolute path: a repo's own [tool.pydoclint]
+        # exclude regex is matched against whatever path string pydoclint is
+        # handed, so an absolute one lets any ancestor directory name silently
+        # exclude the whole tree -- preen's own `exclude = '\.venv|tests|docs'`
+        # would match a checkout living under any path containing "docs" -- and
+        # makes an anchored user exclude like `^tests/` impossible to satisfy.
         result = subprocess.run(
-            [*cmd, str(self.project_dir)],
+            [*cmd, "."],
             capture_output=True,
             text=True,
             cwd=self.project_dir,
         )
 
-        # pydoclint returns 0 if no issues, >0 if issues found. It writes the
-        # violations themselves to stderr, not stdout, so reading only stdout
-        # meant every real finding was reported as "pydoclint encountered an
-        # error" -- the check has never surfaced a docstring violation this way.
-        report = result.stdout or result.stderr
+        # pydoclint returns 0 if no issues, >0 if issues found. It has written
+        # violations to stderr as well as stdout, and `stdout or stderr` hides
+        # the second whenever the first is non-empty, so read both.
+        report = "\n".join(part for part in (result.stdout, result.stderr) if part)
         if result.returncode != 0 and self._looks_like_violations(report):
             issues = self._parse_pydoclint_output(report)
+            if not issues:
+                # pydoclint failed and its output carries DOC codes, but nothing
+                # matched a layout this parser knows. Reporting `passed` here is
+                # what issue #58 was: a non-zero pydoclint exit must never
+                # become a green check just because preen cannot read it.
+                issues.append(
+                    Issue(
+                        check=self.name,
+                        severity=Severity.ERROR,
+                        description=(
+                            "pydoclint reported violations preen could not "
+                            f"parse: {report.strip()[:500]}"
+                        ),
+                        impact=Impact.IMPORTANT,
+                        explanation=(
+                            "Run 'pydoclint .' directly to see them. preen's "
+                            "parser needs updating for this output format."
+                        ),
+                    )
+                )
 
         # A genuine failure to run: non-zero, but nothing that parses as output.
         elif result.stderr and result.returncode != 0:
@@ -246,6 +328,11 @@ class PydoclintCheck(Check):
                 )
             )
 
+        # Every violation counts, whatever its impact grade: pydoclint itself
+        # exits non-zero on all of them and canon's CI runs it as its own gate,
+        # so a preen pass that disagrees with that gate is the false pass this
+        # check just stopped producing. Impact grades how much it matters at
+        # release time; it does not decide whether the check passed.
         return CheckResult(
             check=self.name,
             passed=len(issues) == 0,

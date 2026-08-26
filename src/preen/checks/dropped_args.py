@@ -180,7 +180,7 @@ class DroppedArgsCheck(Check):
         allowed: dict[Path, set[int]] = {}
 
         for path in sorted(self.project_dir.rglob("*.py")):
-            if self.is_excluded(path.relative_to(self.project_dir)):
+            if self.is_lint_excluded(path.relative_to(self.project_dir)):
                 continue
             try:
                 source = path.read_text(encoding="utf-8")

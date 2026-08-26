@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `citation` compares `CITATION.cff`'s `version` against `project.version`:
+  important when they disagree, info when the key is absent. A file can parse
+  and carry every required key while citing a release from a decade ago, and
+  that number is what a citation copies. `preen fix citation` rewrites the
+  version line and leaves the rest of the file alone.
+
 - A `dropped-args` check: a parameter the caller accepts and then fails to
   forward, so the callee falls back to its own default and a documented knob
   silently does nothing. ruff's `ARG001` does not cover this shape — it fires
@@ -20,6 +26,45 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   nominal level. Mark a deliberate drop `# preen: allow-dropped-arg`.
 
 ### Fixed
+
+- `pydoclint` no longer reports `passed` on code pydoclint rejects. The parser
+  understood only the flat `path:10: DOC101 ...` layout, while pydoclint 0.9.1
+  emits a per-file block; a real report matched nothing, and an empty issue
+  list read as a clean bill of health. It now handles both layouts, and a
+  non-zero pydoclint exit whose output cannot be parsed is reported as such
+  instead of becoming a green check. The target is passed relative, so a repo's
+  own `[tool.pydoclint] exclude` can no longer be satisfied by an ancestor
+  directory of the checkout.
+
+- A `[tool.ruff]` exclude no longer switches off `runtime-assets`. Ruff excludes
+  now scope only the checks that scan text — codespell, links, the import graph,
+  layout — through a separate `is_lint_excluded`. `extend-exclude = ["data"]`
+  had been making a whole package subtree invisible to the packaging check, so
+  it passed on a tree of `.safetensors` files for reasons unrelated to whether
+  they ship. The same check also tested absolute paths, so a repo cloned under
+  a directory named `build`, `dist` or `venv` skipped every asset it holds.
+
+- `ci-matrix` checks a canon shim instead of only recognising one. The reusable
+  workflow's `python-versions` default is read from the ref on the `uses:` line,
+  or the shim's own input where it passes one, and compared against
+  `requires-python`. A repo whose floor sits above the lowest default version
+  was getting a CI leg that cannot resolve while preen reported the matrix
+  green. A floor that is merely never *tested* is advisory instead: CI is
+  green there, and gating on it would turn every repo still declaring a 3.11
+  floor red the day py-canon raised its default. Offline, the comparison is
+  skipped with an info note rather than reported as verified.
+
+- `template` reports a `_commit` that is not a release tag. The version parser
+  truncated to three components, so the mangled `v1.0.1.0.1` compared equal to
+  `v1.0.1` and passed; `git describe` strings and bare SHAs were equally
+  invisible. Version comparison now keeps every component.
+
+- `runtime-assets` honours `[tool.uv.build-backend]` excludes. A file that
+  `source-exclude` or `wheel-exclude` keeps out of the wheel is reported at info
+  — source-tree hygiene, not a packaging defect — rather than as a critical
+  finding about an artifact nobody installs. An explicit `module-name` is also
+  honoured, so a flat-layout package whose import name differs from its
+  distribution name is no longer skipped entirely.
 
 - `preen update` exits 1 when the merge leaves conflict markers, and names the
   `[project]` keys at risk. copier renders `[project]` from the scaffold

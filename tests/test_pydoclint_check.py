@@ -40,11 +40,11 @@ def test_no_issues_passes(tmp_path: Path, monkeypatch) -> None:
     assert result.issues == []
 
 
-def test_missing_docstring_in_cli_is_error_and_critical(
+def test_flat_form_violation_in_cli_is_error_and_critical(
     tmp_path: Path, monkeypatch
 ) -> None:
     cli_file = tmp_path / "cli.py"
-    output = f"{cli_file}:10: DOC101 Missing docstring in public method\n"
+    output = f"{cli_file}:10: DOC101 Docstring contains fewer arguments\n"
 
     def fake_run(cmd, **kwargs):
         if cmd[-1] == "--version":
@@ -63,11 +63,11 @@ def test_missing_docstring_in_cli_is_error_and_critical(
     assert "DOC101" in issue.description
 
 
-def test_formatting_issue_in_regular_file_is_warning_and_important(
+def test_flat_form_violation_in_regular_file_is_warning_and_important(
     tmp_path: Path, monkeypatch
 ) -> None:
     other = tmp_path / "helpers.py"
-    output = f"{other}:5: DOC101 Missing docstring in public function\n"
+    output = f"{other}:5: DOC101 Docstring contains fewer arguments\n"
 
     def fake_run(cmd, **kwargs):
         if cmd[-1] == "--version":
@@ -108,7 +108,7 @@ def test_violations_on_stderr_are_parsed_not_reported_as_an_error(
     could report a problem existed but never which one.
     """
     src = tmp_path / "thing.py"
-    output = f"{src}:12: DOC101 Missing docstring in public method\n"
+    output = f"{src}:12: DOC101 Docstring contains fewer arguments\n"
 
     def fake_run(cmd, **kwargs):
         if cmd[-1] == "--version":
@@ -243,3 +243,132 @@ def test_stderr_error_with_no_stdout_reported(tmp_path: Path, monkeypatch) -> No
 
 def test_can_fix_false(tmp_path: Path) -> None:
     assert PydoclintCheck(tmp_path).can_fix() is False
+
+
+BLOCK_FORM_OUTPUT = """\
+src/pkg/piecewise.py
+    4: DOC101: Function `f`: Docstring contains fewer arguments than in \
+function signature.
+    4: DOC103: Function `f`: Docstring arguments are different from function \
+arguments. (Or could be other formatting issues: \
+https://jsh9.github.io/pydoclint/violation_codes.html#notes-on-doc103 ). \
+Arguments in the function signature but not in the docstring: [b: ].
+src/pkg/other.py
+    17: DOC201: Function `g` does not have a return section in docstring
+"""
+
+
+def test_block_form_output_is_parsed(tmp_path: Path, monkeypatch) -> None:
+    """pydoclint 0.9.1 emits a per-file header, not one path per line.
+
+    The parser only understood the flat `path:10: DOC101 ...` form, so a real
+    report matched nothing, `issues` came back empty, and `passed` was True on
+    a package pydoclint had just rejected (issue #58).
+    """
+
+    def fake_run(cmd, **kwargs):
+        if cmd[-1] == "--version":
+            return _completed(cmd, returncode=0, stdout="pydoclint 0.9.1\n")
+        return _completed(cmd, returncode=1, stdout=BLOCK_FORM_OUTPUT)
+
+    monkeypatch.setattr("preen.checks.pydoclint.subprocess.run", fake_run)
+    result = PydoclintCheck(tmp_path).run()
+
+    assert not result.passed
+    assert [issue.description.split(":")[0] for issue in result.issues] == [
+        "DOC101",
+        "DOC103",
+        "DOC201",
+    ]
+    assert [issue.file for issue in result.issues] == [
+        Path("src/pkg/piecewise.py"),
+        Path("src/pkg/piecewise.py"),
+        Path("src/pkg/other.py"),
+    ]
+    assert [issue.line for issue in result.issues] == [4, 4, 17]
+
+
+def test_unparsable_violations_do_not_become_a_pass(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A non-zero pydoclint exit must never come back green.
+
+    Whatever layout pydoclint grows next, preen failing to read it is preen's
+    problem to report, not a clean bill of health for the repo.
+    """
+
+    def fake_run(cmd, **kwargs):
+        if cmd[-1] == "--version":
+            return _completed(cmd, returncode=0, stdout="pydoclint 0.9.1\n")
+        return _completed(
+            cmd, returncode=1, stdout="{'DOC101': 'some future json layout'}\n"
+        )
+
+    monkeypatch.setattr("preen.checks.pydoclint.subprocess.run", fake_run)
+    result = PydoclintCheck(tmp_path).run()
+
+    assert not result.passed
+    assert "could not parse" in result.issues[0].description
+
+
+def test_target_is_relative_so_ancestor_directories_cannot_exclude_the_repo(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """An absolute target lets the repo's own exclude regex match its parents.
+
+    preen's own `exclude = '\\.venv|tests|docs'` matches any checkout under a
+    path containing "docs", which would exclude every file and exit 0.
+    """
+    (tmp_path / "pyproject.toml").write_text('[tool.pydoclint]\nstyle = "google"\n')
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[-1] == "--version":
+            return _completed(cmd, returncode=0, stdout="pydoclint 0.9.1\n")
+        return _completed(cmd, returncode=0, stdout="")
+
+    monkeypatch.setattr("preen.checks.pydoclint.subprocess.run", fake_run)
+    PydoclintCheck(tmp_path).run()
+
+    assert calls[-1][-1] == "."
+    assert str(tmp_path) not in calls[-1]
+
+
+def test_real_pydoclint_binary_disagreeing_with_the_check_fails_it(
+    tmp_path: Path,
+) -> None:
+    """Run the actual tool, because a stubbed one cannot catch a format change.
+
+    Every other test here feeds the parser a string this file wrote, so they
+    all passed while the parser understood a layout pydoclint had stopped
+    emitting. This one is the only test that would have caught issue #58.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "pdpkg"\nversion = "0.1.0"\n\n'
+        '[tool.pydoclint]\nstyle = "google"\n'
+    )
+    package = tmp_path / "src" / "pdpkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text('"""Package."""\n')
+    (package / "mod.py").write_text(
+        '"""Module."""\n\n\ndef f(a, b):\n'
+        '    """Do a thing.\n\n    Args:\n        a: first.\n    """\n'
+        "    return a\n"
+    )
+
+    bare = subprocess.run(
+        ["pydoclint", "--quiet", "--config", "pyproject.toml", "."],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        check=False,
+    )
+    assert bare.returncode != 0, "fixture must be one pydoclint rejects"
+
+    result = PydoclintCheck(tmp_path).run()
+
+    assert not result.passed
+    reported = {issue.description.split(":")[0] for issue in result.issues}
+    emitted = set(PydoclintCheck._VIOLATION_RE.findall(bare.stdout or bare.stderr))
+    assert reported == emitted
