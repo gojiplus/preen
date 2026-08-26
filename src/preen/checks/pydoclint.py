@@ -28,6 +28,7 @@ class PydoclintCheck(Check):
         "--style=google",
         "--arg-type-hints-in-docstring=False",
         "--check-return-types=False",
+        "--check-yield-types=False",
         "--check-class-attributes=False",
         "--allow-init-docstring=True",
     )

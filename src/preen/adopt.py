@@ -56,6 +56,7 @@ typeCheckingMode = "standard"
 style = "google"
 arg-type-hints-in-docstring = false
 check-return-types = false
+check-yield-types = false
 check-class-attributes = false
 allow-init-docstring = true
 exclude = '\\.venv|tests|docs'

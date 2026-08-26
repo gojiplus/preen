@@ -56,6 +56,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `check-yield-types = false` follows py-canon's pydoclint config, in the table
+  `adopt` writes and in the fallback the `pydoclint` check uses. The standard
+  says the signature carries the type and the docstring should not repeat it;
+  that applied to `Returns:` and not to `Yields:`, so a generator annotated
+  `Iterator[str]` still had to write `str:` again in its prose.
+
 - `pydoclint` judges a repo with no `[tool.pydoclint]` against canon's options
   rather than pydoclint's stricter defaults. gojiplus/uijudge-bench drew 218
   findings, 130 of them important; all but 20 were DOC105/109/110/203 — the

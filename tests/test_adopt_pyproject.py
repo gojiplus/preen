@@ -89,6 +89,7 @@ def test_standard_tool_sections_set(legacy_repo: Path) -> None:
         "style": "google",
         "arg-type-hints-in-docstring": False,
         "check-return-types": False,
+        "check-yield-types": False,
         "check-class-attributes": False,
         "allow-init-docstring": True,
         "exclude": "\\.venv|tests|docs",
