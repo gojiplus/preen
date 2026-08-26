@@ -56,6 +56,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- The `metadata` check compares the build requirement as a specifier, not as a
+  string. `uv_build>=0.12.5,<0.13` and `uv_build>=0.12.5,<0.13.0` admit exactly
+  the same versions; gojiplus/uijudge-bench writes the second, and was told to
+  migrate a build backend that is already correct and current. Equivalence, not
+  laxity: a different floor, an extra pin or a different backend still fails.
+
 - `preen adopt` backs up a managed workflow it overwrites and raises a Manual
   TODO. Input preservation covers the `with:` block; everything else in the
   file was replaced silently. Running adopt on `themains/piedomains` would have

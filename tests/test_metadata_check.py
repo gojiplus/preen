@@ -179,3 +179,50 @@ def test_invalid_toml_is_named_as_such(tmp_path: Path) -> None:
 
     assert not result.passed
     assert "not valid TOML" in result.issues[0].description
+
+
+@pytest.mark.parametrize(
+    "requires",
+    ['["uv_build>=0.12.5,<0.13"]', '["uv_build>=0.12.5,<0.13.0"]'],
+)
+def test_equivalent_spellings_of_the_build_requirement_pass(
+    tmp_path: Path, requires: str
+) -> None:
+    """`<0.13` and `<0.13.0` admit precisely the same versions.
+
+    Compared as strings, the second failed — so gojiplus/uijudge-bench, whose
+    build backend is correct and current, was told to migrate it.
+    """
+    _write_pyproject(tmp_path, ">=3.11")
+    with (tmp_path / "pyproject.toml").open("a") as pyproject:
+        pyproject.write(
+            f'\n[build-system]\nrequires = {requires}\nbuild-backend = "uv_build"\n'
+        )
+
+    result = MetadataCheck(tmp_path).run()
+
+    assert not [i for i in result.issues if "build-system" in i.description]
+
+
+@pytest.mark.parametrize(
+    "requires",
+    [
+        '["uv_build>=0.12.4,<0.13"]',
+        '["uv_build>=0.12.5"]',
+        '["uv_build>=0.12.5,<0.13", "wheel"]',
+        '["hatchling"]',
+    ],
+)
+def test_a_genuinely_different_requirement_is_still_flagged(
+    tmp_path: Path, requires: str
+) -> None:
+    """Equivalence, not laxity: a different floor or an extra pin still fails."""
+    _write_pyproject(tmp_path, ">=3.11")
+    with (tmp_path / "pyproject.toml").open("a") as pyproject:
+        pyproject.write(
+            f'\n[build-system]\nrequires = {requires}\nbuild-backend = "uv_build"\n'
+        )
+
+    result = MetadataCheck(tmp_path).run()
+
+    assert [i for i in result.issues if "build-system" in i.description]
