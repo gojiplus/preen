@@ -10,7 +10,9 @@ from preen.checks.metadata import MetadataCheck
 def _write_pyproject(
     repo: Path, requires_python: str | None, typed: str | None = None
 ) -> None:
-    lines = ["[project]", 'name = "mypkg"']
+    # A version, because these fixtures now go through validate-pyproject and
+    # `[project]` without one is not a file any real repo ships.
+    lines = ["[project]", 'name = "mypkg"', 'version = "0.1.0"']
     if requires_python is not None:
         lines.append(f'requires-python = "{requires_python}"')
     if typed == "pyright":
@@ -139,3 +141,41 @@ def test_malformed_build_system_flagged(tmp_path: Path, build_system: str) -> No
     result = MetadataCheck(tmp_path).run()
     assert not result.passed
     assert any("uv_build" in issue.description for issue in result.issues)
+
+
+def test_pyproject_failing_its_schema_is_critical(tmp_path: Path) -> None:
+    """Every other check reads this file by `.get()`.
+
+    That cannot tell a key that is absent from one that is misspelled or the
+    wrong type, so a schema pass names the difference before anything reasons
+    about it (issue #17). Validated against PyPA's own schemas, which is what
+    build backends and installers use.
+    """
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "mypkg"\nversion = 1\n')
+
+    result = MetadataCheck(tmp_path).run()
+
+    assert not result.passed
+    assert "fails its schema" in result.issues[0].description
+    assert result.issues[0].is_blocking()
+
+
+def test_schema_failure_does_not_hide_the_other_findings(tmp_path: Path) -> None:
+    """One problem must not suppress the rest; the checks below are defensive."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mypkg"\nversion = 1\nrequires-python = ">=3.11,<4"\n'
+    )
+
+    result = MetadataCheck(tmp_path).run()
+
+    assert any("fails its schema" in i.description for i in result.issues)
+    assert any("requires-python" in i.description for i in result.issues)
+
+
+def test_invalid_toml_is_named_as_such(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text("this is not = valid toml [[[\n")
+
+    result = MetadataCheck(tmp_path).run()
+
+    assert not result.passed
+    assert "not valid TOML" in result.issues[0].description

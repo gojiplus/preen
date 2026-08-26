@@ -21,6 +21,7 @@ from .metadata import MetadataCheck
 from .precommit import PreCommitCheck
 from .pydoclint import PydoclintCheck
 from .pyright import PyrightCheck
+from .pytest_config import PytestConfigCheck
 from .ruff import RuffCheck
 from .runner import run_checks
 from .runtime_assets import RuntimeAssetsCheck
@@ -53,6 +54,7 @@ ALL_CHECKS: list[type[Check]] = [
     MetadataCheck,
     PydoclintCheck,
     PyrightCheck,
+    PytestConfigCheck,
     CodespellCheck,
 ]
 

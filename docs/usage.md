@@ -101,13 +101,26 @@ preen release --dry-run  # show the plan (fully non-interactive)
 ```
 
 Runs the checks, walks through any issues (critical issues block; important
-ones can be overridden with informed consent), then gates the tag on four
+ones can be overridden with informed consent), then gates the tag on five
 things: the version must be PEP 440-valid, it must match the committed
-`project.version`, the `vX.Y.Z` tag must not already exist, and `CHANGELOG.md`
-must contain an entry for the version.
-If there's no entry but a non-empty `[Unreleased]` section, preen offers to
-rename it to `[X.Y.Z] - <date>` and commits that rename (only
-`CHANGELOG.md`) before tagging, so the tagged commit contains the entry.
+`project.version`, the `vX.Y.Z` tag must not already exist locally or on the
+remote, `CHANGELOG.md` must contain an entry for the version, and the
+**distributions must build and pass `twine check` and `check-wheel-contents`**.
+
+That last gate builds into a temporary directory — a few seconds — and runs
+before anything irreversible or interactive. Publishing happens on the tag
+push, so without it a bad artifact is discovered only once the tag exists,
+which is the expensive place to find it. `--dry-run` runs it too, which makes
+the dry run a free build rehearsal. A tool that cannot be fetched (no network)
+is skipped rather than treated as a failure; a tool that runs and rejects the
+artifact blocks the release.
+
+If there's no changelog entry but a non-empty `[Unreleased]` section, preen
+offers to rename it to `[X.Y.Z] - <date>` and commits that rename (only
+`CHANGELOG.md`) before tagging, so the tagged commit contains the entry. It
+also offers to bump any file carrying a copy of the version that the tag does
+not set — `.claude-plugin/plugin.json` and `CITATION.cff` — and includes them
+in the same pathspec-limited commit.
 Then it creates and pushes the tag; the push triggers the repo's release
 workflow: build, attestations, PyPI trusted publishing, GitHub Release.
 The rename commit itself stays local — run `git push` afterwards so it is

@@ -8,6 +8,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- A `pytest-config` check for sp-repo-review PP301-PP309: `minversion`,
+  `testpaths`, `log_level`, `xfail_strict`, `filterwarnings`, and `-ra`,
+  `--strict-config`, `--strict-markers` in `addopts`. Each of these decides
+  whether a test run *fails*: without `filterwarnings` a dependency's
+  DeprecationWarning is invisible until the release that removes the API,
+  and without `--strict-markers` a typo in a marker name silently selects
+  nothing. Informational throughout for now -- py-canon's template ships only
+  `testpaths`, so gating would fail the whole fleet at once -- with `preen fix
+  pytest-config` to write them. preen's own configuration now carries them, and
+  the suite passes under `filterwarnings = ["error"]`.
+
+- `preen release` builds the distributions and runs `twine check` and
+  `check-wheel-contents` over them before tagging. Publishing happens on the
+  tag push, so a bad artifact was previously discovered only once the tag
+  existed. The gate runs before anything irreversible or interactive, and in
+  `--dry-run` too, which makes the dry run a free build rehearsal. A tool that
+  cannot be fetched is skipped; one that runs and rejects the artifact blocks.
+
+- `preen release` offers to bump `CITATION.cff` alongside
+  `.claude-plugin/plugin.json`. Both carry a copy of the version that the tag
+  does not set, and a stale citation outlives the release in someone else's
+  bibliography.
+
+- The `metadata` check validates pyproject.toml against PyPA's own schemas with
+  `validate-pyproject`. Every other check reads that file by key lookup, which
+  cannot tell an absent key from a misspelled one; the schema pass names the
+  difference. Critical, and reported alongside the semantic findings rather
+  than instead of them.
+
 - `citation` compares `CITATION.cff`'s `version` against `project.version`:
   important when they disagree, info when the key is absent. A file can parse
   and carry every required key while citing a release from a decade ago, and

@@ -30,6 +30,10 @@ dependencies = [
     "pydoclint>=0.9.1",
     "codespell>=2.4.3",
     "deptry>=0.20",
+    # The `metadata` check validates pyproject.toml against PyPA's own
+    # schemas before reading it, so a malformed table is named as such
+    # rather than misread as an absent one (sp-repo-review's PP001 family).
+    "validate-pyproject>=0.26",
     # The `links` check shells out to this rather than extracting URLs itself.
     # It is the same checker r-canon runs for the R fleet, so both halves of
     # the fleet agree on what a URL is.
@@ -115,6 +119,11 @@ ignore-words-list = "leary,sav"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+minversion = "8"
+log_level = "INFO"
+xfail_strict = true
+filterwarnings = ["error"]
+addopts = ["--strict-config", "--strict-markers", "-ra"]
 
 [tool.coverage.run]
 source = ["src"]
