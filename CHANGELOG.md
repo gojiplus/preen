@@ -6,41 +6,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Fixed
-
-- `preen adopt` preserves the `with:` inputs of every canon workflow shim, not
-  just ci.yml's. `docs.yml`, `release.yml` and `dependabot-auto-merge.yml` fell
-  through to a blind copy, so a repo that set `docs-dir: docs/source` and
-  `run-doctests: false` lost both on every adopt and its docs build broke.
-
-- `preen adopt` writes `conf.py` where the repo's docs actually are. The path
-  was hardcoded to `docs/conf.py`, so a repo whose config lives at
-  `docs/source/conf.py` got a second, conflicting Sphinx config dropped beside
-  it — with no `.bak`, and a report line indistinguishable from a legitimate
-  fresh write. The directory now comes from the `docs-dir` input the repo's
-  docs.yml declares, or from wherever a `conf.py` already sits under `docs/`.
-
-- An overwritten `conf.py` that carried real work is raised as a Manual TODO
-  naming the line count and the `.bak`, instead of being reported as a routine
-  write. sharepack's adoption silently replaced a conf.py that built the three
-  live demos linked from its `docs/index.md`; an unattended adopt would have
-  shipped broken docs. Copy-time TODOs are also no longer discarded — the
-  report assigned `build_todos`' result over them.
-
-- `preen adopt` emits the template's dependency-group shape: a `test` group
-  holding pytest and pytest-cov, with `dev` reaching it through
-  `{ include-group = "test" }`. The reusable CI installs that group by name --
-  its wheel job runs `uv pip install dist/*.whl --group test` against a clean
-  environment -- so the flat `dev` group adopt used to write failed with
-  `error: The dependency group 'test' was not found` on the first push after
-  every release-migration adoption. A direct pytest pin in `dev` is removed
-  rather than left beside the include, and `pre-commit` joins the dev group,
-  which the template has and adopt did not.
-
-  `tests/test_canon_template_sync.py` now compares `[dependency-groups]`
-  against the template as well as `[tool.*]`. That table drifting unwatched is
-  why this was possible.
-
 ### Added
 
 - A `pytest-config` check for sp-repo-review PP301-PP309: `minversion`,
@@ -90,6 +55,55 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   nominal level. Mark a deliberate drop `# preen: allow-dropped-arg`.
 
 ### Fixed
+
+- `preen fix citation` moves `date-released` with the version, preserves the
+  repo's quoting, and finds a citation file whatever its case. All three came
+  out of running it across the fleet rather than against fixtures:
+
+  - Syncing the number alone left `get-weather-data` claiming 6.1.0 was
+    released on 2016-07-17, when the tag naming it is dated 2026-07-25. A right
+    version beside a wrong date is not an improvement. The date now follows the
+    tag for that version, and is left alone when no tag names it — as on
+    `alsgls`, which declares 1.2.0 and has never tagged it.
+  - `version: "0.6.0"` came back as `version: 0.9.0`, turning a one-line fix
+    into a style change. Two fleet repos quote their values.
+  - `finite-sample/rmcp` ships `citation.cff`. A macOS checkout resolves the
+    exact name to it, so the check reported a file GitHub — and a
+    case-sensitive CI runner — never sees. A non-canonical spelling is now an
+    important finding of its own.
+
+- `preen adopt` preserves the `with:` inputs of every canon workflow shim, not
+  just ci.yml's. `docs.yml`, `release.yml` and `dependabot-auto-merge.yml` fell
+  through to a blind copy, so a repo that set `docs-dir: docs/source` and
+  `run-doctests: false` lost both on every adopt and its docs build broke.
+
+- `preen adopt` writes `conf.py` where the repo's docs actually are. The path
+  was hardcoded to `docs/conf.py`, so a repo whose config lives at
+  `docs/source/conf.py` got a second, conflicting Sphinx config dropped beside
+  it — with no `.bak`, and a report line indistinguishable from a legitimate
+  fresh write. The directory now comes from the `docs-dir` input the repo's
+  docs.yml declares, or from wherever a `conf.py` already sits under `docs/`.
+
+- An overwritten `conf.py` that carried real work is raised as a Manual TODO
+  naming the line count and the `.bak`, instead of being reported as a routine
+  write. sharepack's adoption silently replaced a conf.py that built the three
+  live demos linked from its `docs/index.md`; an unattended adopt would have
+  shipped broken docs. Copy-time TODOs are also no longer discarded — the
+  report assigned `build_todos`' result over them.
+
+- `preen adopt` emits the template's dependency-group shape: a `test` group
+  holding pytest and pytest-cov, with `dev` reaching it through
+  `{ include-group = "test" }`. The reusable CI installs that group by name --
+  its wheel job runs `uv pip install dist/*.whl --group test` against a clean
+  environment -- so the flat `dev` group adopt used to write failed with
+  `error: The dependency group 'test' was not found` on the first push after
+  every release-migration adoption. A direct pytest pin in `dev` is removed
+  rather than left beside the include, and `pre-commit` joins the dev group,
+  which the template has and adopt did not.
+
+  `tests/test_canon_template_sync.py` now compares `[dependency-groups]`
+  against the template as well as `[tool.*]`. That table drifting unwatched is
+  why this was possible.
 
 - `links` no longer reports a repo's own `[tool.preen] link_ignore` patterns as
   dead links. pyproject.toml is in the scan set, so each pattern carrying a

@@ -1,5 +1,7 @@
 """Tests for the ci-matrix and citation checks, and answer mining."""
 
+import os
+import subprocess
 from pathlib import Path
 
 from preen.adopt import detect_package_name, mine_answers
@@ -343,3 +345,120 @@ def test_reusable_default_is_read_from_a_bare_on_key(tmp_path, monkeypatch) -> N
     )
 
     assert versions == {"3.12", "3.14"}
+
+
+def _git_repo_with_tag(repo: Path, version: str, date: str) -> None:
+    """Init a repo carrying a tag for `version` committed on `date`.
+
+    Args:
+        repo: Directory to initialize.
+        version: Version to tag (as ``vX.Y.Z``).
+        date: Commit date, as ``YYYY-MM-DD``.
+    """
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_DATE": f"{date}T12:00:00",
+        "GIT_COMMITTER_DATE": f"{date}T12:00:00",
+    }
+    for argv in (
+        ["git", "init", "-q", "-b", "main"],
+        ["git", "config", "user.email", "t@example.com"],
+        ["git", "config", "user.name", "T"],
+        ["git", "add", "-A"],
+        ["git", "commit", "-q", "-m", "init"],
+        ["git", "tag", f"v{version}"],
+    ):
+        subprocess.run(argv, cwd=repo, check=True, env=env, capture_output=True)
+
+
+def test_citation_fix_preserves_the_repo_s_quoting(tmp_path: Path) -> None:
+    """`version: "0.6.0"` must not come back as `version: 0.9.0`.
+
+    Found by running the fix across the fleet: two repos quote their values and
+    the rewrite stripped the quotes, turning a one-line diff into a
+    style change nobody asked for.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "0.9.0"\n'
+    )
+    (tmp_path / "CITATION.cff").write_text(
+        'cff-version: 1.2.0\ntitle: "x"\nversion: "0.6.0"\n'
+        'authors:\n  - family-names: "Y"\n'
+    )
+
+    issue = CitationCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+
+    assert 'version: "0.9.0"' in (tmp_path / "CITATION.cff").read_text()
+
+
+def test_citation_fix_moves_the_release_date_with_the_version(tmp_path: Path) -> None:
+    """A right version beside a wrong date is not an improvement.
+
+    get-weather-data would have been left claiming 6.1.0 was released on
+    2016-07-17, when the tag naming it is dated 2026-07-25.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "6.1.0"\n'
+    )
+    (tmp_path / "CITATION.cff").write_text(
+        'cff-version: 1.2.0\ntitle: "x"\nversion: 0.1.31\n'
+        "date-released: 2016-07-17\n"
+        'authors:\n  - family-names: "Y"\n'
+    )
+    _git_repo_with_tag(tmp_path, "6.1.0", "2026-07-25")
+
+    issue = CitationCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    assert "release date to 2026-07-25" in issue.proposed_fix.description
+    issue.proposed_fix.apply()
+
+    text = (tmp_path / "CITATION.cff").read_text()
+    assert "version: 6.1.0" in text
+    assert "date-released: 2026-07-25" in text
+
+
+def test_citation_fix_leaves_the_date_alone_without_a_tag(tmp_path: Path) -> None:
+    """No tag names the version, so there is no date to be confident about.
+
+    alsgls declares 1.2.0 and has never tagged it; inventing a date would be
+    worse than leaving the old one visible.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.2.0"\n'
+    )
+    (tmp_path / "CITATION.cff").write_text(
+        'cff-version: 1.2.0\ntitle: "x"\nversion: 0.1.0\n'
+        "date-released: 2024-01-01\n"
+        'authors:\n  - family-names: "Y"\n'
+    )
+
+    issue = CitationCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+
+    text = (tmp_path / "CITATION.cff").read_text()
+    assert "version: 1.2.0" in text
+    assert "date-released: 2024-01-01" in text
+
+
+def test_a_lowercase_citation_file_is_reported(tmp_path: Path) -> None:
+    """GitHub reads CITATION.cff and no other spelling.
+
+    A macOS checkout resolves the exact name to a file called `citation.cff`,
+    so an existence test alone reports a file that GitHub -- and a
+    case-sensitive CI runner -- never sees. finite-sample/rmcp ships one.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.0.0"\n'
+    )
+    (tmp_path / "citation.cff").write_text(
+        'cff-version: 1.2.0\ntitle: "x"\nversion: 1.0.0\n'
+        'authors:\n  - family-names: "Y"\n'
+    )
+
+    result = CitationCheck(tmp_path).run()
+
+    assert not result.passed
+    assert "GitHub reads 'CITATION.cff'" in result.issues[0].description
