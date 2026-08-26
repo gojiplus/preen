@@ -69,7 +69,7 @@ def _stub(monkeypatch, report: dict) -> None:
         monkeypatch: pytest fixture.
         report: Report to return.
     """
-    monkeypatch.setattr(LinkCheck, "_run_lychee", lambda self, files: report)
+    monkeypatch.setattr(LinkCheck, "_run_lychee", lambda self, files: (report, ""))
 
 
 def test_no_files_no_urls_passes(tmp_path: Path) -> None:
@@ -203,14 +203,22 @@ def test_collect_files_falls_back_when_git_fails(tmp_path: Path, monkeypatch) ->
     assert LinkCheck(tmp_path)._collect_files() == [tmp_path / "README.md"]
 
 
-def test_missing_binary_reports_nothing_rather_than_crashing(
-    tmp_path: Path, monkeypatch
-) -> None:
-    (tmp_path / "README.md").write_text(f"{_url('a-real-domain.test/x')}\n")
+def test_missing_binary_says_the_scan_did_not_run(tmp_path: Path, monkeypatch) -> None:
+    """A scan that never happened must not read as a clean bill of health.
+
+    An empty report was indistinguishable from "every link is healthy" -- the
+    same shape as the pydoclint false pass. It still must not gate: a missing
+    binary is preen's problem, not the repo's.
+    """
+    (tmp_path / "README.md").write_text(f"{_url('a-real-domain.example.com/x')}\n")
     monkeypatch.setattr(LinkCheck, "_lychee_binary", lambda self: None)
+
     result = LinkCheck(tmp_path).run()
+
     assert result.passed
-    assert result.issues == []
+    assert len(result.issues) == 1
+    assert result.issues[0].impact == Impact.INFORMATIONAL
+    assert "Links were not checked" in result.issues[0].description
 
 
 @pytest.mark.skipif(shutil.which("lychee") is None, reason="lychee not installed")
@@ -345,3 +353,90 @@ def test_link_ignore_from_pyproject_is_applied(tmp_path: Path) -> None:
 
 def test_can_fix_false(tmp_path: Path) -> None:
     assert LinkCheck(tmp_path).can_fix() is False
+
+
+def test_reserved_domains_are_never_a_finding(tmp_path: Path) -> None:
+    """RFC 2606 / 6761 reserve these names so they never resolve.
+
+    Putting one in a fixture, a docstring example or a placeholder config is
+    the correct thing to do, so a DNS failure from it is documented behaviour
+    rather than a defect. naampy had zero critical and zero important findings
+    and still exited 1 under --strict on four `example.invalid` hits alone
+    (issue #34).
+
+    Run against the real binary, because the rule lives in lychee's own
+    defaults rather than in `DEFAULT_SKIP_PATTERNS`. Asserting it here means
+    that if lychee ever drops the default, this test says so instead of every
+    fleet repo's --strict exit code. No network: lychee excludes these before
+    it resolves anything.
+    """
+    if shutil.which("lychee") is None and LinkCheck(tmp_path)._lychee_binary() is None:
+        pytest.skip("lychee is not installed")
+
+    (tmp_path / "README.md").write_text(
+        "\n".join(
+            _url(host)
+            for host in (
+                "example.invalid/f",
+                "sub.example.invalid/f",
+                "svc.test/y",
+                "docs.example/x",
+                "api.localhost/z",
+            )
+        )
+        + "\n"
+    )
+
+    result = LinkCheck(tmp_path).run()
+
+    assert result.passed
+    assert result.issues == []
+
+
+def test_link_ignore_patterns_do_not_flag_themselves(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """pyproject.toml is scanned, so its own ignore patterns come back as URLs.
+
+    A pattern survives its own `--exclude` only when it happens to be a regex
+    matching its own literal text. A properly escaped one does not, so it was
+    fetched, failed DNS, and reported as a dead critical link in the very file
+    that declared it (issue #52).
+    """
+    pattern = _url(r"api\.example\.org/.*")
+    # A TOML literal string, since a regex carries backslashes.
+    (tmp_path / "pyproject.toml").write_text(
+        f"[project]\nname = \"x\"\n\n[tool.preen]\nlink_ignore = ['{pattern}']\n"
+    )
+    # lychee percent-encodes the backslashes it extracted.
+    extracted = pattern.replace("\\", "%5C")
+    _stub(
+        monkeypatch,
+        _report(tmp_path / "pyproject.toml", _entry(extracted, text="dns error")),
+    )
+
+    result = LinkCheck(tmp_path).run()
+
+    assert result.passed
+    assert result.issues == []
+
+
+def test_a_genuinely_dead_link_in_pyproject_is_still_reported(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The filter must not excuse every URL that happens to live there."""
+    (tmp_path / "pyproject.toml").write_text(
+        f'[project]\nname = "x"\n\n[tool.preen]\nlink_ignore = ["{_url("ok.org/")}"]\n'
+    )
+    _stub(
+        monkeypatch,
+        _report(
+            tmp_path / "pyproject.toml",
+            _entry(_url("gone.example.org/docs"), code=404),
+        ),
+    )
+
+    result = LinkCheck(tmp_path).run()
+
+    assert not result.passed
+    assert "gone.example.org" in result.issues[0].description

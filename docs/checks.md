@@ -192,7 +192,21 @@ auto-fix — bumping a vulnerable dependency needs manual review.
 
 ### `links`
 
-Dead links in README and docs.
+Dead links in README and docs, extracted and resolved by lychee. Placeholder
+hosts are skipped, as are the RFC 2606 / RFC 6761 reserved names — `.invalid`,
+`.test`, `.example`, `.localhost`, `example.com` and friends — which exist
+precisely so that they never resolve, so a fixture using one is doing the right
+thing.
+
+A repo declares its own known-good endpoints in `[tool.preen] link_ignore`.
+Those patterns are regexes, so write them in a TOML literal string
+(`'https://api\.example\.org/.*'`) rather than a basic one; pyproject.toml is
+itself scanned, and preen no longer reports a repo's own ignore patterns as
+dead links.
+
+A scan that could not run — no lychee binary, a timeout, unreadable output —
+reports that fact at info rather than passing silently: no link having been
+checked is not the same as every link being healthy.
 
 ## Running subsets
 
