@@ -379,3 +379,61 @@ def test_real_pydoclint_binary_disagreeing_with_the_check_fails_it(
     reported = {issue.description.split(":")[0] for issue in result.issues}
     emitted = set(PydoclintCheck._VIOLATION_RE.findall(bare.stdout or bare.stderr))
     assert reported == emitted
+
+
+CANON_PYDOCLINT = """\
+[tool.pydoclint]
+style = "google"
+arg-type-hints-in-docstring = false
+check-return-types = false
+check-class-attributes = false
+allow-init-docstring = true
+"""
+
+TYPED_DOCSTRING = '''"""Module."""
+
+
+def f(a: int) -> int:
+    """Do a thing.
+
+    Args:
+        a (int): the number.
+
+    Returns:
+        int: the number.
+    """
+    return a
+'''
+
+
+def test_a_repo_with_no_config_is_judged_the_way_an_adopted_one_is(
+    tmp_path: Path,
+) -> None:
+    """The fallback used pydoclint's defaults, which are stricter than canon's.
+
+    That reports "you have not adopted" through the wrong check, once per
+    docstring: gojiplus/uijudge-bench drew 218 findings, 130 of them important,
+    of which all but 20 vanish the moment the canon table is added. The
+    `template` check reports non-adoption once, which is the right number.
+
+    Runs the real binary, because the point is what pydoclint does with the
+    flags, not what preen passes.
+    """
+    unconfigured = tmp_path / "unconfigured"
+    configured = tmp_path / "configured"
+    for repo, extra in ((unconfigured, ""), (configured, "\n" + CANON_PYDOCLINT)):
+        package = repo / "src" / "demo"
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text('"""Package."""\n')
+        (package / "mod.py").write_text(TYPED_DOCSTRING)
+        (repo / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "0.1.0"\n' + extra
+        )
+
+    without = PydoclintCheck(unconfigured).run()
+    with_table = PydoclintCheck(configured).run()
+
+    codes = lambda result: sorted(  # noqa: E731
+        issue.description.split(":")[0] for issue in result.issues
+    )
+    assert codes(without) == codes(with_table)

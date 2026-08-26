@@ -16,6 +16,22 @@ class PydoclintCheck(Check):
     # Used only when the repo has no [tool.pydoclint] of its own to supply one.
     DEFAULT_EXCLUDE = r"\.venv|\.git|\.tox|build|dist|node_modules"
 
+    #: The options canon's template writes, applied when a repo declares none.
+    #: Measuring an unadopted repo against pydoclint's stricter defaults
+    #: reports "you have not adopted" through the wrong check, once per
+    #: docstring: gojiplus/uijudge-bench drew 218 findings, 130 of them
+    #: important, of which all but 20 vanish the moment the canon table is
+    #: added -- they are DOC105/109/110/203, the type-hints-in-docstring family
+    #: canon turns off. The `template` check reports non-adoption once, which
+    #: is the right number of times to report it.
+    CANON_OPTIONS: ClassVar[tuple[str, ...]] = (
+        "--style=google",
+        "--arg-type-hints-in-docstring=False",
+        "--check-return-types=False",
+        "--check-class-attributes=False",
+        "--allow-init-docstring=True",
+    )
+
     # pydoclint emits violations in two shapes -- "path:10: DOC101 ..." and a
     # per-file header followed by indented "  1956: DOC301: ..." lines -- so
     # match the code itself rather than either line layout. Case-sensitive on
@@ -274,7 +290,7 @@ class PydoclintCheck(Check):
             # pydoclint walks everything under the project directory. On a repo
             # with a .venv that is every installed dependency -- 34,696 lines of
             # findings about OpenSSL and friends, none of them this repo's.
-            cmd += ["--style=google", f"--exclude={self.DEFAULT_EXCLUDE}"]
+            cmd += [*self.CANON_OPTIONS, f"--exclude={self.DEFAULT_EXCLUDE}"]
         # "." rather than an absolute path: a repo's own [tool.pydoclint]
         # exclude regex is matched against whatever path string pydoclint is
         # handed, so an absolute one lets any ancestor directory name silently

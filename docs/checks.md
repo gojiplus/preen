@@ -157,6 +157,12 @@ docstring that misleads a reader. Never critical: a docstring is not a broken
 build, and canon's CI runs bare pydoclint as its own gate, so a second veto
 here would add no information.
 
+A repo with no `[tool.pydoclint]` of its own is judged against canon's option
+set, not pydoclint's stricter defaults. Otherwise the check reports "you have
+not adopted" once per docstring — one fleet repo drew 218 findings that way,
+of which all but 20 were the type-hints-in-docstring family canon turns off.
+The `template` check reports non-adoption once, which is the right number.
+
 ### `codespell`
 
 Common misspellings in code and docs.
