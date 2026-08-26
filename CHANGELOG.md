@@ -58,6 +58,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `preen adopt` keeps a shim's inputs when the shim has comments. The `with:`
+  block parser treated the first comment line as the end of the block, so every
+  input below it was dropped — and a commented input is precisely the one
+  someone thought worth explaining. gojiplus/statqa annotated both of its
+  overrides and kept neither: `python-versions: '["3.12","3.13","3.14"]'` went
+  entirely, and a deliberate `coverage-floor: 70` was replaced with 0.
+
 - The version check's own test fixtures use an implausible version. preen's
   release bumped `project.version` to 0.5.0, which those fixtures happened to
   contain, so the check reported five hardcoded copies of the project version
