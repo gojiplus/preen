@@ -372,11 +372,11 @@ def copy_managed_files(
         # docs.yml on every adopt (issue #51).
         reusable = CANON_WORKFLOWS.get(Path(rel).name)
         if reusable is not None and dest.exists():
+            existing = dest.read_text(encoding="utf-8")
             merged, preserved = _preserve_shim_inputs(
-                dest.read_text(encoding="utf-8"),
-                src.read_text(encoding="utf-8"),
-                reusable,
+                existing, src.read_text(encoding="utf-8"), reusable
             )
+            _report_lost_lines(rel, existing, merged, dest, report)
             dest.write_text(merged, encoding="utf-8")
             report.written.append(rel)
             for entry in preserved:
@@ -617,13 +617,66 @@ def _custom_conf_lines(existing: str, template: str) -> int:
     Returns:
         How many non-blank, non-comment lines are unique to the existing file.
     """
-    canon = {line.strip() for line in template.splitlines()}
-    return sum(
-        1
-        for line in existing.splitlines()
-        if (stripped := line.strip())
-        and not stripped.startswith("#")
-        and stripped not in canon
+    canon = set(_meaningful_lines(template))
+    return sum(1 for line in _meaningful_lines(existing) if line not in canon)
+
+
+def _meaningful_lines(text: str) -> list[str]:
+    """Return the lines of a file that carry content.
+
+    Comments count. In a workflow or a Sphinx config the comment is often the
+    only record of *why* a setting is what it is, so dropping them from the
+    comparison undercounts what an overwrite destroys -- piedomains' conf.py
+    reported "2 lines" for a fifteen-line block whose value was mostly the
+    reasoning.
+
+    Args:
+        text: File contents.
+
+    Returns:
+        Stripped non-blank lines.
+    """
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def _report_lost_lines(
+    rel: str, existing: str, merged: str, dest: Path, report: AdoptionReport
+) -> None:
+    """Back up a managed workflow the overwrite changes, and say so.
+
+    Input preservation covers the ``with:`` block. Everything else is the
+    template's, and a repo may still have had a reason for a line there:
+    piedomains' docs.yml carried ``cancel-in-progress: ${{ github.event_name ==
+    'pull_request' }}`` with a comment explaining it must never cancel a
+    main-branch build midway through a Pages deploy, and the overwrite replaced
+    it with a bare ``true``.
+
+    Deliberately does *not* claim the differing lines are the repo's own. The
+    same comparison flags ``tags: ["v*"]`` becoming ``tags: ["v*.*.*"]``, which
+    is the template narrowing its own trigger to semver -- an improvement, not
+    a loss. Telling the two apart needs the template version the repo was last
+    adopted from, i.e. the three-way merge ``preen update`` delegates to copier.
+    So this reports that the file differed and leaves the ``.bak`` for a human
+    to read, rather than guessing.
+
+    Args:
+        rel: Repo-relative path of the workflow.
+        existing: The repo's current file.
+        merged: What is about to be written.
+        dest: Path being written.
+        report: Adoption report to record the backup and TODO into.
+    """
+    kept = set(_meaningful_lines(merged))
+    lost = [line for line in _meaningful_lines(existing) if line not in kept]
+    if not lost:
+        return
+    backup = dest.with_suffix(dest.suffix + ".bak")
+    shutil.copy2(dest, backup)
+    preview = "; ".join(lost[:2]) + (" ..." if len(lost) > 2 else "")
+    report.todos.append(
+        f"{rel} differed from the template in {len(lost)} line(s) and was "
+        f"overwritten ({preview}). Some of those are the template moving; diff "
+        f"{backup.name} and re-apply anything that was the repo's own."
     )
 
 

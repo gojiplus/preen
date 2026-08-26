@@ -410,3 +410,71 @@ def test_copy_time_todos_survive_build_todos(tmp_path: Path, monkeypatch) -> Non
 
     assert "docs/conf.py had 5 line(s) the template does not" in report.todos
     assert "something else" in report.todos
+
+
+def test_an_overwritten_workflow_is_backed_up_and_flagged(
+    rendered: Path, repo: Path
+) -> None:
+    """Input preservation covers `with:`; the rest of the file is overwritten.
+
+    piedomains' docs.yml carried a `cancel-in-progress` guard with a comment
+    explaining it must never cancel a main-branch build midway through a Pages
+    deploy. The overwrite replaced it with a bare `true`, reintroducing exactly
+    the cancelled deploys the comment was added to stop, and nothing said so.
+    """
+    _write(
+        repo / ".github" / "workflows" / "docs.yml",
+        "name: Docs\nconcurrency:\n"
+        "  # never cancel a Pages deploy midway\n"
+        "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n"
+        "jobs:\n  docs:\n"
+        "    uses: gojiplus/py-canon/.github/workflows/reusable-docs.yml@v1\n",
+    )
+    _write(
+        rendered / ".github" / "workflows" / "docs.yml",
+        "name: Docs\nconcurrency:\n  cancel-in-progress: true\njobs:\n  docs:\n"
+        "    uses: gojiplus/py-canon/.github/workflows/reusable-docs.yml@v1\n",
+    )
+    report = AdoptionReport()
+
+    copy_managed_files(rendered, repo, "mypkg", report)
+
+    backup = repo / ".github" / "workflows" / "docs.yml.bak"
+    assert backup.exists()
+    assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in (
+        backup.read_text()
+    )
+    assert any("docs.yml differed from the template" in t for t in report.todos)
+
+
+def test_an_unchanged_workflow_raises_no_todo(rendered: Path, repo: Path) -> None:
+    """Only a file the overwrite actually changes is worth a human's attention."""
+    shim = (
+        "name: Docs\njobs:\n  docs:\n"
+        "    uses: gojiplus/py-canon/.github/workflows/reusable-docs.yml@v1\n"
+    )
+    _write(repo / ".github" / "workflows" / "docs.yml", shim)
+    _write(rendered / ".github" / "workflows" / "docs.yml", shim)
+    report = AdoptionReport()
+
+    copy_managed_files(rendered, repo, "mypkg", report)
+
+    assert report.todos == []
+    assert not (repo / ".github" / "workflows" / "docs.yml.bak").exists()
+
+
+def test_comments_count_toward_what_an_overwrite_destroys() -> None:
+    """The comment is often the only record of why a setting is what it is.
+
+    Counting code lines alone reported "2 lines" for piedomains' fifteen-line
+    conf.py block, whose value was mostly the reasoning.
+    """
+    from preen.adopt import _custom_conf_lines
+
+    template = '"""Config."""\n\nfrom py_canon.sphinx import configure\n'
+    existing = template + (
+        "\n# Without this, napoleon emits duplicate objects and CI builds\n"
+        "# docs with -W, so the build fails.\nnapoleon_use_ivar = True\n"
+    )
+
+    assert _custom_conf_lines(existing, template) == 3
