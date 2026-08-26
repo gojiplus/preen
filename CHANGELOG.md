@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- `pytest-config` findings gate instead of advising. They shipped
+  informational because py-canon's template carried only `testpaths`, so
+  gating would have failed every repo in the fleet for following a standard
+  that did not ask for this yet. py-canon 1.3.0 ships the whole set, `copier
+  update` delivers it, and `preen fix pytest-config` writes it directly.
+  Important, never critical — a missing setting is not a broken build. `PP301`,
+  no pytest table at all, stays informational: that repo may have no tests.
+
 ### Fixed
 
 - `preen adopt --release-migration` fails before it writes anything when it
