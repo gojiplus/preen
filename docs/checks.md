@@ -107,6 +107,20 @@ preen's allowlist (advisory — verify at spdx.org), or a missing
 root. `preen fix license` migrates unambiguous table-form values to an SPDX
 string, drops the redundant classifiers, and adds `license-files`.
 
+### `pytest-config`
+
+pytest is configured to fail on what it should fail on: `minversion`,
+`testpaths`, `log_level`, `xfail_strict`, `filterwarnings`, and `-ra`,
+`--strict-config`, `--strict-markers` in `addopts` (sp-repo-review
+PP301–PP309). Without `filterwarnings`, a DeprecationWarning from a dependency
+is invisible until the release that removes the API; without
+`--strict-markers`, a typo in a marker name silently selects nothing.
+
+**Informational throughout, for now.** py-canon's template ships only
+`testpaths`, so gating here would fail every repo in the fleet at once. `preen
+fix pytest-config` writes the settings; the grade can rise once the template
+carries them.
+
 ### `metadata`
 
 Three independent pyproject.toml checks. `build-system`: important if an
@@ -117,6 +131,12 @@ backend exactly; `preen adopt --release-migration` applies that standard.
 PP004); info if it's absent entirely. `py.typed`: important if `[tool.pyright]`
 or `[tool.mypy]` is configured but the package directory has no PEP 561
 `py.typed` marker.
+
+The file is also validated against PyPA's own schemas with
+`validate-pyproject` before any of that: critical if it fails, since every
+other check reads this file by key lookup and cannot otherwise tell an absent
+key from a misspelled one. Reported alongside the semantic findings rather than
+instead of them.
 
 ## Code quality
 
@@ -200,7 +220,7 @@ thing.
 
 A repo declares its own known-good endpoints in `[tool.preen] link_ignore`.
 Those patterns are regexes, so write them in a TOML literal string
-(`'https://api\.example\.org/.*'`) rather than a basic one; pyproject.toml is
+(for example an https pattern written `'https://api\\.example\\.org/.*'`) rather than a basic one; pyproject.toml is
 itself scanned, and preen no longer reports a repo's own ignore patterns as
 dead links.
 

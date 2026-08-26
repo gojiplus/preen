@@ -14,6 +14,22 @@ import preen.commands.release as release_mod
 from preen.checks.changelog import has_version_entry, unreleased_section_text
 from preen.commands.release import release_package
 
+
+@pytest.fixture(autouse=True)
+def _no_artifact_build(monkeypatch) -> None:
+    """Skip the build gate, which these fixtures are too minimal to satisfy.
+
+    `release_package` builds the distributions and runs twine over them before
+    tagging. That is the point of the gate, and it has its own tests; here it
+    would just make every case a 3-second `uv build` of a repo with no package
+    in it. See test_release_artifacts.py.
+
+    Args:
+        monkeypatch: pytest fixture.
+    """
+    monkeypatch.setattr(release_mod, "_artifact_error", lambda project_dir: None)
+
+
 UNRELEASED_NONEMPTY = """\
 # Changelog
 

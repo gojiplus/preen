@@ -9,6 +9,9 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from validate_pyproject import api as validate_api
+from validate_pyproject import errors as validate_errors
+
 from ..adopt import UV_BUILD_REQUIREMENT, detect_package_name
 from .base import Check, CheckResult, Impact, Issue, Severity
 
@@ -43,14 +46,66 @@ class MetadataCheck(Check):
             return CheckResult(check=self.name, passed=True, issues=[])
 
         data = self._load_pyproject()
+        # Reported alongside the semantic findings rather than instead of them:
+        # the checks below read by `.get()` and degrade to "absent", so a schema
+        # violation should not hide a build-system that is also wrong.
         issues = (
-            self._check_build_system(data)
+            self._check_schema()
+            + self._check_build_system(data)
             + self._check_requires_python(data)
             + self._check_py_typed(data)
         )
 
         blocking = [i for i in issues if i.severity != Severity.INFO]
         return CheckResult(check=self.name, passed=not blocking, issues=issues)
+
+    def _check_schema(self) -> list[Issue]:
+        """Validate pyproject.toml against the PyPA schemas.
+
+        Every other check reads this file by ``.get()``, which cannot tell a
+        key that is absent from one that is misspelled or the wrong type. A
+        schema pass names the difference before anything reasons about it.
+
+        Returns:
+            At most one issue, naming the first schema violation.
+        """
+        pyproject_path = self.project_dir / "pyproject.toml"
+        try:
+            with pyproject_path.open("rb") as handle:
+                data = tomllib.load(handle)
+        except OSError:
+            return []
+        except tomllib.TOMLDecodeError as exc:
+            return [
+                Issue(
+                    check=self.name,
+                    severity=Severity.ERROR,
+                    description=f"pyproject.toml is not valid TOML: {exc}",
+                    file=Path("pyproject.toml"),
+                    impact=Impact.CRITICAL,
+                    explanation="No tool in the standard can read the project.",
+                )
+            ]
+
+        try:
+            validate_api.Validator()(data)
+        except validate_errors.ValidationError as exc:
+            return [
+                Issue(
+                    check=self.name,
+                    severity=Severity.ERROR,
+                    description=f"pyproject.toml fails its schema: {exc.summary}",
+                    file=Path("pyproject.toml"),
+                    impact=Impact.CRITICAL,
+                    explanation=(
+                        "Validated with validate-pyproject against PyPA's own "
+                        "schemas. Build backends and installers read this file "
+                        "the same way, so the error surfaces at publish time "
+                        "if not here."
+                    ),
+                )
+            ]
+        return []
 
     def _check_build_system(self, data: dict[str, Any]) -> list[Issue]:
         """Flag an existing build system that differs from the fleet standard."""
