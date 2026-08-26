@@ -22,9 +22,39 @@ import subprocess
 import sysconfig
 from pathlib import Path
 from typing import ClassVar
+from urllib.parse import unquote
 
 from ..config import PreenConfig
 from .base import Check, CheckResult, Impact, Issue, Severity
+
+
+def _is_own_ignore_pattern(url: str, patterns: list[str]) -> bool:
+    r"""Report whether a URL is really one of pyproject's own ignore patterns.
+
+    ``*.toml`` is in the scan set, so pyproject.toml -- the file that holds
+    ``[tool.preen] link_ignore`` -- is handed to lychee, and every pattern
+    carrying a scheme comes back out as an extracted URL. A pattern survives
+    its own ``--exclude`` only when it happens to be a regex matching its own
+    literal text. A properly escaped one -- an https pattern spelled
+    ``api\.example\.org/.*`` -- does not, so it was fetched, failed DNS, and
+    was reported as a dead critical link in pyproject.toml (issue #52).
+    (Spelled without its scheme on purpose: this docstring is itself scanned,
+    and lychee truncates an escaped host at the first backslash, leaving a
+    two-character hostname that resolves nowhere.)
+
+    Filtering here rather than passing an extra ``--exclude``: lychee reports
+    the URL already percent-encoded, so a ``re.escape``d pattern would not
+    match what comes back.
+
+    Args:
+        url: The URL lychee reported.
+        patterns: The configured ``link_ignore`` entries.
+
+    Returns:
+        True when the URL is text from one of those entries.
+    """
+    decoded = unquote(url).rstrip("/")
+    return any(decoded and decoded in pattern for pattern in patterns)
 
 
 class LinkCheck(Check):
@@ -47,10 +77,20 @@ class LinkCheck(Check):
 
     # Hosts that are placeholders rather than destinations. Anchored so that a
     # real host merely containing one of these names is still checked.
+    #
+    # The RFC 2606 / RFC 6761 reserved TLDs -- .invalid, .test, .example,
+    # .localhost -- are deliberately absent: lychee 0.24 excludes them itself,
+    # before resolving, so adding them here would be a second copy of a rule
+    # that already holds. `test_reserved_domains_are_never_a_finding` runs the
+    # real binary over them, so if that default ever changes the test says so
+    # rather than a repo's --strict exit code.
     DEFAULT_SKIP_PATTERNS: ClassVar[tuple[str, ...]] = (
         r"^https?://localhost(:\d+)?([/?#]|$)",
         r"^https?://127\.0\.0\.1(:\d+)?([/?#]|$)",
         r"^https?://0\.0\.0\.0(:\d+)?([/?#]|$)",
+        # RFC 2606 section 3 reserves these second-level names for
+        # documentation. Unlike the reserved TLDs they do resolve, and lychee
+        # checks them, so a 404 would otherwise be reported.
         r"^https?://([^/]*\.)?example\.(com|org|net)([/?#]|$)",
         r"^https?://([^/]*\.)?test\.com([/?#]|$)",
         r"^https?://([^/]*\.)?placeholder\.com([/?#]|$)",
@@ -154,18 +194,21 @@ class LinkCheck(Check):
             and not self.is_lint_excluded(path)
         )
 
-    def _run_lychee(self, files: list[Path]) -> dict:
+    def _run_lychee(self, files: list[Path]) -> tuple[dict | None, str]:
         """Run lychee over the given files and return its parsed JSON report.
 
         Args:
             files: Files to scan.
 
         Returns:
-            The parsed report, or an empty dict if lychee could not be run.
+            The parsed report and an empty string, or ``(None, reason)`` when
+            the scan did not happen. Returning an empty report for that case
+            made "no links were checked" indistinguishable from "every link is
+            healthy" -- the same shape as the pydoclint false pass.
         """
         binary = self._lychee_binary()
         if binary is None:
-            return {}
+            return None, "the lychee binary could not be found"
 
         # --scheme keeps this to web URLs. lychee will otherwise resolve
         # relative markdown links against the filesystem and report missing
@@ -202,13 +245,17 @@ class LinkCheck(Check):
                 timeout=self.NETWORK_TIMEOUT_SECONDS,
                 check=False,
             )
-        except (subprocess.TimeoutExpired, OSError):
-            return {}
+        except subprocess.TimeoutExpired:
+            return None, (
+                f"lychee did not finish within {self.NETWORK_TIMEOUT_SECONDS}s"
+            )
+        except OSError as exc:
+            return None, f"lychee could not be run: {exc}"
 
         try:
-            return json.loads(proc.stdout)
+            return json.loads(proc.stdout), ""
         except json.JSONDecodeError:
-            return {}
+            return None, "lychee's output was not the JSON report preen expects"
 
     def _get_impact_for_file(self, file_path: Path) -> Impact:
         """Determine impact level based on file location.
@@ -307,8 +354,26 @@ class LinkCheck(Check):
         if not files:
             return CheckResult(check=self.name, passed=True, issues=[])
 
-        report = self._run_lychee(files)
+        report, failure = self._run_lychee(files)
+        if report is None:
+            return CheckResult(
+                check=self.name,
+                passed=True,
+                issues=[
+                    Issue(
+                        check=self.name,
+                        severity=Severity.INFO,
+                        description=f"Links were not checked: {failure}",
+                        impact=Impact.INFORMATIONAL,
+                        explanation=(
+                            "No link in this repo has been verified. Install "
+                            "lychee, or re-run with network access."
+                        ),
+                    )
+                ],
+            )
         error_map = report.get("error_map") or {}
+        ignore_patterns = PreenConfig.from_pyproject(self.project_dir).link_ignore
 
         issues = []
         for raw_path, entries in error_map.items():
@@ -318,6 +383,10 @@ class LinkCheck(Check):
             except ValueError:
                 rel_path = path
             for entry in entries:
+                if rel_path.name == "pyproject.toml" and _is_own_ignore_pattern(
+                    entry.get("url", ""), ignore_patterns
+                ):
+                    continue
                 issue = self._issue_for(rel_path, entry)
                 if issue is not None:
                     issues.append(issue)

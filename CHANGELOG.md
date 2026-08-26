@@ -27,6 +27,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `links` no longer reports a repo's own `[tool.preen] link_ignore` patterns as
+  dead links. pyproject.toml is in the scan set, so each pattern carrying a
+  scheme is extracted as a URL, and it survives its own `--exclude` only when
+  it happens to be a regex matching its own literal text. A properly escaped
+  one does not, so it was fetched, failed DNS, and reported as a dead critical
+  link in the very file that declared it.
+
+- `links` says so when the scan did not run. A missing lychee binary, a
+  timeout, or output that is not the expected JSON produced an empty report,
+  which was indistinguishable from every link being healthy. It is now an info
+  finding — it must not gate, since none of those are the repo's fault, but it
+  must not read as verified either.
+
 - `pydoclint` no longer reports `passed` on code pydoclint rejects. The parser
   understood only the flat `path:10: DOC101 ...` layout, while pydoclint 0.9.1
   emits a per-file block; a real report matched nothing, and an empty issue
