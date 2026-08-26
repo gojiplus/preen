@@ -9,6 +9,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from packaging.requirements import InvalidRequirement, Requirement
 from validate_pyproject import api as validate_api
 from validate_pyproject import errors as validate_errors
 
@@ -19,6 +20,37 @@ from .base import Check, CheckResult, Impact, Issue, Severity
 # <, <= directly bound it; ==, === pin an exact version; ~=X.Y is shorthand
 # for ">=X.Y, ==X.*" which caps at the next major version.
 _CAP_PATTERN = re.compile(r"~=|===|<=|==|<")
+
+
+def _same_requirement(declared: Any, expected: str) -> bool:
+    """Report whether a `requires` list pins exactly the expected requirement.
+
+    Compared as a parsed specifier rather than as a string. ``<0.13`` and
+    ``<0.13.0`` admit precisely the same versions, and gojiplus/uijudge-bench
+    writes the second -- so a string comparison told a repo with a correct,
+    current build backend to migrate it.
+
+    Args:
+        declared: The ``build-system.requires`` value.
+        expected: The requirement the standard specifies.
+
+    Returns:
+        True when the list holds one requirement equivalent to `expected`.
+    """
+    if not isinstance(declared, list) or len(declared) != 1:
+        return False
+    try:
+        found = Requirement(str(declared[0]))
+        wanted = Requirement(expected)
+    except InvalidRequirement:
+        return False
+    return (
+        found.name == wanted.name
+        and set(found.specifier) == set(wanted.specifier)
+        and found.extras == wanted.extras
+        and found.marker is None
+        and wanted.marker is None
+    )
 
 
 class MetadataCheck(Check):
@@ -112,12 +144,11 @@ class MetadataCheck(Check):
         if "build-system" not in data:
             return []
         build = data["build-system"]
-        expected_requires = [UV_BUILD_REQUIREMENT]
         if (
             isinstance(build, dict)
             and set(build) == {"requires", "build-backend"}
             and build.get("build-backend") == "uv_build"
-            and build.get("requires") == expected_requires
+            and _same_requirement(build.get("requires"), UV_BUILD_REQUIREMENT)
         ):
             return []
         return [
