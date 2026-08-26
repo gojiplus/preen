@@ -8,6 +8,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `preen adopt` preserves the `with:` inputs of every canon workflow shim, not
+  just ci.yml's. `docs.yml`, `release.yml` and `dependabot-auto-merge.yml` fell
+  through to a blind copy, so a repo that set `docs-dir: docs/source` and
+  `run-doctests: false` lost both on every adopt and its docs build broke.
+
+- `preen adopt` writes `conf.py` where the repo's docs actually are. The path
+  was hardcoded to `docs/conf.py`, so a repo whose config lives at
+  `docs/source/conf.py` got a second, conflicting Sphinx config dropped beside
+  it — with no `.bak`, and a report line indistinguishable from a legitimate
+  fresh write. The directory now comes from the `docs-dir` input the repo's
+  docs.yml declares, or from wherever a `conf.py` already sits under `docs/`.
+
+- An overwritten `conf.py` that carried real work is raised as a Manual TODO
+  naming the line count and the `.bak`, instead of being reported as a routine
+  write. sharepack's adoption silently replaced a conf.py that built the three
+  live demos linked from its `docs/index.md`; an unattended adopt would have
+  shipped broken docs. Copy-time TODOs are also no longer discarded — the
+  report assigned `build_todos`' result over them.
+
 - `preen adopt` emits the template's dependency-group shape: a `test` group
   holding pytest and pytest-cov, with `dev` reaching it through
   `{ include-group = "test" }`. The reusable CI installs that group by name --

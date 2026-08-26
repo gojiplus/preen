@@ -28,8 +28,16 @@ preen adopt
 
 Mines the copier answers from the repo itself, renders the template into a
 temp directory, and copies in only the managed files (workflow shims,
-`docs/conf.py`, `.copier-answers.yml`, `py.typed`, and — only if absent —
-pre-commit config, dependabot config, `LICENSE`, `CITATION.cff`). Rewrites
+`conf.py`, `.copier-answers.yml`, `py.typed`, and — only if absent —
+pre-commit config, dependabot config, `LICENSE`, `CITATION.cff`). Every canon
+workflow shim keeps the `with:` inputs the repo set and the template knows
+nothing about — `python-versions`, a raised `coverage-floor`, `docs-dir`,
+`run-doctests` — and they are listed under Preserved. `conf.py` goes wherever
+the repo's docs actually live: the `docs-dir` its docs.yml shim declares, or
+whatever directory under `docs/` already holds a `conf.py`. If the file it
+replaces carried logic the template does not have, the old copy is kept as
+`conf.py.bak` and the overwrite is raised as a Manual TODO with the line count,
+rather than reported as a routine write. Rewrites
 `[tool.ruff]`, `[tool.pyright]`, `[tool.pydoclint]` in `pyproject.toml`
 to the standard — preserving repo-specific ruff ignore codes by merging
 them into the canon list, and deriving `target-version` from the repo's
