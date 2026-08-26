@@ -18,6 +18,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `preen fix pytest-config` keeps a string `addopts` a string. Splitting it to
+  build a list tore quoted arguments apart: gojiplus/get-weather-data writes
+  `addopts = "-v --tb=short -m 'not live'"`, which became
+  `["-m", "'not", "live'"]` and sent pytest looking for a test path called
+  `live'`. Found by running the fix across all 38 fleet repos before opening
+  any pull request.
+
 - `preen adopt --release-migration` fails before it writes anything when it
   cannot derive a version. `_migrate_release` runs last, so a project with a
   dynamic version and no `v*` tag to recover one from got five rewritten
