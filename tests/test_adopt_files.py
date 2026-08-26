@@ -528,3 +528,55 @@ def test_release_migration_proceeds_with_an_explicit_version(tmp_path: Path) -> 
     )
 
     _assert_release_migratable(tmp_path)  # does not raise
+
+
+COMMENTED_SHIM = """\
+name: CI
+on: [push]
+jobs:
+  ci:
+    uses: gojiplus/py-canon/.github/workflows/reusable-ci.yml@v1
+    with:
+      wheel-import: statqa
+      # The reusable workflow defaults to ["3.11", "3.14"], but requires-python
+      # is >=3.12, so the 3.11 job would fail in `uv sync --frozen`.
+      python-versions: '["3.12", "3.13", "3.14"]'
+      # A few points below the current 74% so churn does not fail CI.
+      coverage-floor: 70
+"""
+
+
+def test_a_comment_does_not_end_the_with_block() -> None:
+    """Breaking on a comment dropped every input below it.
+
+    A commented input is precisely the one someone thought worth explaining, so
+    the inputs most worth preserving were the ones lost. gojiplus/statqa
+    annotated both of its overrides and kept neither: `python-versions` went
+    entirely and `coverage-floor: 70` was replaced with 0.
+    """
+    from preen.adopt import _find_with_block
+
+    block = _find_with_block(COMMENTED_SHIM.split("\n"))
+
+    assert block is not None
+    assert sorted(block.inputs) == ["coverage-floor", "python-versions", "wheel-import"]
+    assert block.inputs["coverage-floor"][1] == "70"
+
+
+def test_commented_inputs_survive_the_overwrite() -> None:
+    """The parser fix has to reach the preservation it exists to serve."""
+    from preen.adopt import _preserve_shim_inputs
+
+    rendered = (
+        "name: CI\non: [push]\njobs:\n  ci:\n"
+        "    uses: gojiplus/py-canon/.github/workflows/reusable-ci.yml@v1\n"
+        "    with:\n      wheel-import: statqa\n      coverage-floor: 0\n"
+    )
+
+    merged, preserved = _preserve_shim_inputs(
+        COMMENTED_SHIM, rendered, "reusable-ci.yml"
+    )
+
+    assert "coverage-floor: 70" in merged
+    assert """python-versions: '["3.12", "3.13", "3.14"]'""" in merged
+    assert any("coverage-floor" in entry for entry in preserved)

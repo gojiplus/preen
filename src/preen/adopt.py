@@ -447,8 +447,21 @@ def _find_with_block(lines: list[str]) -> _WithBlock | None:
         return None
     for index in range(block.header + 1, len(lines)):
         line = lines[index]
-        if not line.strip():
+        stripped = line.strip()
+        if not stripped:
             continue
+        # A comment inside the block is not the end of it. Breaking here lost
+        # every input below the first comment -- and a commented input is
+        # precisely the one someone thought worth explaining, so the inputs
+        # most worth preserving were the ones dropped. gojiplus/statqa
+        # annotated both of its overrides and kept neither: `python-versions`
+        # went, and `coverage-floor: 70` was replaced with 0.
+        if stripped.startswith("#"):
+            # Only while still inside the block; a comment at or below the
+            # block's own indent belongs to whatever follows it.
+            if len(line) - len(line.lstrip()) > len(block.indent):
+                continue
+            break
         entry = _WITH_INPUT_RE.match(line)
         if entry is None or len(entry.group(1)) <= len(block.indent):
             break
