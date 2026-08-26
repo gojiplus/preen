@@ -1250,6 +1250,30 @@ def _ruff_target_version(doc: Any) -> str:
     return f"py{floor[0]}{floor[1]}"
 
 
+def _assert_release_migratable(repo: Path) -> None:
+    """Fail before adoption writes anything if the version cannot be derived.
+
+    Propagates the ``ValueError`` from :func:`_version_from_latest_tag` when the
+    project declares a dynamic version and no ``v*`` tag exists to recover a
+    concrete one from.
+
+    Args:
+        repo: Repository directory.
+    """
+    pyproject = repo / "pyproject.toml"
+    if not pyproject.exists():
+        return
+    try:
+        project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get(
+            "project", {}
+        )
+    except (OSError, tomllib.TOMLDecodeError):
+        return
+    if "version" in project:
+        return
+    _version_from_latest_tag(repo)
+
+
 def adopt_repo(
     repo: Path,
     release_migration: bool = False,
@@ -1268,6 +1292,14 @@ def adopt_repo(
     """
     answers = mine_answers(repo)
     report = AdoptionReport()
+
+    # Before anything is written. `_migrate_release` runs at the very end, so a
+    # repo it cannot migrate -- a dynamic version with no v* tag to recover one
+    # from -- used to get five rewritten workflows, four .bak files and then a
+    # traceback, with pyproject.toml untouched. Half-adopted and no report.
+    # gojiplus/statqa is exactly that shape.
+    if release_migration:
+        _assert_release_migratable(repo)
 
     # Imported lazily: preen.checks.metadata imports back from this module.
     from .checks.template import latest_canon_tag

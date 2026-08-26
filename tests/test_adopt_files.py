@@ -478,3 +478,53 @@ def test_comments_count_toward_what_an_overwrite_destroys() -> None:
     )
 
     assert _custom_conf_lines(existing, template) == 3
+
+
+def test_release_migration_refuses_before_it_writes_anything(tmp_path: Path) -> None:
+    """A repo adopt cannot migrate must be left exactly as it was.
+
+    `_migrate_release` runs last, so a dynamic-version project with no `v*` tag
+    to recover a version from got five rewritten workflows, four .bak files and
+    then a traceback, with pyproject.toml untouched — half-adopted, no report.
+    gojiplus/statqa is exactly that shape.
+    """
+    import subprocess
+
+    from preen.adopt import adopt_repo
+
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\ndynamic = ["version"]\nrequires-python = ">=3.12"\n'
+    )
+    (tmp_path / "README.md").write_text("# demo\n")
+    _write(tmp_path / ".github" / "workflows" / "ci.yml", "name: CI\n")
+    for argv in (
+        ["git", "init", "-q", "-b", "main"],
+        ["git", "config", "user.email", "t@example.com"],
+        ["git", "config", "user.name", "T"],
+        ["git", "add", "-A"],
+        ["git", "commit", "-q", "-m", "init"],
+    ):
+        subprocess.run(argv, cwd=tmp_path, check=True, capture_output=True)
+
+    with pytest.raises(ValueError, match="reachable v\\* Git tag"):
+        adopt_repo(tmp_path, release_migration=True)
+
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert dirty == "", f"adoption left the repo modified:\n{dirty}"
+
+
+def test_release_migration_proceeds_with_an_explicit_version(tmp_path: Path) -> None:
+    """The guard must not block a repo that already declares one."""
+    from preen.adopt import _assert_release_migratable
+
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "1.2.3"\n'
+    )
+
+    _assert_release_migratable(tmp_path)  # does not raise

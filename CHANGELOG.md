@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `preen adopt --release-migration` fails before it writes anything when it
+  cannot derive a version. `_migrate_release` runs last, so a project with a
+  dynamic version and no `v*` tag to recover one from got five rewritten
+  workflows, four `.bak` files and then an unhandled traceback — half-adopted,
+  with `pyproject.toml` untouched and no report. gojiplus/statqa is exactly
+  that shape. The precondition is now checked first, and the CLI prints the
+  reason and what to do rather than a stack trace.
+
 ## [0.5.0] - 2026-08-26
 
 ### Added

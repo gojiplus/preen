@@ -34,6 +34,15 @@ def run_adopt(
     except FileNotFoundError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
+    except ValueError as exc:
+        # A repo adopt cannot migrate is an answer, not a crash. Printing a
+        # traceback here also buried the one line that says what to do.
+        console.print(f"[red]{exc}[/red]")
+        console.print(
+            "Set an explicit [bold]project.version[/bold], or tag the release "
+            "this migration should start from, then re-run."
+        )
+        raise typer.Exit(code=1) from exc
 
     console.print("\n[bold cyan]ADOPTION REPORT[/bold cyan]")
 
