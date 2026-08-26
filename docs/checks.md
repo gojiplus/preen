@@ -116,10 +116,14 @@ PP301–PP309). Without `filterwarnings`, a DeprecationWarning from a dependency
 is invisible until the release that removes the API; without
 `--strict-markers`, a typo in a marker name silently selects nothing.
 
-**Informational throughout, for now.** py-canon's template ships only
-`testpaths`, so gating here would fail every repo in the fleet at once. `preen
-fix pytest-config` writes the settings; the grade can rise once the template
-carries them.
+Important for each missing setting. These were informational until py-canon
+1.3.0 put the whole set in the template — gating before that would have failed
+every repo in the fleet for following a standard that did not ask for this yet.
+`copier update` delivers them now, and `preen fix pytest-config` writes them
+into a repo directly. Never critical: a missing setting is not a broken build.
+
+`PP301` — no pytest table at all — stays informational, since a repo without
+one may have no tests to configure.
 
 ### `metadata`
 

@@ -6,11 +6,14 @@ until the release that removes the API; without ``--strict-markers``, a typo in
 a marker name silently selects nothing; without ``xfail_strict``, a test that
 starts passing keeps reporting xfail forever.
 
-Every finding here is informational. py-canon's template ships only
-``testpaths``, so gating on the rest would fail every repo in the fleet on the
-day this merged -- the shape preen corrected for template drift in 0.4.1. The
-findings say what is missing and ``preen fix pytest-config`` writes it; the
-grade can rise once the template carries them.
+These gate. They did not until py-canon 1.3.0, which put the whole set in the
+template -- before that, gating would have failed every repo in the fleet for
+following a standard that did not ask for this yet. It asks now, `copier update`
+delivers it, and ``preen fix pytest-config`` writes it into a repo directly.
+
+``PP301`` is the exception and stays informational: a repo with no pytest table
+at all may have no tests to configure, which is a different conversation from a
+repo whose table is missing settings.
 """
 
 import tomllib
@@ -202,23 +205,26 @@ class PytestConfigCheck(Check):
             )
         ]
 
-    def _issue(self, code: str, description: str, explanation: str) -> Issue:
-        """Build one informational finding.
+    def _issue(
+        self, code: str, description: str, explanation: str, gating: bool = True
+    ) -> Issue:
+        """Build one finding.
 
         Args:
             code: The sp-repo-review code.
             description: What is missing.
             explanation: What goes wrong without it.
+            gating: Whether this should fail the check.
 
         Returns:
             The Issue.
         """
         return Issue(
             check=self.name,
-            severity=Severity.INFO,
+            severity=Severity.WARNING if gating else Severity.INFO,
             description=f"{code}: {description}",
             file=Path("pyproject.toml"),
-            impact=Impact.INFORMATIONAL,
+            impact=Impact.IMPORTANT if gating else Impact.INFORMATIONAL,
             explanation=explanation,
         )
 
@@ -240,6 +246,7 @@ class PytestConfigCheck(Check):
                     "Nothing below can be set without one. Add "
                     "[tool.pytest.ini_options]."
                 ),
+                gating=False,
             )
             issue.proposed_fix = self._write_fix([], minversion=True)
             return CheckResult(check=self.name, passed=True, issues=[issue])
@@ -266,8 +273,8 @@ class PytestConfigCheck(Check):
                 missing, minversion=bool(version_issues)
             )
 
-        # Informational throughout: see the module docstring.
-        return CheckResult(check=self.name, passed=True, issues=issues)
+        blocking = [issue for issue in issues if issue.severity != Severity.INFO]
+        return CheckResult(check=self.name, passed=not blocking, issues=issues)
 
     def _write_fix(self, missing: list[Setting], minversion: bool) -> Fix:
         """Build a fix that writes the missing settings into pyproject.toml.

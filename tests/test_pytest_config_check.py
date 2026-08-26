@@ -61,12 +61,11 @@ def test_every_missing_setting_is_named(tmp_path: Path) -> None:
     ]
 
 
-def test_findings_are_advisory_not_gating(tmp_path: Path) -> None:
-    """py-canon's template ships only testpaths.
+def test_a_missing_setting_gates(tmp_path: Path) -> None:
+    """These were advisory until py-canon 1.3.0 put them in the template.
 
-    Gating here would fail every repo in the fleet on the day this merged --
-    the shape preen corrected for template drift in 0.4.1. The grade can rise
-    once the template carries the settings.
+    Gating before that would have failed every repo in the fleet for following
+    a standard that did not ask for this yet.
     """
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "mypkg"\nversion = "0.1.0"\n\n'
@@ -75,8 +74,23 @@ def test_findings_are_advisory_not_gating(tmp_path: Path) -> None:
 
     result = PytestConfigCheck(tmp_path).run()
 
+    assert not result.passed
+    assert all(issue.impact == Impact.IMPORTANT for issue in result.issues)
+    # Important, never critical: a missing setting is not a broken build, and
+    # a release should not be refused over one.
+    assert not any(issue.is_blocking() for issue in result.issues)
+
+
+def test_no_pytest_table_stays_advisory(tmp_path: Path) -> None:
+    """A repo with no table may have no tests, which is its own conversation."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mypkg"\nversion = "0.1.0"\n'
+    )
+
+    result = PytestConfigCheck(tmp_path).run()
+
     assert result.passed
-    assert all(issue.impact == Impact.INFORMATIONAL for issue in result.issues)
+    assert result.issues[0].impact == Impact.INFORMATIONAL
 
 
 def test_no_pytest_table_at_all_is_pp301(tmp_path: Path) -> None:
