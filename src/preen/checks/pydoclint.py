@@ -183,19 +183,20 @@ class PydoclintCheck(Check):
         Returns:
             The impact level.
         """
-        # DOC106-DOC111 report that a repo's type-hint options disagree with its
-        # code, which is a configuration preference rather than a docstring that
-        # misleads a reader.
+        # Never critical. Impact.CRITICAL means "blocks release -- security,
+        # broken builds"; a docstring that disagrees with its signature is
+        # neither, and canon's CI runs bare pydoclint as its own gate anyway, so
+        # preen refusing to tag adds nothing but a second veto. Grading a public
+        # module's violations critical only became reachable once the parser
+        # started working, and it put sixteen release blocks on one repo's
+        # `cli.py` for things like "__init__() should not have a docstring".
         if code in self.OPTION_CODES:
+            # A repo's type-hint options disagreeing with its code is a
+            # configuration preference, not a docstring that misleads a reader.
             return Impact.INFORMATIONAL
 
         if file_path.suffix != ".py":
             return Impact.INFORMATIONAL
-
-        if file_path.name in ("__init__.py", "cli.py") or any(
-            part in ("api", "public") for part in file_path.parts
-        ):
-            return Impact.CRITICAL
 
         return Impact.IMPORTANT
 

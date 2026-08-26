@@ -150,7 +150,12 @@ Type checking in `standard` mode.
 
 ### `pydoclint`
 
-Docstring–signature consistency (google style).
+Docstring–signature consistency (google style). Important for a docstring that
+contradicts its code, informational for the `--arg-type-hints-*` option codes
+(DOC106–DOC111), which report a configuration preference rather than a
+docstring that misleads a reader. Never critical: a docstring is not a broken
+build, and canon's CI runs bare pydoclint as its own gate, so a second veto
+here would add no information.
 
 ### `codespell`
 

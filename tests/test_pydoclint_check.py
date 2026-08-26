@@ -40,9 +40,17 @@ def test_no_issues_passes(tmp_path: Path, monkeypatch) -> None:
     assert result.issues == []
 
 
-def test_flat_form_violation_in_cli_is_error_and_critical(
+def test_a_docstring_violation_never_blocks_a_release(
     tmp_path: Path, monkeypatch
 ) -> None:
+    """`Impact.CRITICAL` means security or a broken build; a docstring is not.
+
+    Grading a public module's violations critical only became reachable once
+    the parser started working, and it put sixteen release blocks on one fleet
+    repo's `cli.py` for things like "__init__() should not have a docstring".
+    canon's CI runs bare pydoclint as its own gate, so preen also refusing to
+    tag adds a second veto and no information.
+    """
     cli_file = tmp_path / "cli.py"
     output = f"{cli_file}:10: DOC101 Docstring contains fewer arguments\n"
 
@@ -53,14 +61,13 @@ def test_flat_form_violation_in_cli_is_error_and_critical(
 
     monkeypatch.setattr("preen.checks.pydoclint.subprocess.run", fake_run)
     result = PydoclintCheck(tmp_path).run()
-    assert not result.passed
-    assert len(result.issues) == 1
+
+    assert not result.passed, "the check still fails; it just does not gate"
     issue = result.issues[0]
-    assert issue.severity == Severity.ERROR
-    assert issue.impact == Impact.CRITICAL
+    assert issue.impact == Impact.IMPORTANT
+    assert not issue.is_blocking()
     assert issue.file == Path("cli.py")
     assert issue.line == 10
-    assert "DOC101" in issue.description
 
 
 def test_flat_form_violation_in_regular_file_is_warning_and_important(

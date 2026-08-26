@@ -32,7 +32,13 @@ temp directory, and copies in only the managed files (workflow shims,
 pre-commit config, dependabot config, `LICENSE`, `CITATION.cff`). Every canon
 workflow shim keeps the `with:` inputs the repo set and the template knows
 nothing about — `python-versions`, a raised `coverage-floor`, `docs-dir`,
-`run-doctests` — and they are listed under Preserved. `conf.py` goes wherever
+`run-doctests` — and they are listed under Preserved. A managed workflow that differs from the template is backed up as
+`<name>.bak` and raised as a Manual TODO — input preservation covers the
+`with:` block, and everything else in the file gets overwritten. The TODO does
+not claim the differing lines are yours: telling a repo's own customization
+from the template moving needs the version the repo last adopted from, so it
+reports that the file differed and leaves the `.bak` for you to diff.
+`conf.py` goes wherever
 the repo's docs actually live: the `docs-dir` its docs.yml shim declares, or
 whatever directory under `docs/` already holds a `conf.py`. If the file it
 replaces carried logic the template does not have, the old copy is kept as

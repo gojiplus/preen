@@ -56,6 +56,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `preen adopt` backs up a managed workflow it overwrites and raises a Manual
+  TODO. Input preservation covers the `with:` block; everything else in the
+  file was replaced silently. Running adopt on `themains/piedomains` would have
+  dropped `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` from
+  `docs.yml`, along with the comment explaining it must never cancel a
+  main-branch build midway through a Pages deploy. The TODO deliberately does
+  not claim the differing lines are the repo's own — the same comparison flags
+  `tags: ["v*"]` becoming `tags: ["v*.*.*"]`, which is the template narrowing
+  its own trigger — so it reports that the file differed and leaves the `.bak`.
+
+- Comments count toward what an overwrite destroys. The conf.py line count
+  ignored them and reported "2 lines" for a fifteen-line block whose value was
+  mostly the reasoning: why `napoleon_use_ivar` is set, and why bare `>>>`
+  blocks must not auto-execute.
+
+- A `pydoclint` finding is never critical. `Impact.CRITICAL` means "blocks
+  release — security, broken builds"; a docstring that disagrees with its
+  signature is neither, and canon's CI runs bare pydoclint as its own gate, so
+  preen refusing to tag adds a second veto and no information. The grade only
+  became reachable once the parser started working, and it put sixteen release
+  blocks on one fleet repo's `cli.py` for things like "`__init__()` should not
+  have a docstring".
+
 - `preen fix citation` moves `date-released` with the version, preserves the
   repo's quoting, and finds a citation file whatever its case. All three came
   out of running it across the fleet rather than against fixtures:
