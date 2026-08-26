@@ -417,3 +417,60 @@ def test_dev_group_include_cycle_terminates(tmp_path: Path) -> None:
     rewrite_pyproject(repo)
     dev = _load(repo)["dependency-groups"]["dev"]
     assert not any(isinstance(e, str) and e.startswith("pytest") for e in dev)
+
+
+def test_a_test_group_is_created_for_the_reusable_ci(tmp_path: Path) -> None:
+    """The wheel job installs it by name, and exits 2 when it is absent.
+
+    `uv pip install dist/*.whl --group test` against a clean environment is
+    what py-canon's reusable CI runs, so a flat `dev` group sent every
+    release-migration adoption red on its first push (issue #54).
+    """
+    repo = _write_pyproject(tmp_path, '[dependency-groups]\ndev = ["ruff>=0.14"]\n')
+    rewrite_pyproject(repo)
+
+    groups = _load(repo)["dependency-groups"]
+    assert "pytest>=8" in groups["test"]
+    assert "pytest-cov>=6" in groups["test"]
+    assert {"include-group": "test"} in groups["dev"]
+
+
+def test_pytest_is_pinned_once_not_twice(tmp_path: Path) -> None:
+    """A direct pin in `dev` is superseded by the include, not kept beside it."""
+    repo = _write_pyproject(
+        tmp_path, '[dependency-groups]\ndev = ["pytest>=7", "pytest-cov>=5"]\n'
+    )
+    rewrite_pyproject(repo)
+
+    groups = _load(repo)["dependency-groups"]
+    assert not [
+        entry
+        for entry in groups["dev"]
+        if isinstance(entry, str) and entry.startswith("pytest")
+    ]
+    assert groups["test"] == ["pytest>=8", "pytest-cov>=6"]
+
+
+def test_an_existing_test_group_is_left_pinned_as_it_is(tmp_path: Path) -> None:
+    """adopt adds what is missing; it does not re-pin what a repo chose."""
+    repo = _write_pyproject(
+        tmp_path,
+        "[dependency-groups]\n"
+        'dev = [{ include-group = "test" }]\n'
+        'test = ["pytest>=9.1"]\n',
+    )
+    rewrite_pyproject(repo)
+
+    groups = _load(repo)["dependency-groups"]
+    assert "pytest>=9.1" in groups["test"]
+    assert "pytest>=8" not in groups["test"]
+    assert "pytest-cov>=6" in groups["test"]
+    assert groups["dev"].count({"include-group": "test"}) == 1
+
+
+def test_the_dev_group_carries_pre_commit(tmp_path: Path) -> None:
+    """The precommit check expects a config; the hook runner has to install."""
+    repo = _write_pyproject(tmp_path, "[dependency-groups]\ndev = []\n")
+    rewrite_pyproject(repo)
+
+    assert "pre-commit>=4" in _load(repo)["dependency-groups"]["dev"]
