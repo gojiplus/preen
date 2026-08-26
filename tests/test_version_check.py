@@ -1,5 +1,10 @@
 """Tests for the hardcoded-version-string check."""
 
+# Fixture versions are deliberately implausible. preen's own release bumped
+# project.version to 0.5.0, which these fixtures happened to use, and the
+# version check -- correctly, on the evidence available to it -- reported five
+# hardcoded copies of the project version in its own test suite.
+
 from pathlib import Path
 
 from preen.checks.version import VersionCheck
@@ -36,17 +41,17 @@ def test_dunder_version_with_importlib_metadata_is_exempt(tmp_path: Path) -> Non
 
 def test_static_pyproject_version_copy_flagged(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "mypkg"\nversion = "0.5.0"\n'
+        '[project]\nname = "mypkg"\nversion = "9.9.9"\n'
     )
-    (tmp_path / "setup.cfg.py").write_text('version = "0.5.0"\n')
+    (tmp_path / "setup.cfg.py").write_text('version = "9.9.9"\n')
     result = VersionCheck(tmp_path).run()
     assert not result.passed
-    assert any("0.5.0" in issue.description for issue in result.issues)
+    assert any("9.9.9" in issue.description for issue in result.issues)
 
 
 def test_static_version_in_pyproject_itself_not_flagged(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "mypkg"\nversion = "0.5.0"\n'
+        '[project]\nname = "mypkg"\nversion = "9.9.9"\n'
     )
     result = VersionCheck(tmp_path).run()
     assert result.passed
@@ -63,9 +68,9 @@ def test_dynamic_version_pyproject_skips_copy_check(tmp_path: Path) -> None:
 
 def test_commented_version_copy_not_flagged(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "mypkg"\nversion = "0.5.0"\n'
+        '[project]\nname = "mypkg"\nversion = "9.9.9"\n'
     )
-    (tmp_path / "notes.py").write_text('# version = "0.5.0"\n')
+    (tmp_path / "notes.py").write_text('# version = "9.9.9"\n')
     result = VersionCheck(tmp_path).run()
     assert result.passed
 
