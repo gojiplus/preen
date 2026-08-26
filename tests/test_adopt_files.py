@@ -6,7 +6,7 @@ import pytest
 
 from preen.adopt import (
     AdoptionReport,
-    _preserve_ci_inputs,
+    _preserve_shim_inputs,
     build_todos,
     copy_managed_files,
     mine_answers,
@@ -168,7 +168,9 @@ jobs:
 
 def test_ci_inputs_preserved_across_overwrite() -> None:
     """The shim's repo-specific `with:` inputs survive adoption (issue #13)."""
-    merged, preserved = _preserve_ci_inputs(CANON_SHIM, RENDERED_SHIM)
+    merged, preserved = _preserve_shim_inputs(
+        CANON_SHIM, RENDERED_SHIM, "reusable-ci.yml"
+    )
     assert "coverage-floor: 70" in merged
     assert """python-versions: '["3.12", "3.14"]'""" in merged
     assert any("coverage-floor" in p for p in preserved)
@@ -179,7 +181,7 @@ def test_ci_inputs_preserved_across_overwrite() -> None:
 
 
 def test_ci_inputs_unchanged_when_shim_already_matches() -> None:
-    merged, preserved = _preserve_ci_inputs(CANON_SHIM, CANON_SHIM)
+    merged, preserved = _preserve_shim_inputs(CANON_SHIM, CANON_SHIM, "reusable-ci.yml")
     assert merged == CANON_SHIM
     assert preserved == []
 
@@ -187,7 +189,9 @@ def test_ci_inputs_unchanged_when_shim_already_matches() -> None:
 def test_ci_inputs_left_alone_for_hand_rolled_workflow() -> None:
     """A repo's own CI workflow is not a shim; don't mine inputs from it."""
     hand_rolled = "name: CI\non: push\njobs:\n  test:\n    with:\n      foo: bar\n"
-    merged, preserved = _preserve_ci_inputs(hand_rolled, RENDERED_SHIM)
+    merged, preserved = _preserve_shim_inputs(
+        hand_rolled, RENDERED_SHIM, "reusable-ci.yml"
+    )
     assert merged == RENDERED_SHIM
     assert preserved == []
 
@@ -238,3 +242,171 @@ def test_pin_answers_commit_tolerates_missing_file(tmp_path: Path) -> None:
     from preen.adopt import _pin_answers_commit
 
     _pin_answers_commit(tmp_path, "v1.0.1")
+
+
+CANON_DOCS_SHIM = """\
+name: Docs
+on:
+  push:
+    branches: [main]
+jobs:
+  docs:
+    uses: gojiplus/py-canon/.github/workflows/reusable-docs.yml@v1
+    with:
+      deploy: true
+      docs-dir: docs/source
+      run-doctests: false
+"""
+
+RENDERED_DOCS_SHIM = """\
+name: Docs
+on:
+  push:
+    branches: [main]
+jobs:
+  docs:
+    uses: gojiplus/py-canon/.github/workflows/reusable-docs.yml@v1
+    with:
+      deploy: true
+"""
+
+CUSTOM_CONF = """\
+\"\"\"Sphinx configuration.\"\"\"
+
+from pycanon_docs import *  # noqa: F403
+
+project = "sharepack"
+
+# Build the three live demos linked from docs/index.md.
+html_extra_path = ["_demos"]
+"""
+
+
+def _write(path: Path, text: str) -> None:
+    """Write a file, creating parents.
+
+    Args:
+        path: Destination.
+        text: Contents.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+
+def test_docs_shim_inputs_survive_the_overwrite(rendered: Path, repo: Path) -> None:
+    """Input preservation covered ci.yml alone (issue #51).
+
+    docs.yml, release.yml and dependabot-auto-merge.yml fell through to a blind
+    copy, so `docs-dir: docs/source` and `run-doctests: false` were deleted on
+    every adopt and the repo's docs build broke.
+    """
+    _write(repo / ".github" / "workflows" / "docs.yml", CANON_DOCS_SHIM)
+    _write(rendered / ".github" / "workflows" / "docs.yml", RENDERED_DOCS_SHIM)
+    report = AdoptionReport()
+
+    copy_managed_files(rendered, repo, "mypkg", report)
+
+    merged = (repo / ".github" / "workflows" / "docs.yml").read_text()
+    assert "docs-dir: docs/source" in merged
+    assert "run-doctests: false" in merged
+    assert "uses: gojiplus/py-canon" in merged
+    assert any("docs-dir" in entry for entry in report.preserved)
+
+
+def test_conf_py_follows_a_declared_docs_dir(rendered: Path, repo: Path) -> None:
+    """The shim says where the docs live; assuming docs/ wrote a second config."""
+    _write(repo / ".github" / "workflows" / "docs.yml", CANON_DOCS_SHIM)
+    _write(repo / "docs" / "source" / "conf.py", CUSTOM_CONF)
+    report = AdoptionReport()
+
+    copy_managed_files(rendered, repo, "mypkg", report)
+
+    assert (repo / "docs" / "source" / "conf.py").read_text() == "rendered conf\n"
+    assert (repo / "docs" / "source" / "conf.py.bak").read_text() == CUSTOM_CONF
+    assert not (repo / "docs" / "conf.py").exists()
+
+
+def test_conf_py_is_found_under_docs_without_a_shim(rendered: Path, repo: Path) -> None:
+    """No docs.yml to ask, so look for the conf.py the repo actually has."""
+    _write(repo / "docs" / "source" / "conf.py", CUSTOM_CONF)
+    report = AdoptionReport()
+
+    copy_managed_files(rendered, repo, "mypkg", report)
+
+    assert (repo / "docs" / "source" / "conf.py").read_text() == "rendered conf\n"
+    assert not (repo / "docs" / "conf.py").exists()
+
+
+def test_overwriting_a_customized_conf_py_raises_a_todo(
+    rendered: Path, repo: Path
+) -> None:
+    """A .bak on disk is not a report (issue #48).
+
+    sharepack's adoption overwrote a conf.py that built the three live demos
+    linked from docs/index.md, and the report line was indistinguishable from a
+    routine write. An unattended adopt would have shipped broken docs.
+    """
+    _write(repo / "docs" / "conf.py", CUSTOM_CONF)
+    report = AdoptionReport()
+
+    copy_managed_files(rendered, repo, "mypkg", report)
+
+    assert report.todos, "an overwritten custom conf.py must reach Manual TODOs"
+    todo = report.todos[-1]
+    assert "docs/conf.py" in todo
+    assert "docs/conf.py.bak" in todo
+
+
+def test_replacing_an_unchanged_canon_conf_py_raises_no_todo(
+    rendered: Path, repo: Path
+) -> None:
+    """Only work the template would destroy is worth a human's attention."""
+    _write(repo / "docs" / "conf.py", "rendered conf\n")
+    report = AdoptionReport()
+
+    copy_managed_files(rendered, repo, "mypkg", report)
+
+    assert report.todos == []
+
+
+def test_a_fresh_conf_py_raises_no_todo(rendered: Path, repo: Path) -> None:
+    report = AdoptionReport()
+
+    copy_managed_files(rendered, repo, "mypkg", report)
+
+    assert (repo / "docs" / "conf.py").read_text() == "rendered conf\n"
+    assert report.todos == []
+
+
+def test_adopt_and_the_workflows_check_agree_on_canon_workflows() -> None:
+    """Two copies of the same map; a divergence silently drops preservation."""
+    from preen import adopt
+    from preen.checks import workflows
+
+    assert adopt.CANON_WORKFLOWS == workflows.CANON_WORKFLOWS
+
+
+def test_copy_time_todos_survive_build_todos(tmp_path: Path, monkeypatch) -> None:
+    """`report.todos = build_todos(...)` discarded whatever the copy raised.
+
+    build_todos runs after copy_managed_files and takes only (repo,
+    package_name), so it has no view of what the copy did — an overwritten
+    conf.py TODO would have been assigned away before anyone saw it.
+    """
+    from preen import adopt as adopt_mod
+
+    def fake_copy(rendered, repo, package_name, report):
+        report.todos.append("docs/conf.py had 5 line(s) the template does not")
+
+    monkeypatch.setattr(adopt_mod, "copy_managed_files", fake_copy)
+    monkeypatch.setattr(adopt_mod, "render_template", lambda *a, **k: None)
+    monkeypatch.setattr(adopt_mod, "_pin_answers_commit", lambda *a, **k: None)
+    monkeypatch.setattr(adopt_mod, "mine_answers", lambda repo: {"package_name": "x"})
+    monkeypatch.setattr(adopt_mod, "rewrite_pyproject", lambda *a, **k: ([], []))
+    monkeypatch.setattr(adopt_mod, "build_todos", lambda repo, name: ["something else"])
+    monkeypatch.setattr("preen.checks.template.latest_canon_tag", lambda **k: "v1.2.0")
+
+    report = adopt_mod.adopt_repo(tmp_path)
+
+    assert "docs/conf.py had 5 line(s) the template does not" in report.todos
+    assert "something else" in report.todos

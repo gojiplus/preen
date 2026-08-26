@@ -114,19 +114,37 @@ COPY_IF_ABSENT = (
     "LICENSE",
     "CITATION.cff",
 )
-CANON_WORKFLOWS = {
-    "ci.yml",
-    "docs.yml",
-    "release.yml",
-    "dependabot-auto-merge.yml",
+# Workflow file -> the reusable workflow its shim calls. Kept in step with
+# `preen.checks.workflows.CANON_WORKFLOWS` by
+# `test_adopt_and_the_workflows_check_agree_on_canon_workflows`; not imported
+# from there because `preen.checks` imports this module.
+CANON_WORKFLOWS: dict[str, str] = {
+    "ci.yml": "reusable-ci.yml",
+    "docs.yml": "reusable-docs.yml",
+    "release.yml": "reusable-release.yml",
+    "dependabot-auto-merge.yml": "reusable-dependabot-auto-merge.yml",
 }
 
-CI_WORKFLOW = ".github/workflows/ci.yml"
+WORKFLOW_DIR = ".github/workflows"
 
-# Marks a ci.yml as a canon shim rather than a repo's hand-rolled workflow.
-_CANON_CI_USES_RE = re.compile(
-    r"^\s*uses:\s*gojiplus/py-canon/\.github/workflows/reusable-ci\.yml@", re.MULTILINE
-)
+CI_WORKFLOW = f"{WORKFLOW_DIR}/ci.yml"
+
+
+def _canon_shim_re(reusable: str) -> re.Pattern[str]:
+    """Match the `uses:` line marking a file as a shim for `reusable`.
+
+    Args:
+        reusable: Name of the reusable workflow, e.g. ``reusable-ci.yml``.
+
+    Returns:
+        The compiled pattern.
+    """
+    return re.compile(
+        rf"^\s*uses:\s*gojiplus/py-canon/\.github/workflows/{re.escape(reusable)}@",
+        re.MULTILINE,
+    )
+
+
 _WITH_HEADER_RE = re.compile(r"^(\s*)with:\s*$")
 _WITH_INPUT_RE = re.compile(r"^(\s*)([A-Za-z0-9_-]+):[ \t]*(.*?)\s*$")
 
@@ -348,11 +366,16 @@ def copy_managed_files(
         if not src.exists():
             report.skipped.append(f"{rel} (not in template)")
             continue
-        # The CI shim carries repo-specific inputs the template knows nothing
-        # about; overwriting it blind loses them.
-        if rel == CI_WORKFLOW and dest.exists():
-            merged, preserved = _preserve_ci_inputs(
-                dest.read_text(encoding="utf-8"), src.read_text(encoding="utf-8")
+        # A shim carries repo-specific inputs the template knows nothing about;
+        # overwriting it blind loses them. This covered ci.yml alone, so
+        # `docs-dir: docs/source` and `run-doctests: false` were deleted from
+        # docs.yml on every adopt (issue #51).
+        reusable = CANON_WORKFLOWS.get(Path(rel).name)
+        if reusable is not None and dest.exists():
+            merged, preserved = _preserve_shim_inputs(
+                dest.read_text(encoding="utf-8"),
+                src.read_text(encoding="utf-8"),
+                reusable,
             )
             dest.write_text(merged, encoding="utf-8")
             report.written.append(rel)
@@ -374,16 +397,9 @@ def copy_managed_files(
         _copy(src, dest)
         report.written.append(rel)
 
-    # docs/conf.py: overwrite, but back up any existing config first.
     conf_src = rendered / "docs" / "conf.py"
     if conf_src.exists():
-        conf_dest = repo / "docs" / "conf.py"
-        if conf_dest.exists():
-            shutil.copy2(conf_dest, conf_dest.with_suffix(".py.bak"))
-            report.written.append("docs/conf.py (old config saved to docs/conf.py.bak)")
-        else:
-            report.written.append("docs/conf.py")
-        _copy(conf_src, conf_dest)
+        _write_docs_conf(conf_src, repo, report)
 
     # py.typed in whichever layout the repo uses.
     if (repo / "src" / package_name).is_dir():
@@ -439,24 +455,29 @@ def _find_with_block(lines: list[str]) -> _WithBlock | None:
     return block
 
 
-def _preserve_ci_inputs(old_text: str, new_text: str) -> tuple[str, list[str]]:
-    """Re-apply an existing canon ci.yml shim's `with:` inputs onto the rendered one.
+def _preserve_shim_inputs(
+    old_text: str, new_text: str, reusable: str
+) -> tuple[str, list[str]]:
+    """Re-apply an existing canon shim's `with:` inputs onto the rendered one.
 
-    The template renders only the inputs it knows about (``wheel-import``,
-    ``coverage-floor``), so a repo that hand-added ``python-versions`` — or
-    that raised its coverage floor — would lose those to the overwrite. This
+    The template renders only the inputs it knows about — ``wheel-import`` and
+    ``coverage-floor`` for ci.yml, ``deploy`` for docs.yml — so a repo that
+    hand-added ``python-versions``, raised its coverage floor, or pointed
+    ``docs-dir`` at ``docs/source`` would lose those to the overwrite. This
     edits the rendered shim's ``with:`` block textually rather than
     round-tripping the YAML, so comments and the ``on:`` key survive intact.
 
     Args:
-        old_text: The repo's existing ci.yml.
-        new_text: The freshly rendered ci.yml.
+        old_text: The repo's existing workflow file.
+        new_text: The freshly rendered one.
+        reusable: The reusable workflow both must call for this to apply.
 
     Returns:
         The rendered text with the repo's inputs re-applied, and a list of
         what was preserved.
     """
-    if not (_CANON_CI_USES_RE.search(old_text) and _CANON_CI_USES_RE.search(new_text)):
+    shim = _canon_shim_re(reusable)
+    if not (shim.search(old_text) and shim.search(new_text)):
         return new_text, []
 
     lines = new_text.split("\n")
@@ -491,6 +512,119 @@ def _preserve_ci_inputs(old_text: str, new_text: str) -> tuple[str, list[str]]:
         ]
 
     return "\n".join(lines), preserved
+
+
+def docs_dir(repo: Path) -> Path:
+    """Locate the repo's Sphinx source directory, relative to the repo root.
+
+    Assuming ``docs/`` wrote a second, conflicting ``conf.py`` into repos whose
+    real one lives at ``docs/source/conf.py`` -- and reported it as a
+    legitimate fresh write (issue #51).
+
+    Args:
+        repo: Repository directory.
+
+    Returns:
+        The directory holding ``conf.py``, defaulting to ``docs``.
+    """
+    declared = _declared_docs_dir(repo)
+    if declared is not None:
+        return declared
+
+    docs = repo / "docs"
+    if (docs / "conf.py").exists():
+        return Path("docs")
+    # Shallow, and deterministic: the nearest conf.py under docs/, not whichever
+    # one rglob happens to reach first.
+    found = sorted(
+        path.parent.relative_to(repo)
+        for path in docs.glob("*/conf.py")
+        if path.is_file()
+    )
+    return found[0] if found else Path("docs")
+
+
+def _declared_docs_dir(repo: Path) -> Path | None:
+    """Return the ``docs-dir`` input the repo's docs.yml shim passes, if any.
+
+    Args:
+        repo: Repository directory.
+
+    Returns:
+        The declared directory, or None when the shim does not set one.
+    """
+    shim = repo / WORKFLOW_DIR / "docs.yml"
+    if not shim.exists():
+        return None
+    text = shim.read_text(encoding="utf-8")
+    if not _canon_shim_re("reusable-docs.yml").search(text):
+        return None
+    block = _find_with_block(text.split("\n"))
+    if block is None or "docs-dir" not in block.inputs:
+        return None
+    value = block.inputs["docs-dir"][1].strip().strip("\"'")
+    return Path(value) if value else None
+
+
+def _write_docs_conf(conf_src: Path, repo: Path, report: AdoptionReport) -> None:
+    """Install the canon ``conf.py``, saying so when it displaces real work.
+
+    A ``.bak`` on disk is not a report: sharepack's adoption overwrote a
+    conf.py that built the three live demos linked from ``docs/index.md``, and
+    nothing in the ADOPTION REPORT distinguished that from a routine write
+    (issue #48). An unattended adopt would have shipped broken docs.
+
+    Args:
+        conf_src: The rendered template's conf.py.
+        repo: Repository directory.
+        report: Adoption report to record the write into.
+    """
+    rel = docs_dir(repo) / "conf.py"
+    conf_dest = repo / rel
+    if not conf_dest.exists():
+        _copy(conf_src, conf_dest)
+        report.written.append(str(rel))
+        return
+
+    existing = conf_dest.read_text(encoding="utf-8")
+    template = conf_src.read_text(encoding="utf-8")
+    backup = conf_dest.with_suffix(".py.bak")
+    shutil.copy2(conf_dest, backup)
+    _copy(conf_src, conf_dest)
+    report.written.append(f"{rel} (old config saved to {rel.with_suffix('.py.bak')})")
+
+    if existing.strip() == template.strip():
+        return
+    extra = _custom_conf_lines(existing, template)
+    if not extra:
+        return
+    report.todos.append(
+        f"{rel} had {extra} line(s) the canon template does not: review "
+        f"{rel.with_suffix('.py.bak')} and re-apply anything your docs need."
+    )
+
+
+def _custom_conf_lines(existing: str, template: str) -> int:
+    """Count lines the existing conf.py has that the template does not.
+
+    Line-set rather than a real diff: the question is only "did this file carry
+    work of its own", and the answer decides whether a human is told to look.
+
+    Args:
+        existing: The repo's conf.py.
+        template: The rendered template's conf.py.
+
+    Returns:
+        How many non-blank, non-comment lines are unique to the existing file.
+    """
+    canon = {line.strip() for line in template.splitlines()}
+    return sum(
+        1
+        for line in existing.splitlines()
+        if (stripped := line.strip())
+        and not stripped.startswith("#")
+        and stripped not in canon
+    )
 
 
 def _copy(src: Path, dest: Path) -> None:
@@ -1096,5 +1230,8 @@ def adopt_repo(
     changes, preserved = rewrite_pyproject(repo, release_migration=release_migration)
     report.pyproject_changes = changes
     report.preserved.extend(f"pyproject.toml: {item}" for item in preserved)
-    report.todos = build_todos(repo, str(answers["package_name"]))
+    # Extend, not assign: copy_managed_files raises its own TODOs -- an
+    # overwritten conf.py that carried real work -- and build_todos runs
+    # afterwards with no view of what the copy did.
+    report.todos.extend(build_todos(repo, str(answers["package_name"])))
     return report
