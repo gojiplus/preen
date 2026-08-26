@@ -311,8 +311,15 @@ class PytestConfigCheck(Check):
             for setting in wanted:
                 options[setting.key] = setting.value
             if flags:
-                addopts = self._addopts(dict(options))
-                options["addopts"] = [*addopts, *flags]
+                existing = options.get("addopts")
+                if isinstance(existing, str):
+                    # Keep the string form. Splitting it to build a list tore
+                    # `-m 'not live'` into three tokens on
+                    # gojiplus/get-weather-data, and pytest then looked for a
+                    # test path called `live'`.
+                    options["addopts"] = " ".join([existing.strip(), *flags])
+                else:
+                    options["addopts"] = [*self._addopts(dict(options)), *flags]
 
             pyproject.write_text(tomlkit.dumps(document), encoding="utf-8")
 

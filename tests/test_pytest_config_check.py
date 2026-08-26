@@ -183,3 +183,32 @@ def test_missing_pyproject_passes_silently(tmp_path: Path) -> None:
     result = PytestConfigCheck(tmp_path).run()
     assert result.passed
     assert result.issues == []
+
+
+def test_a_string_addopts_stays_a_string(tmp_path: Path) -> None:
+    """Splitting it to build a list tears quoted arguments apart.
+
+    gojiplus/get-weather-data writes `addopts = "-v --tb=short -m 'not live'"`.
+    Rewriting that as a list produced `["-m", "'not", "live'"]`, and pytest
+    then looked for a test path called `live'`.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "gwd"\nversion = "1.0.0"\n\n'
+        "[tool.pytest.ini_options]\n"
+        'testpaths = ["tests"]\n'
+        "addopts = \"-v --tb=short -m 'not live'\"\n"
+    )
+
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+
+    addopts = tomllib.loads((tmp_path / "pyproject.toml").read_text())["tool"][
+        "pytest"
+    ]["ini_options"]["addopts"]
+
+    assert isinstance(addopts, str)
+    assert "-m 'not live'" in addopts
+    for flag in ("-ra", "--strict-config", "--strict-markers"):
+        assert flag in addopts
+    assert PytestConfigCheck(tmp_path).run().issues == []
