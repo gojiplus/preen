@@ -56,6 +56,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `pydoclint` judges a repo with no `[tool.pydoclint]` against canon's options
+  rather than pydoclint's stricter defaults. gojiplus/uijudge-bench drew 218
+  findings, 130 of them important; all but 20 were DOC105/109/110/203 — the
+  type-hints-in-docstring family canon turns off — and vanish the moment the
+  canon table is added. Reporting non-adoption once per docstring buries the
+  20 real findings under 110 that say nothing about the code. The `template`
+  check already reports non-adoption once, which is the right number of times.
+
 - The `metadata` check compares the build requirement as a specifier, not as a
   string. `uv_build>=0.12.5,<0.13` and `uv_build>=0.12.5,<0.13.0` admit exactly
   the same versions; gojiplus/uijudge-bench writes the second, and was told to
