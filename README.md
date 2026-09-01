@@ -13,9 +13,8 @@ shared Sphinx configuration. Preen is how repos enter the fleet and stay in
 it: it scaffolds new packages, retrofits existing ones, pulls template
 updates, checks conformance, and cuts tag-driven releases.
 
-preen itself requires Python >=3.12, stricter than the >=3.11 floor of the
-fleet standard it enforces on other repos — the tool can hold itself to a
-higher bar than the standard it applies.
+preen requires Python >=3.12, matching the floor the fleet standard sets for
+every repo it checks.
 
 ## Install
 
@@ -86,7 +85,7 @@ reusable workflows, not stale copies), `ruff`, `tests`, `citation`,
 matrix covering the requires-python floor), `structure`, `runtime-assets`
 (schema-bearing data formats, pinned Hugging Face revisions), `files`
 (README and `.gitignore` exist), `precommit` (`.pre-commit-config.yaml`
-exists and parses), `version` (hardcoded version strings), `license` (PEP
+exists and parses), `pytest-config` (pytest settings the standard requires), `version` (hardcoded version strings), `license` (PEP
 639 license metadata), `links`, `metadata` (build backend, requires-python
 upper bound, PEP 561 `py.typed`), `pydoclint`, `pyright`, and `codespell`.
 
@@ -117,9 +116,16 @@ Preen reads an optional `[tool.preen]` section in `pyproject.toml`:
 
 ```toml
 [tool.preen]
-src_layout = true       # expect src/ layout (default: true)
-tests_at_root = true    # expect tests/ at the repo root (default: true)
-skip_checks = ["links"] # checks to skip by default
+src_layout = true        # expect src/ layout (default: true)
+tests_at_root = true     # expect tests/ at the repo root (default: true)
+examples_at_root = true  # expect examples/ at the repo root (default: true)
+skip_checks = ["links"]  # checks to skip by default
+
+# URLs the `links` check should not fetch. Some endpoints are real but do not
+# answer a bare GET, such as an API base that needs a path. Skipping the whole
+# `links` check to silence one of those would stop the README being checked,
+# which is where a broken link actually costs a reader something.
+link_ignore = ["https://api.example.com/*"]
 ```
 
 ## Notes
