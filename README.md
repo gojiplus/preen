@@ -85,7 +85,7 @@ reusable workflows, not stale copies), `ruff`, `tests`, `citation`,
 matrix covering the requires-python floor), `structure`, `runtime-assets`
 (schema-bearing data formats, pinned Hugging Face revisions), `files`
 (README and `.gitignore` exist), `precommit` (`.pre-commit-config.yaml`
-exists and parses), `pytest-config` (pytest settings the standard requires), `version` (hardcoded version strings), `license` (PEP
+exists and parses), `pytest-config` (pytest settings the standard requires), `examples` (documented examples still name symbols the package defines), `version` (hardcoded version strings), `license` (PEP
 639 license metadata), `links`, `metadata` (build backend, requires-python
 upper bound, PEP 561 `py.typed`), `pydoclint`, `pyright`, and `codespell`.
 
@@ -120,6 +120,7 @@ src_layout = true        # expect src/ layout (default: true)
 tests_at_root = true     # expect tests/ at the repo root (default: true)
 examples_at_root = true  # expect examples/ at the repo root (default: true)
 skip_checks = ["links"]  # checks to skip by default
+run_doctests = false     # execute `>>>` examples too (default: false)
 
 # URLs the `links` check should not fetch. Some endpoints are real but do not
 # answer a bare GET, such as an API base that needs a path. Skipping the whole

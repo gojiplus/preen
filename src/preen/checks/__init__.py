@@ -14,6 +14,7 @@ from .depgroups import DepgroupsCheck
 from .deps import DepsCheck
 from .deptree import DeptreeCheck
 from .dropped_args import DroppedArgsCheck
+from .examples import ExamplesCheck
 from .files import RequiredFilesCheck
 from .license import LicenseCheck
 from .links import LinkCheck
@@ -46,6 +47,7 @@ ALL_CHECKS: list[type[Check]] = [
     StructureCheck,
     RuntimeAssetsCheck,
     RequiredFilesCheck,
+    ExamplesCheck,
     PreCommitCheck,
     WorkflowsCheck,
     VersionCheck,

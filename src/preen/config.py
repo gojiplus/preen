@@ -17,6 +17,13 @@ class PreenConfig:
     # Checks
     skip_checks: list[str] = field(default_factory=list)
 
+    # Execute `>>>` examples in README and docs under doctest. Off by default:
+    # most documented prompts are illustrative rather than runnable, depending
+    # on bindings from an earlier block or on output from a live service. The
+    # `examples` check always verifies statically that documented symbols
+    # exist; this adds execution for repos whose examples are self-contained.
+    run_doctests: bool = False
+
     # Regexes for URLs the `links` check should not fetch. Some endpoints are
     # real but do not answer a bare GET: an API base that needs a path or a
     # query returns 404 or 400 while being perfectly alive. Silencing one of
