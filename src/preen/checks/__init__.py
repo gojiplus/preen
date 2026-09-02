@@ -23,6 +23,7 @@ from .precommit import PreCommitCheck
 from .pydoclint import PydoclintCheck
 from .pyright import PyrightCheck
 from .pytest_config import PytestConfigCheck
+from .python_floor import PythonFloorCheck
 from .ruff import RuffCheck
 from .runner import run_checks
 from .runtime_assets import RuntimeAssetsCheck
@@ -58,6 +59,7 @@ ALL_CHECKS: list[type[Check]] = [
     PyrightCheck,
     PytestConfigCheck,
     CodespellCheck,
+    PythonFloorCheck,
 ]
 
 __all__ = [

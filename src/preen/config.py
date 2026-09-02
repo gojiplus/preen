@@ -24,6 +24,12 @@ class PreenConfig:
     # exist; this adds execution for repos whose examples are self-contained.
     run_doctests: bool = False
 
+    # Compare requires-python against the floor STANDARD.md declares. Off
+    # until the fleet migration lands: enabling it today would put 30 repos in
+    # violation at once, which is how a check gets switched off rather than
+    # obeyed.
+    enforce_python_floor: bool = False
+
     # Regexes for URLs the `links` check should not fetch. Some endpoints are
     # real but do not answer a bare GET: an API base that needs a path or a
     # query returns 404 or 400 while being perfectly alive. Silencing one of
