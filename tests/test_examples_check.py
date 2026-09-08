@@ -588,3 +588,40 @@ def test_variadic_lambda_parameters_shadow_the_package(block):
 def test_a_type_alias_in_an_example_shadows_the_package():
     text = "```python\nimport mypkg\ntype mypkg = list[str]\nmypkg.x\n```"
     assert referenced_symbols(text, "mypkg") == set()
+
+
+def test_an_attribute_the_example_creates_may_be_used_later(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme="""
+            ```python
+            import mypkg
+            mypkg.callback = lambda: 42
+            ```
+            ```python
+            mypkg.callback()
+            mypkg.gone()
+            ```
+        """,
+    )
+    issues = _errors(ExamplesCheck(repo).run())
+    assert [i.description for i in issues] == [
+        "README.md shows `mypkg.gone`, which the package does not define"
+    ]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import sys\nmatch sys.platform:\n    case 'win32':\n        pass\n"
+        "    case _:\n        from math import sqrt\n",
+        "try:\n    from math import sqrt\nexcept* ImportError:\n    pass\n",
+        "for _ in range(1):\n    from math import sqrt\n",
+        "while False:\n    pass\nelse:\n    from math import sqrt\n",
+    ],
+)
+def test_exports_inside_any_module_level_suite_count(tmp_path, source):
+    init = tmp_path / "__init__.py"
+    init.write_text(source)
+    assert {"sqrt"} <= (exported_symbols(init) or set())

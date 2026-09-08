@@ -197,6 +197,7 @@ def referenced_symbols(text: str, package: str) -> set[str]:
         than package API.
     """
     found: set[str] = set()
+    created: set[str] = set()
     trees = []
     for block in _PY_BLOCK.findall(text):
         try:
@@ -227,18 +228,17 @@ def referenced_symbols(text: str, package: str) -> set[str]:
         )
         live = (aliases | imported) - _locally_bound(tree, package)
         # `mypkg.callback = ...` creates the attribute rather than reaching
-        # for it, so only loads count.
-        found.update(
-            node.attr
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Attribute)
-            and isinstance(node.ctx, ast.Load)
-            and isinstance(node.value, ast.Name)
-            and node.value.id in live
-            and not node.attr.startswith("__")
-        )
+        # for it, and a later `mypkg.callback()` then finds what it made.
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in live
+                and not node.attr.startswith("__")
+            ):
+                (created if isinstance(node.ctx, ast.Store) else found).add(node.attr)
         aliases = live
-    return found
+    return found - created
 
 
 def _relative_module(origin: Path, level: int, module: str | None) -> Path | None:
@@ -327,19 +327,23 @@ def _defined_names(
                 names.update(_target_names(node.target))
             elif isinstance(node, ast.TypeAlias):
                 names.update(_target_names(node.name))
-            elif isinstance(node, ast.Try):
+            # Every compound statement's suites are still module level:
+            # `try: from x import y`, `with suppress(ImportError): ...`, a
+            # `match sys.platform` that picks a backend, all bind names here.
+            elif isinstance(node, (ast.Try, ast.TryStar)):
                 collect(node.body)
                 for handler in node.handlers:
                     collect(handler.body)
                 collect(node.orelse)
                 collect(node.finalbody)
-            elif isinstance(node, ast.If):
+            elif isinstance(node, (ast.If, ast.For, ast.AsyncFor, ast.While)):
                 collect(node.body)
                 collect(node.orelse)
             elif isinstance(node, (ast.With, ast.AsyncWith)):
-                # `with suppress(ImportError): from x import y` is a common
-                # optional-dependency shape, and y is a module-level name.
                 collect(node.body)
+            elif isinstance(node, ast.Match):
+                for case in node.cases:
+                    collect(case.body)
 
     collect(tree.body)
     if "__getattr__" in names:

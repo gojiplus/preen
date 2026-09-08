@@ -593,3 +593,21 @@ def test_release_migration_passes_over_a_pyproject_it_cannot_read(
 
     (tmp_path / "pyproject.toml").write_bytes(content)
     _assert_release_migratable(tmp_path)  # does not raise
+
+
+def test_with_block_survives_an_outdented_comment(tmp_path: Path) -> None:
+    """A comment's indent means nothing in YAML; the next real line decides."""
+    from preen.adopt import _find_with_block
+
+    lines = [
+        "jobs:",
+        "  ci:",
+        "    with:",
+        "      first: 1",
+        "# outdented note",
+        "      second: 2",
+        "    secrets: inherit",
+    ]
+    block = _find_with_block(lines)
+    assert block is not None
+    assert set(block.inputs) == {"first", "second"}
