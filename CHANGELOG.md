@@ -24,6 +24,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   silently ignored and the finding looked unaddressed. The marker now covers
   the whole comment block beneath it and the first line after that.
 
+- `preen fix pytest-config` puts new keys after the last key in the table,
+  not after a trailing comment that introduces the next section, and extends
+  a multi-line `addopts` in place instead of reflowing it onto one line. On
+  themains/piedomains four pytest settings landed under `# mypy
+  configuration`, the blank line before `[tool.coverage.run]` vanished, and
+  `addopts` collapsed, all in one write.
+
 - `preen fix pytest-config` keeps a string `addopts` a string. Splitting it to
   build a list tore quoted arguments apart: gojiplus/get-weather-data writes
   `addopts = "-v --tb=short -m 'not live'"`, which became

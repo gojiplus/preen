@@ -212,3 +212,54 @@ def test_a_string_addopts_stays_a_string(tmp_path: Path) -> None:
     for flag in ("-ra", "--strict-config", "--strict-markers"):
         assert flag in addopts
     assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_fix_leaves_a_trailing_comment_where_it_was(tmp_path: Path) -> None:
+    """New keys go after the last key, not after a comment about the next table.
+
+    themains/piedomains ends its pytest table with a blank line and a comment
+    introducing the section below. Appending at the end of the table put four
+    pytest settings under `# mypy configuration`, glued the next header to
+    them, and reflowed a multi-line `addopts` onto one line.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "piedomains"\nversion = "1.0.0"\n\n'
+        "[tool.pytest.ini_options]\n"
+        'testpaths = ["tests"]\n'
+        "addopts = [\n"
+        '    "-ra",\n'
+        '    "-m",\n'
+        '    "not slow",\n'
+        "]\n"
+        "\n"
+        "# mypy configuration\n"
+        "[tool.coverage.run]\n"
+        'source = ["src"]\n'
+    )
+
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+
+    text = (tmp_path / "pyproject.toml").read_text()
+    assert text == (
+        '[project]\nname = "piedomains"\nversion = "1.0.0"\n\n'
+        "[tool.pytest.ini_options]\n"
+        'testpaths = ["tests"]\n'
+        "addopts = [\n"
+        '    "-ra",\n'
+        '    "-m",\n'
+        '    "not slow",\n'
+        '    "--strict-config",\n'
+        '    "--strict-markers",\n'
+        "]\n"
+        'minversion = "6"\n'
+        'log_level = "INFO"\n'
+        "xfail_strict = true\n"
+        'filterwarnings = ["error"]\n'
+        "\n"
+        "# mypy configuration\n"
+        "[tool.coverage.run]\n"
+        'source = ["src"]\n'
+    )
+    assert PytestConfigCheck(tmp_path).run().issues == []

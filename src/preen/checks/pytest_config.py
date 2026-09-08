@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import tomlkit
+from tomlkit.items import Array
 
 from .base import Check, CheckResult, Fix, Impact, Issue, Severity
 
@@ -306,6 +307,16 @@ class PytestConfigCheck(Check):
             pytest_table = tool.setdefault("pytest", tomlkit.table(is_super_table=True))
             options = pytest_table.setdefault("ini_options", tomlkit.table())
 
+            # tomlkit adds a key after everything already in the table, and
+            # that includes a trailing blank line and a comment that really
+            # introduces the next section. Lift those off, add the keys, put
+            # them back. themains/piedomains got four pytest settings filed
+            # under `# mypy configuration` before this.
+            body = options.value.body
+            trailing = []
+            while body and body[-1][0] is None:
+                trailing.append(body.pop())
+
             if minversion:
                 options["minversion"] = str(self.MIN_VERSIONS[False])
             for setting in wanted:
@@ -318,9 +329,13 @@ class PytestConfigCheck(Check):
                     # gojiplus/get-weather-data, and pytest then looked for a
                     # test path called `live'`.
                     options["addopts"] = " ".join([existing.strip(), *flags])
+                elif isinstance(existing, Array):
+                    # Extending in place keeps a multi-line list multi-line.
+                    existing.extend(flags)
                 else:
-                    options["addopts"] = [*self._addopts(dict(options)), *flags]
+                    options["addopts"] = flags
 
+            body.extend(reversed(trailing))
             pyproject.write_text(tomlkit.dumps(document), encoding="utf-8")
 
         return Fix(
