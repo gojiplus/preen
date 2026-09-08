@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-07
+
 ### Changed
 
 - `pytest-config` findings gate instead of advising. They shipped
@@ -18,7 +20,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- `dropped-args` honours a `# preen: allow-dropped-arg` marker that opens a
+- `dropped-args` honors a `# preen: allow-dropped-arg` marker that opens a
   multi-line comment. It used to look only at the call's own lines and the
   one directly above, so a marker followed by two lines of rationale was
   silently ignored and the finding looked unaddressed. The marker now covers
