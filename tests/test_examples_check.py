@@ -791,3 +791,24 @@ def test_a_tilde_fenced_block_is_read(tmp_path):
 def test_a_tilde_fence_is_not_expected_output(tmp_path):
     repo = _doctest_repo(tmp_path, "~~~python\n>>> 1 + 1\n2\n~~~\n")
     assert ExamplesCheck(repo).run().passed
+
+
+def test_a_function_local_import_does_not_alias_the_rest_of_its_block(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme="""
+            ```python
+            from mypkg import client as mp
+            ```
+            ```python
+            def helper():
+                import mypkg as mp
+                return mp
+
+            mp.request()
+            ```
+        """,
+    )
+    (tmp_path / "src" / "mypkg" / "client.py").write_text("def request(): ...\n")
+    assert ExamplesCheck(repo).run().passed

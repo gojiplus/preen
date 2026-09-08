@@ -264,9 +264,10 @@ def referenced_symbols(text: str, package: str) -> set[str]:
     for tree in trees:
         # `import mypkg`, `import mypkg as mp` and `import mypkg.sub` all bind
         # a name to the package. An import inside a helper function binds it
-        # there alone, so only a top-level one carries to later blocks.
-        imported = _package_aliases(ast.walk(tree), package)
-        imported_top = _package_aliases(_own_scope(tree), package)
+        # there alone, so it neither aliases the rest of the block nor carries
+        # to later ones; a binding anywhere, by contrast, shadows the whole
+        # block, since a false negative is the cheaper mistake.
+        imported = _package_aliases(_own_scope(tree), package)
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom) or not node.module:
                 continue
@@ -290,7 +291,7 @@ def referenced_symbols(text: str, package: str) -> set[str]:
         live = (aliases | imported) - _locally_bound(tree, package)
         # What carries to the next block is only what this one rebinds at
         # top level. A fixture parameter shadows inside its function alone.
-        carried = (aliases | imported_top) - _locally_bound(tree, package, whole=False)
+        carried = (aliases | imported) - _locally_bound(tree, package, whole=False)
         # `mypkg.callback = ...` creates the attribute rather than reaching
         # for it, and a later `mypkg.callback()` then finds what it made.
         for node in ast.walk(tree):

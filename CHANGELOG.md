@@ -37,7 +37,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Sixty-nine defects found by twenty rounds of independent review of
+- Seventy defects found by twenty-one rounds of independent review of
   this release, most in the two new checks, before they reached anyone.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
@@ -91,7 +91,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   "doctest examples not executed", instead of hiding it behind "passed".
   A fixture parameter or comprehension variable named like the package
   shadows it inside that scope alone, not for the rest of the document,
-  and neither does an import inside a helper function. `import mypkg.sub`
+  and an import inside a helper function aliases nothing outside it. `import mypkg.sub`
   binds the package name too, and `from mypkg.missing import x` or
   `import mypkg.missing` reaches for `mypkg.missing`. Tilde fences are read
   like backtick ones, in both tiers. Finally, a
