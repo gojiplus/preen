@@ -241,6 +241,47 @@ def referenced_symbols(text: str, package: str) -> set[str]:
     return found - created
 
 
+def _pattern_names(pattern: ast.pattern) -> set[str]:
+    """Names a match pattern captures.
+
+    Args:
+        pattern: A case pattern.
+
+    Returns:
+        Every capture, star and ``**rest`` name inside it.
+    """
+    names: set[str] = set()
+    for node in ast.walk(pattern):
+        if isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+            names.add(node.name)
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            names.add(node.rest)
+    return names
+
+
+def _walrus_names(stmt: ast.stmt) -> set[str]:
+    """Names a statement binds with ``:=`` in the enclosing scope.
+
+    Args:
+        stmt: A module-level statement.
+
+    Returns:
+        The targets, not descending into a def, class or lambda, whose
+        walruses bind their own scope.
+    """
+    names: set[str] = set()
+    pending: list[ast.AST] = [stmt]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, ast.NamedExpr):
+            names.update(_target_names(node.target))
+        if not isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+        ):
+            pending.extend(ast.iter_child_nodes(node))
+    return names
+
+
 def _relative_module(origin: Path, level: int, module: str | None) -> Path | None:
     """Locate the file a relative import names.
 
@@ -303,6 +344,7 @@ def _defined_names(
             body: Statements to walk.
         """
         for node in body:
+            names.update(_walrus_names(node))
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 names.add(node.name)
             elif isinstance(node, ast.Import):
@@ -336,13 +378,21 @@ def _defined_names(
                     collect(handler.body)
                 collect(node.orelse)
                 collect(node.finalbody)
-            elif isinstance(node, (ast.If, ast.For, ast.AsyncFor, ast.While)):
+            elif isinstance(node, (ast.If, ast.While)):
+                collect(node.body)
+                collect(node.orelse)
+            elif isinstance(node, (ast.For, ast.AsyncFor)):
+                names.update(_target_names(node.target))
                 collect(node.body)
                 collect(node.orelse)
             elif isinstance(node, (ast.With, ast.AsyncWith)):
+                for item in node.items:
+                    if item.optional_vars is not None:
+                        names.update(_target_names(item.optional_vars))
                 collect(node.body)
             elif isinstance(node, ast.Match):
                 for case in node.cases:
+                    names.update(_pattern_names(case.pattern))
                     collect(case.body)
 
     collect(tree.body)

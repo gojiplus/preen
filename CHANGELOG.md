@@ -37,14 +37,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Thirty-nine defects found by seven rounds of independent review of this
+- Forty defects found by eight rounds of independent review of this
   release, most in the two new checks, before they reached anyone.
   `examples` no longer reports `from pkg import submodule` as a missing
   symbol, follows a relative `from .api import *` in `__init__`, and treats
   an unresolvable star import, a cycle of star imports, or a module-level
   `__getattr__` as "exports unknown" rather than "exports empty", and counts
-  a namespace subpackage and a name bound inside any module-level suite
-  (`with`, `for`, `while`, `match`, `try`/`except*`) as exports. It sees
+  a namespace subpackage and a name bound inside or by any module-level
+  statement (`with ... as`, `for`, `while`, `match` captures, `:=`,
+  `try`/`except*`) as exports. It sees
   names bound by tuple unpacking, comprehensions, imports, `except ... as`,
   `lambda`, `match` patterns, and local `def` or `class` statements, in both
   the package and the example, exports a `type` alias, treats

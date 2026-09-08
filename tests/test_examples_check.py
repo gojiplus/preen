@@ -625,3 +625,25 @@ def test_exports_inside_any_module_level_suite_count(tmp_path, source):
     init = tmp_path / "__init__.py"
     init.write_text(source)
     assert {"sqrt"} <= (exported_symbols(init) or set())
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from contextlib import nullcontext\nwith nullcontext(1) as value:\n    pass\n",
+        "for value in [1]:\n    pass\n",
+        "match 1:\n    case value:\n        pass\n",
+        "match [1]:\n    case [*value]:\n        pass\n",
+        "if (value := 1):\n    pass\n",
+    ],
+)
+def test_a_name_a_compound_statement_binds_is_an_export(tmp_path, source):
+    init = tmp_path / "__init__.py"
+    init.write_text(source)
+    assert {"value"} <= (exported_symbols(init) or set())
+
+
+def test_a_walrus_inside_a_function_is_not_an_export(tmp_path):
+    init = tmp_path / "__init__.py"
+    init.write_text("def f():\n    return (value := 1)\n")
+    assert "value" not in (exported_symbols(init) or set())
