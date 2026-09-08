@@ -677,3 +677,23 @@ def test_an_annotated_all_declares_star_exports(tmp_path):
         "__all__: list[str] = ['_public']\ndef _public(): ...\n"
     )
     assert "_public" in (exported_symbols(pkg / "__init__.py") or set())
+
+
+def test_a_comprehension_variable_does_not_retire_the_package(tmp_path):
+    # A comprehension is its own scope; its loop variable never escapes.
+    repo = _repo(
+        tmp_path,
+        init="def real(): ...\n",
+        readme="""
+            ```python
+            import mypkg
+            [mypkg for mypkg in (1, 2)]
+            ```
+            ```python
+            mypkg.gone()
+            ```
+        """,
+    )
+    assert [i.description for i in _errors(ExamplesCheck(repo).run())] == [
+        "README.md shows `mypkg.gone`, which the package does not define"
+    ]

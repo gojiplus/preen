@@ -105,7 +105,7 @@ def _own_scope(tree: ast.AST) -> list[ast.AST]:
 
     A def, class or lambda is yielded, so its name counts as bound, but its
     body is not entered: a parameter named like the package shadows it
-    inside that function only.
+    inside that function only. A comprehension is its own scope too.
 
     Args:
         tree: A parsed code block.
@@ -119,7 +119,17 @@ def _own_scope(tree: ast.AST) -> list[ast.AST]:
         node = pending.pop()
         out.append(node)
         if not isinstance(
-            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+            node,
+            (
+                ast.FunctionDef,
+                ast.AsyncFunctionDef,
+                ast.ClassDef,
+                ast.Lambda,
+                ast.ListComp,
+                ast.SetComp,
+                ast.DictComp,
+                ast.GeneratorExp,
+            ),
         ):
             pending.extend(ast.iter_child_nodes(node))
     return out

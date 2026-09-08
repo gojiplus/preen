@@ -37,8 +37,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Fifty-six defects found by thirteen rounds of independent review of this
-  release, most in the two new checks, before they reached anyone.
+- Fifty-seven defects found by fourteen rounds of independent review of
+  this release, most in the two new checks, before they reached anyone.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
   of them), which matters now that its findings gate; precedence follows
@@ -82,8 +82,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   while a call in a decorator or default value is still seen. And `preen
   check` prints an informational notice on a check that passes, such as
   "doctest examples not executed", instead of hiding it behind "passed".
-  A fixture parameter named like the package shadows it inside that
-  function alone, not for the rest of the document. Finally, a
+  A fixture parameter or comprehension variable named like the package
+  shadows it inside that scope alone, not for the rest of the document. Finally, a
   comment at any indent inside a workflow's `with:` block no longer ends
   the block during `preen adopt`, so the inputs after it survive.
 
