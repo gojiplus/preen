@@ -146,15 +146,18 @@ def _locally_bound(tree: ast.AST, package: str) -> set[str]:
                 if item.optional_vars is not None:
                     bound.update(_target_names(item.optional_vars))
         elif isinstance(node, ast.Import):
+            # `import mypkg` and `import mypkg as mp` bind the package itself;
+            # `import mypkg.sub` binds `mypkg` too. Anything else bound here,
+            # including `import mypkg.sub as mp`, is not the package.
             bound.update(
                 a.asname or a.name.split(".")[0]
                 for a in node.names
-                if a.name.split(".")[0] != package
+                if a.name != package
+                and (a.asname is not None or a.name.split(".")[0] != package)
             )
-        elif (
-            isinstance(node, ast.ImportFrom)
-            and (node.module or "").split(".")[0] != package
-        ):
+        elif isinstance(node, ast.ImportFrom):
+            # `from mypkg import client as mp` binds a submodule, not the
+            # package, so an earlier `import mypkg as mp` no longer applies.
             bound.update(a.asname or a.name for a in node.names if a.name != "*")
     return bound
 
@@ -234,22 +237,29 @@ def _relative_module(origin: Path, level: int, module: str | None) -> Path | Non
     return None
 
 
-def _defined_names(path: Path) -> set[str] | None:
+def _defined_names(
+    path: Path, visiting: frozenset[Path] = frozenset()
+) -> set[str] | None:
     """Read every name a module defines at top level, without importing it.
 
     A relative star import is followed into the sibling module; any other star
-    import makes the set unknowable from here.
+    import, a cycle of star imports, or a module-level ``__getattr__`` makes
+    the set unknowable from here.
 
     Args:
         path: The module file.
+        visiting: Modules already on the star-import path, to stop a cycle.
 
     Returns:
         The names, or None if the file cannot be parsed or its exports cannot
         be resolved statically.
     """
+    path = path.resolve()
+    if path in visiting:
+        return None
     try:
-        tree = ast.parse(path.read_text())
-    except (OSError, SyntaxError):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, UnicodeDecodeError):
         return None
 
     names: set[str] = set()
@@ -294,9 +304,14 @@ def _defined_names(path: Path) -> set[str] | None:
                 collect(node.orelse)
 
     collect(tree.body)
+    if "__getattr__" in names:
+        # PEP 562: attributes are made on demand, so no static list is complete.
+        return None
     for level, module in stars:
         target = _relative_module(path, level, module)
-        pulled = _defined_names(target) if target is not None else None
+        pulled = (
+            _defined_names(target, visiting | {path}) if target is not None else None
+        )
         if pulled is None:
             return None
         # Permissive on purpose: a star import honors the target's __all__,
@@ -393,7 +408,7 @@ class ExamplesCheck(Check):
         if located and exported is not None:
             package = located[0]
             for doc in _documented_files(self.project_dir):
-                used = referenced_symbols(doc.read_text(), package)
+                used = referenced_symbols(doc.read_text(encoding="utf-8"), package)
                 issues.extend(
                     Issue(
                         check=self.name,
@@ -428,11 +443,23 @@ class ExamplesCheck(Check):
             return []
 
         root = self.project_dir.resolve()
-        docs = [d for d in _documented_files(root) if ">>>" in d.read_text()]
-        interpreter = root / ".venv" / "bin" / "python"
+        docs = [
+            d for d in _documented_files(root) if ">>>" in d.read_text(encoding="utf-8")
+        ]
+        interpreter = next(
+            (
+                p
+                for p in (
+                    root / ".venv" / "bin" / "python",
+                    root / ".venv" / "Scripts" / "python.exe",
+                )
+                if p.exists()
+            ),
+            None,
+        )
         if not docs:
             return []
-        if not interpreter.exists():
+        if interpreter is None:
             # Saying so beats passing silently: nothing was checked.
             return [
                 Issue(
@@ -479,7 +506,9 @@ class ExamplesCheck(Check):
         scratch = Path(tempfile.mkdtemp(prefix="preen-doctest-"))
         try:
             copy = scratch / doc.name
-            copy.write_text(_FENCE_LINE.sub("", doc.read_text()))
+            copy.write_text(
+                _FENCE_LINE.sub("", doc.read_text(encoding="utf-8")), encoding="utf-8"
+            )
             try:
                 done = subprocess.run(
                     [str(interpreter), "-m", "doctest", str(copy)],

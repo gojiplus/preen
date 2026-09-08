@@ -19,6 +19,7 @@ import tomllib
 from pathlib import Path
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import InvalidVersion, Version
 
 from .base import Check, CheckResult, Impact, Issue, Severity
 
@@ -43,8 +44,8 @@ def requires_python(pyproject: Path) -> str | None:
         not this one's, so it is passed over rather than reported twice.
     """
     try:
-        data = tomllib.loads(pyproject.read_text())
-    except (OSError, tomllib.TOMLDecodeError):
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         return None
     raw = data.get("project", {}).get("requires-python")
     return str(raw) if raw else None
@@ -55,8 +56,9 @@ def declared_floor(pyproject: Path) -> tuple[int, ...] | None:
 
     The whole specifier decides, not its first ``>=``: ``>3.10`` still admits
     3.10.1, ``~=3.11`` admits 3.11, and ``>=3.10,>=3.12`` has a floor of 3.12.
-    Each minor is probed at ``X.Y`` and at a late patch, because an exclusive
-    bound rejects the first and admits the second.
+    A specifier can only carve at the versions it names, so the probes are
+    every named version and the patch after it (an exclusive bound rejects one
+    and admits the other), plus ``X.Y`` and a late patch of each minor.
 
     Args:
         pyproject: Path to the repo's pyproject.toml.
@@ -72,10 +74,17 @@ def declared_floor(pyproject: Path) -> tuple[int, ...] | None:
         spec = SpecifierSet(raw)
     except InvalidSpecifier:
         return None
-    for major, minor in _MINORS:
-        if spec.contains(f"{major}.{minor}") or spec.contains(f"{major}.{minor}.99"):
-            return (major, minor)
-    return None
+    probes = {Version(f"{major}.{minor}") for major, minor in _MINORS}
+    probes |= {Version(f"{major}.{minor}.99") for major, minor in _MINORS}
+    for clause in spec:
+        try:
+            named = Version(clause.version.removesuffix(".*"))
+        except InvalidVersion:
+            continue
+        probes.add(named)
+        probes.add(Version(f"{named.major}.{named.minor}.{named.micro + 1}"))
+    admitted = sorted(v for v in probes if spec.contains(v))
+    return (admitted[0].major, admitted[0].minor) if admitted else None
 
 
 class PythonFloorCheck(Check):

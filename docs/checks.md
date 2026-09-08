@@ -276,8 +276,8 @@ documentation.
 Permissive where it cannot be sure. A fragment that does not parse is skipped,
 a name the block binds itself (a fixture or loop variable that happens to
 share the package's name) is not the package, dunders are language protocol
-rather than API, and a star import that cannot be resolved statically makes
-the exports unknown rather than empty.
+rather than API, and a star import that cannot be resolved statically or a
+module-level `__getattr__` makes the exports unknown rather than empty.
 
 Opt in to also executing `>>>` examples under the repo's own `.venv`:
 

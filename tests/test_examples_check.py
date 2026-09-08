@@ -350,3 +350,66 @@ def test_a_hanging_doctest_is_a_finding_not_a_crash(tmp_path, monkeypatch):
     assert not result.passed
     assert "did not finish" in result.issues[0].description
     assert subprocess.TimeoutExpired  # the type the check must catch
+
+
+def test_a_star_import_cycle_is_unknown_not_a_crash(tmp_path):
+    # `from .api import *` in __init__ and `from . import *` in api.py is a
+    # working package; following the stars forever was a RecursionError.
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("from .api import *\n")
+    (pkg / "api.py").write_text("from . import *\ndef public(): ...\n")
+    assert exported_symbols(pkg / "__init__.py") is None
+
+
+def test_a_module_getattr_makes_exports_unknown(tmp_path):
+    init = tmp_path / "__init__.py"
+    init.write_text("def __getattr__(name):\n    return name\n")
+    assert exported_symbols(init) is None
+
+
+def test_an_alias_rebound_to_a_submodule_is_not_the_package(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme="""
+            ```python
+            import mypkg as mp
+            ```
+            ```python
+            from mypkg import client as mp
+            mp.request()
+            ```
+            ```python
+            import mypkg.client as mp2
+            mp2.request()
+            ```
+        """,
+    )
+    (tmp_path / "src" / "mypkg" / "client.py").write_text("def request(): ...\n")
+    assert ExamplesCheck(repo).run().passed
+
+
+def test_importing_a_submodule_keeps_the_package_name_live(tmp_path):
+    repo = _repo(
+        tmp_path, init="", readme="```python\nimport mypkg.sub\nmypkg.gone\n```"
+    )
+    (tmp_path / "src" / "mypkg" / "sub.py").write_text("")
+    assert not ExamplesCheck(repo).run().passed
+
+
+def test_a_windows_style_venv_is_found(tmp_path):
+    import sys
+
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme="```python\n>>> 1 + 1\n3\n```\n",
+        pyproject='[project]\nname = "mypkg"\n\n[tool.preen]\nrun_doctests = true\n',
+    )
+    scripts = tmp_path / ".venv" / "Scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "python.exe").symlink_to(sys.executable)
+    result = ExamplesCheck(repo).run()
+    assert not result.passed
+    assert "no longer reproduces" in result.issues[0].description

@@ -117,3 +117,22 @@ def test_an_exclusive_bound_below_the_standard_is_flagged(tmp_path):
     result = PythonFloorCheck(_repo(tmp_path, ">3.10")).run()
     assert not result.passed
     assert ">3.10" in result.issues[0].description
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        ("==3.11.9", (3, 11)),
+        (">=3.11.4,<3.11.10", (3, 11)),
+        (">3.11.4,<3.11.10", (3, 11)),
+        ("==3.11.*", (3, 11)),
+        (">=3.11,!=3.11.0", (3, 11)),
+    ],
+)
+def test_patch_level_bounds_still_place_the_floor(tmp_path, spec, expected):
+    # A specifier can only carve at the versions it names, so those (and the
+    # patch after each, for an exclusive bound) are probed alongside X.Y.
+    (tmp_path / "pyproject.toml").write_text(
+        f'[project]\nname = "x"\nrequires-python = "{spec}"\n'
+    )
+    assert declared_floor(tmp_path / "pyproject.toml") == expected

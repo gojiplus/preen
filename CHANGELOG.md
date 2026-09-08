@@ -37,20 +37,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Eleven defects found by two independent reviews of this release, ten of
-  them in the two new checks before they reached anyone. `examples` no longer
-  reports `from pkg import submodule` as a missing symbol, follows a relative
-  `from .api import *` in `__init__`, and treats an unresolvable star import
-  as "exports unknown" rather than "exports empty". It sees names bound by
-  tuple unpacking, comprehensions and local imports, in both the package and
-  the example. With doctests on, a closing fence right after expected output
-  no longer counts as more output, a relative project path resolves before
-  the subprocess changes directory, examples run even when there is no single
-  package to compare against statically, and a hanging example is reported
-  rather than aborting the whole run. `python-floor` reads the whole
-  specifier with `packaging`, so `>3.10` and `~=3.11` are flagged and
-  `>=3.10,>=3.12` is not. `preen fix pytest-config` handles the inline form
-  `pytest = {ini_options = {...}}` again.
+- Eighteen defects found by two rounds of independent review of this
+  release, all but one in the two new checks, before they reached anyone.
+  `examples` no longer reports `from pkg import submodule` as a missing
+  symbol, follows a relative `from .api import *` in `__init__`, and treats
+  an unresolvable star import, a cycle of star imports, or a module-level
+  `__getattr__` as "exports unknown" rather than "exports empty". It sees
+  names bound by tuple unpacking, comprehensions and imports, in both the
+  package and the example, including an alias rebound to a submodule. With
+  doctests on, a closing fence right after expected output no longer counts
+  as more output, a relative project path resolves before the subprocess
+  changes directory, a `Scripts\python.exe` venv is found, examples run even
+  when there is no single package to compare against statically, and a
+  hanging example is reported rather than aborting the whole run.
+  `python-floor` reads the whole specifier with `packaging`, so `>3.10`,
+  `~=3.11` and `==3.11.9` are flagged and `>=3.10,>=3.12` is not. Both
+  checks read files as UTF-8 explicitly. `preen fix pytest-config` handles
+  the inline form `pytest = {ini_options = {...}}` again.
 
 - `dropped-args` honors a `# preen: allow-dropped-arg` marker that opens a
   multi-line comment. It used to look only at the call's own lines and the
