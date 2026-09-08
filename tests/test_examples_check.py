@@ -558,3 +558,33 @@ def test_a_star_import_keeps_an_underscore_name_that_all_exports(tmp_path):
     names = exported_symbols(pkg / "__init__.py") or set()
     assert "_public" in names
     assert "_private" not in names
+
+
+def test_exports_inside_a_module_level_with_count(tmp_path):
+    init = tmp_path / "__init__.py"
+    init.write_text(
+        "from contextlib import suppress\n"
+        "with suppress(ImportError):\n"
+        "    from math import sqrt\n"
+    )
+    assert {"sqrt"} <= (exported_symbols(init) or set())
+
+
+def test_a_namespace_subpackage_is_an_importable_child(tmp_path):
+    repo = _repo(tmp_path, init="", readme="```python\nfrom mypkg import plugins\n```")
+    (tmp_path / "src" / "mypkg" / "plugins").mkdir()
+    (tmp_path / "src" / "mypkg" / "plugins" / "a.py").write_text("")
+    assert ExamplesCheck(repo).run().passed
+
+
+@pytest.mark.parametrize(
+    "block",
+    ["f = lambda *mypkg: mypkg.count(1)\n", "f = lambda **mypkg: mypkg.get('o')\n"],
+)
+def test_variadic_lambda_parameters_shadow_the_package(block):
+    assert referenced_symbols(f"```python\n{block}```", "mypkg") == set()
+
+
+def test_a_type_alias_in_an_example_shadows_the_package():
+    text = "```python\nimport mypkg\ntype mypkg = list[str]\nmypkg.x\n```"
+    assert referenced_symbols(text, "mypkg") == set()

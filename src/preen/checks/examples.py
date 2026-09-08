@@ -145,6 +145,8 @@ def _locally_bound(tree: ast.AST, package: str) -> set[str]:
             ),
         ):
             bound.update(_target_names(node.target))
+        elif isinstance(node, ast.TypeAlias):
+            bound.update(_target_names(node.name))
         elif isinstance(node, (ast.With, ast.AsyncWith)):
             for item in node.items:
                 if item.optional_vars is not None:
@@ -154,6 +156,10 @@ def _locally_bound(tree: ast.AST, package: str) -> set[str]:
             bound.update(
                 a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)
             )
+            if args.vararg:
+                bound.add(args.vararg.arg)
+            if args.kwarg:
+                bound.add(args.kwarg.arg)
         elif (
             isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar))
             and node.name
@@ -330,6 +336,10 @@ def _defined_names(
             elif isinstance(node, ast.If):
                 collect(node.body)
                 collect(node.orelse)
+            elif isinstance(node, (ast.With, ast.AsyncWith)):
+                # `with suppress(ImportError): from x import y` is a common
+                # optional-dependency shape, and y is a module-level name.
+                collect(node.body)
 
     collect(tree.body)
     if "__getattr__" in names:
@@ -377,7 +387,9 @@ def exported_symbols(init: Path) -> set[str] | None:
     for child in init.parent.iterdir():
         if child.suffix == ".py" and child.stem != "__init__":
             names.add(child.stem)
-        elif child.is_dir() and (child / "__init__.py").exists():
+        elif child.is_dir() and child.name.isidentifier():
+            # With or without __init__.py: a bare directory is a namespace
+            # package, and `from pkg import child` loads it.
             names.add(child.name)
     return names
 
