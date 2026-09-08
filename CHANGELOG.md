@@ -37,8 +37,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Forty defects found by eight rounds of independent review of this
+- Forty-one defects found by nine rounds of independent review of this
   release, most in the two new checks, before they reached anyone.
+  `pytest-config` recognizes pytest 9's ini spellings of strictness
+  (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
+  of them), which matters now that its findings gate.
   `examples` no longer reports `from pkg import submodule` as a missing
   symbol, follows a relative `from .api import *` in `__init__`, and treats
   an unresolvable star import, a cycle of star imports, or a module-level

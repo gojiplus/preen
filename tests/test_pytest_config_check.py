@@ -3,6 +3,8 @@
 import tomllib
 from pathlib import Path
 
+import pytest
+
 from preen.checks.base import Impact
 from preen.checks.pytest_config import PytestConfigCheck
 
@@ -335,3 +337,25 @@ def test_fix_replaces_an_ini_options_that_is_not_a_table(tmp_path: Path) -> None
     assert issue.proposed_fix is not None
     issue.proposed_fix.apply()
     assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "strict_config = true\nstrict_markers = true\nstrict_xfail = true\n",
+        "strict = true\n",
+    ],
+)
+def test_pytest_9_ini_spellings_of_strictness_count(tmp_path: Path, extra: str) -> None:
+    """pytest 9 accepts the strict flags as ini settings, and `strict` for all."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mypkg"\nversion = "0.1.0"\n\n'
+        "[tool.pytest.ini_options]\n"
+        'minversion = "9"\n'
+        'testpaths = ["tests"]\n'
+        'log_level = "INFO"\n'
+        'filterwarnings = ["error"]\n'
+        'addopts = ["-ra"]\n' + extra
+    )
+    result = PytestConfigCheck(tmp_path).run()
+    assert result.issues == []

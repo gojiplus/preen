@@ -38,6 +38,8 @@ class Setting:
         value: The value ``preen fix`` writes.
         why: What goes wrong without it.
         in_addopts: True when the setting is a flag inside ``addopts``.
+        synonyms: ini keys that, set to true, satisfy it as well. pytest 9
+            accepts the strict flags as settings, and ``strict`` for all.
     """
 
     code: str
@@ -45,6 +47,7 @@ class Setting:
     value: Any
     why: str
     in_addopts: bool = False
+    synonyms: tuple[str, ...] = ()
 
 
 SETTINGS: tuple[Setting, ...] = (
@@ -65,6 +68,7 @@ SETTINGS: tuple[Setting, ...] = (
         "xfail_strict",
         True,
         "a test that starts passing keeps reporting xfail, so the fix goes unnoticed",
+        synonyms=("strict_xfail", "strict"),
     ),
     Setting(
         "PP306",
@@ -72,6 +76,7 @@ SETTINGS: tuple[Setting, ...] = (
         None,
         "a typo in this very table is otherwise ignored rather than reported",
         in_addopts=True,
+        synonyms=("strict_config", "strict"),
     ),
     Setting(
         "PP307",
@@ -79,6 +84,7 @@ SETTINGS: tuple[Setting, ...] = (
         None,
         "a typo in a marker name otherwise selects nothing, silently",
         in_addopts=True,
+        synonyms=("strict_markers", "strict"),
     ),
     Setting(
         "PP308",
@@ -225,6 +231,7 @@ class PytestConfigCheck(Check):
                 )
             else:
                 present = setting.key in options
+            present = present or any(options.get(k) is True for k in setting.synonyms)
             if not present:
                 missing.append(setting)
         return missing
