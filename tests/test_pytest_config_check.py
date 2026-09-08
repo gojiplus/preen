@@ -393,3 +393,34 @@ def test_xfail_strict_false_is_not_configured(tmp_path: Path) -> None:
         STRICT.replace("xfail_strict = true", "xfail_strict = false")
     )
     assert _codes(PytestConfigCheck(tmp_path).run()) == ["PP305"]
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        'strict = "true"\n',
+        'strict_config = "yes"\nstrict_markers = "1"\nstrict_xfail = "on"\n',
+        "strict = true\nstrict_xfail = true\nxfail_strict = false\n",
+        "strict = true\nxfail_strict = false\nstrict_xfail = true\n",
+    ],
+)
+def test_ini_strings_and_the_canonical_alias_count(tmp_path: Path, extra: str) -> None:
+    """Verified against pytest 9.1.1: ini strings are booleans, and
+    `strict_xfail` beats `xfail_strict` in either order."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mypkg"\nversion = "0.1.0"\n\n'
+        "[tool.pytest.ini_options]\n"
+        'minversion = "9"\n'
+        'testpaths = ["tests"]\n'
+        'log_level = "INFO"\n'
+        'filterwarnings = ["error"]\n'
+        'addopts = ["-ra"]\n' + extra
+    )
+    assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_an_ini_string_false_is_off(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        STRICT.replace("xfail_strict = true", 'xfail_strict = "false"')
+    )
+    assert _codes(PytestConfigCheck(tmp_path).run()) == ["PP305"]

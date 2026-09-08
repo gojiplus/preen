@@ -100,7 +100,32 @@ def _target_names(target: ast.expr) -> set[str]:
     return set()
 
 
-def _locally_bound(tree: ast.AST, package: str) -> set[str]:
+def _own_scope(tree: ast.AST) -> list[ast.AST]:
+    """Every node of a block that is not inside a nested scope.
+
+    A def, class or lambda is yielded, so its name counts as bound, but its
+    body is not entered: a parameter named like the package shadows it
+    inside that function only.
+
+    Args:
+        tree: A parsed code block.
+
+    Returns:
+        The nodes, in traversal order.
+    """
+    out: list[ast.AST] = []
+    pending: list[ast.AST] = [tree]
+    while pending:
+        node = pending.pop()
+        out.append(node)
+        if not isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+        ):
+            pending.extend(ast.iter_child_nodes(node))
+    return out
+
+
+def _locally_bound(tree: ast.AST, package: str, *, whole: bool = True) -> set[str]:
     """Names a block binds itself, which therefore are not the package.
 
     layoutlens documents a pytest fixture called ``layoutlens``, so every
@@ -112,17 +137,21 @@ def _locally_bound(tree: ast.AST, package: str) -> set[str]:
         tree: A parsed code block.
         package: The importable package name, so importing it does not count
             as shadowing it.
+        whole: Look inside nested functions too, which is right within a
+            block; pass False for what the block leaves bound at its top level.
 
     Returns:
         Every name bound as a parameter, assignment, loop, with or
         comprehension target, or by importing something other than the package.
     """
     bound: set[str] = set()
-    for node in ast.walk(tree):
+    for node in ast.walk(tree) if whole else _own_scope(tree):
         if isinstance(node, ast.ClassDef):
             bound.add(node.name)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             bound.add(node.name)
+            if not whole:
+                continue  # its parameters live inside it
             args = node.args
             bound.update(
                 a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)
@@ -151,7 +180,7 @@ def _locally_bound(tree: ast.AST, package: str) -> set[str]:
             for item in node.items:
                 if item.optional_vars is not None:
                     bound.update(_target_names(item.optional_vars))
-        elif isinstance(node, ast.Lambda):
+        elif isinstance(node, ast.Lambda) and whole:
             args = node.args
             bound.update(
                 a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)
@@ -227,6 +256,9 @@ def referenced_symbols(text: str, package: str) -> set[str]:
             if a.name != "*" and not a.name.startswith("__")
         )
         live = (aliases | imported) - _locally_bound(tree, package)
+        # What carries to the next block is only what this one rebinds at
+        # top level. A fixture parameter shadows inside its function alone.
+        carried = (aliases | imported) - _locally_bound(tree, package, whole=False)
         # `mypkg.callback = ...` creates the attribute rather than reaching
         # for it, and a later `mypkg.callback()` then finds what it made.
         for node in ast.walk(tree):
@@ -237,7 +269,7 @@ def referenced_symbols(text: str, package: str) -> set[str]:
                 and not node.attr.startswith("__")
             ):
                 (created if isinstance(node.ctx, ast.Store) else found).add(node.attr)
-        aliases = live
+        aliases = carried
     return found - created
 
 
@@ -367,6 +399,17 @@ def _defined_names(
                     names.update(declared)
             elif isinstance(node, ast.AnnAssign):
                 names.update(_target_names(node.target))
+                if (
+                    isinstance(node.target, ast.Name)
+                    and node.target.id == "__all__"
+                    and isinstance(node.value, (ast.List, ast.Tuple))
+                ):
+                    declared.update(
+                        e.value
+                        for e in node.value.elts
+                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                    )
+                    names.update(declared)
             elif isinstance(node, ast.TypeAlias):
                 names.update(_target_names(node.name))
             # Every compound statement's suites are still module level:

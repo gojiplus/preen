@@ -122,6 +122,45 @@ def _index(trees: dict[Path, ast.Module]) -> dict[str, FuncDef]:
     return found
 
 
+def _calls_with_statement_lines(
+    func: FuncDef,
+) -> list[tuple[ast.Call, range]]:
+    """Pair each call in a function with the lines of its own statement.
+
+    A marker anywhere on a simple statement covers the calls in it, so a
+    wrapped call whose marker sits on the first line is still heard. For a
+    compound statement only the header lines count, or a marker on ``if``
+    would silence its whole body.
+
+    Args:
+        func: The function to walk.
+
+    Returns:
+        ``(call, lines)`` pairs, in source order.
+    """
+    found: list[tuple[ast.Call, range]] = []
+
+    def visit(node: ast.AST, lines: range) -> None:
+        """Descend, narrowing the lines to the innermost statement.
+
+        Args:
+            node: The node to visit.
+            lines: The lines of the statement enclosing it so far.
+        """
+        if isinstance(node, ast.stmt):
+            body = getattr(node, "body", None)
+            last = body[0].lineno - 1 if body else (node.end_lineno or node.lineno)
+            lines = range(node.lineno, last + 1)
+        if isinstance(node, ast.Call):
+            found.append((node, lines))
+        for child in ast.iter_child_nodes(node):
+            visit(child, lines)
+
+    for statement in func.body:
+        visit(statement, range(statement.lineno, statement.lineno + 1))
+    return found
+
+
 def find_dropped(
     trees: dict[Path, ast.Module], allowed: dict[Path, set[int]]
 ) -> list[tuple[Path, int, str, str, str]]:
@@ -146,9 +185,7 @@ def find_dropped(
             if not caller_params:
                 continue
 
-            for call in ast.walk(caller):
-                if not isinstance(call, ast.Call):
-                    continue
+            for call, lines in _calls_with_statement_lines(caller):
                 if not isinstance(call.func, ast.Name):
                     continue
                 callee = known.get(call.func.id)
@@ -156,8 +193,7 @@ def find_dropped(
                     continue
                 if any(kw.arg is None for kw in call.keywords):
                     continue  # `**kwargs` forwards everything; nothing dropped
-                span = range(call.lineno, (call.end_lineno or call.lineno) + 1)
-                if skip & set(span):
+                if skip & set(lines):
                     continue
 
                 supplied = {kw.arg for kw in call.keywords if kw.arg}

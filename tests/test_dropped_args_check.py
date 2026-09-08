@@ -297,3 +297,43 @@ def outer(x, level=0.95):
     )
 
     assert len(found) == 1
+
+
+def test_a_marker_on_the_first_line_of_a_statement_covers_the_call(
+    tmp_path: Path,
+) -> None:
+    """The call starts a line below the marker, but it is the same statement."""
+    found = _run(
+        tmp_path,
+        mod="""
+def inner(x, level=0.95):
+    return x * level
+
+
+def outer(x, level=0.95):
+    result = (  # preen: allow-dropped-arg
+        inner(x)
+    )
+    return result
+""",
+    )
+
+    assert found == []
+
+
+def test_a_marker_on_a_compound_header_does_not_cover_its_body(tmp_path: Path) -> None:
+    found = _run(
+        tmp_path,
+        mod="""
+def inner(x, level=0.95):
+    return x * level
+
+
+def outer(x, level=0.95):
+    if x:  # preen: allow-dropped-arg
+        return inner(x)
+    return 0
+""",
+    )
+
+    assert len(found) == 1

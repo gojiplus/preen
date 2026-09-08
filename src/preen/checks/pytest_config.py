@@ -157,6 +157,26 @@ def _split_trailing(table: Table) -> tuple[Table, list[Comment | Whitespace]]:
     return copy, trailing
 
 
+def _as_bool(value: object) -> bool | None:
+    """Read a boolean the way pytest reads an ini value.
+
+    Args:
+        value: A TOML boolean, or a string such as ``"true"`` or ``"no"``.
+
+    Returns:
+        The boolean, or None when it is neither.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "yes", "on", "1"}:
+            return True
+        if lowered in {"false", "no", "off", "0"}:
+            return False
+    return None
+
+
 class PytestConfigCheck(Check):
     """Check that pytest is configured to fail on what it should fail on."""
 
@@ -229,10 +249,12 @@ class PytestConfigCheck(Check):
     ) -> bool:
         """Whether a setting is configured, by its own key or a synonym.
 
-        A specific setting written as ``false`` is the opposite of configured,
-        and it beats the blanket ``strict``: pytest 9.1.1 with ``strict =
-        true`` errors on an unregistered marker, and adding ``strict_markers =
-        false`` lets it pass.
+        Precedence follows pytest 9.1.1, checked by running it: a flag in
+        ``addopts``, then the canonical setting (``strict_xfail`` over its
+        alias ``xfail_strict``, in either order), then the blanket ``strict``.
+        A specific setting written as ``false`` is the opposite of configured
+        and beats ``strict``. In ``[tool.pytest.ini_options]`` a boolean may
+        be spelled as a string, ``"true"`` or ``"yes"``, as in an ini file.
 
         Args:
             setting: The setting to look for.
@@ -242,20 +264,18 @@ class PytestConfigCheck(Check):
         Returns:
             True when the repo has it on.
         """
-        if setting.in_addopts:
-            # -ra, -rA and -rfE all satisfy PP308's "print a summary".
-            if any(
-                flag == setting.key or (setting.key == "-ra" and flag.startswith("-r"))
-                for flag in addopts
-            ):
-                return True
-        elif setting.key in options:
-            return options[setting.key] is not False
-        specific = [k for k in setting.synonyms if k != "strict"]
-        for key in specific:
+        # -ra, -rA and -rfE all satisfy PP308's "print a summary".
+        if setting.in_addopts and any(
+            flag == setting.key or (setting.key == "-ra" and flag.startswith("-r"))
+            for flag in addopts
+        ):
+            return True
+        for key in (k for k in setting.synonyms if k != "strict"):
             if key in options:
-                return options[key] is True
-        return "strict" in setting.synonyms and options.get("strict") is True
+                return _as_bool(options[key]) is True
+        if not setting.in_addopts and setting.key in options:
+            return _as_bool(options[setting.key]) is not False
+        return "strict" in setting.synonyms and _as_bool(options.get("strict")) is True
 
     def _minversion_issue(self, options: dict[str, Any], native: bool) -> list[Issue]:
         """Check PP302: a declared minimum pytest.

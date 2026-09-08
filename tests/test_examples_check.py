@@ -647,3 +647,33 @@ def test_a_walrus_inside_a_function_is_not_an_export(tmp_path):
     init = tmp_path / "__init__.py"
     init.write_text("def f():\n    return (value := 1)\n")
     assert "value" not in (exported_symbols(init) or set())
+
+
+def test_a_parameter_in_one_block_does_not_retire_the_package_for_the_next(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="def real(): ...\n",
+        readme="""
+            ```python
+            def test_fixture(mypkg):
+                mypkg.assert_ok()
+            ```
+            ```python
+            mypkg.does_not_exist()
+            ```
+        """,
+    )
+    issues = _errors(ExamplesCheck(repo).run())
+    assert [i.description for i in issues] == [
+        "README.md shows `mypkg.does_not_exist`, which the package does not define"
+    ]
+
+
+def test_an_annotated_all_declares_star_exports(tmp_path):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("from .api import *\n")
+    (pkg / "api.py").write_text(
+        "__all__: list[str] = ['_public']\ndef _public(): ...\n"
+    )
+    assert "_public" in (exported_symbols(pkg / "__init__.py") or set())
