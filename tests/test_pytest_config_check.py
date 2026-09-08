@@ -424,3 +424,23 @@ def test_an_ini_string_false_is_off(tmp_path: Path) -> None:
         STRICT.replace("xfail_strict = true", 'xfail_strict = "false"')
     )
     assert _codes(PytestConfigCheck(tmp_path).run()) == ["PP305"]
+
+
+def test_fix_turns_on_the_canonical_xfail_setting_too(tmp_path: Path) -> None:
+    """`strict_xfail = false` beats `xfail_strict = true`, so the fix must
+    flip the canonical key or the finding never clears."""
+    (tmp_path / "pyproject.toml").write_text(
+        STRICT.replace("xfail_strict = true", "strict_xfail = false")
+    )
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+    assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_a_numeric_log_level_string_is_configured(tmp_path: Path) -> None:
+    # pytest accepts `log_level = "0"`; it is not a boolean.
+    (tmp_path / "pyproject.toml").write_text(
+        STRICT.replace('log_level = "INFO"', 'log_level = "0"')
+    )
+    assert PytestConfigCheck(tmp_path).run().issues == []

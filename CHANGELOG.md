@@ -37,14 +37,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Forty-seven defects found by eleven rounds of independent review of this
+- Fifty-three defects found by twelve rounds of independent review of this
   release, most in the two new checks, before they reached anyone.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
   of them), which matters now that its findings gate; precedence follows
   pytest, checked by running it: the canonical `strict_xfail` beats its
   alias, a specific setting written as `false` is off whatever `strict`
-  says, and an ini string such as `"true"` is a boolean.
+  says, an ini string such as `"true"` is a boolean while `log_level = "0"`
+  is a level, and the fix flips a canonical `strict_xfail = false` it finds
+  rather than writing an alias it would then lose to.
   `examples` no longer reports `from pkg import submodule` as a missing
   symbol, follows a relative `from .api import *` in `__init__`, and treats
   an unresolvable star import, a cycle of star imports, or a module-level
@@ -73,8 +75,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and dotted keys under `[tool]` again, rebuilding the table only when it
   ends in a comment or blank line, and writes a real table over an
   `ini_options` that is not one. And a `# preen: allow-dropped-arg` trailing
-  a code line covers that line only, not the one beneath it, while a
-  marker anywhere on a wrapped statement still reaches the call inside it.
+  a code line covers that line only, not the one beneath it, a marker
+  anywhere on a wrapped statement still reaches the call inside it, and a
+  call in an `if`, `match` or `except` header is covered by its own line.
   A fixture parameter named like the package shadows it inside that
   function alone, not for the rest of the document. Finally, a
   comment at any indent inside a workflow's `with:` block no longer ends

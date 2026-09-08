@@ -337,3 +337,46 @@ def outer(x, level=0.95):
     )
 
     assert len(found) == 1
+
+
+INNER = """
+def inner(x, level=0.95):
+    return x * level
+"""
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        # A comment marker inside the body covers the return, not the header.
+        (
+            "    if inner(x):\n"
+            "        # preen: allow-dropped-arg\n"
+            "        return inner(x)\n"
+            "    return 0\n",
+            1,
+        ),
+        # A one-line compound statement: the marker covers the call on it.
+        ("    if inner(x): pass  # preen: allow-dropped-arg\n    return 0\n", 0),
+        # match has cases, not a body; a marker on its subject line covers it.
+        (
+            "    match inner(x):  # preen: allow-dropped-arg\n"
+            "        case _:\n"
+            "            return inner(x)\n",
+            1,
+        ),
+        # An except header is not a statement; its own marker still counts.
+        (
+            "    try:\n"
+            "        return 0\n"
+            "    except inner(x):  # preen: allow-dropped-arg\n"
+            "        return 1\n",
+            0,
+        ),
+    ],
+)
+def test_calls_in_compound_headers_are_covered_only_by_their_own_lines(
+    tmp_path: Path, body: str, expected: int
+) -> None:
+    found = _run(tmp_path, mod=INNER + "\n\ndef outer(x, level=0.95):\n" + body)
+    assert len(found) == expected

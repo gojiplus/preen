@@ -125,12 +125,13 @@ def _index(trees: dict[Path, ast.Module]) -> dict[str, FuncDef]:
 def _calls_with_statement_lines(
     func: FuncDef,
 ) -> list[tuple[ast.Call, range]]:
-    """Pair each call in a function with the lines of its own statement.
+    """Pair each call in a function with the lines a marker must sit on.
 
     A marker anywhere on a simple statement covers the calls in it, so a
-    wrapped call whose marker sits on the first line is still heard. For a
-    compound statement only the header lines count, or a marker on ``if``
-    would silence its whole body.
+    wrapped call whose marker sits on the first line is still heard. A call
+    in a compound statement's header (``if inner(x):``, ``match inner(x):``,
+    ``except inner(x):``) is covered by its own lines only, or a marker on
+    ``if`` would silence its whole body.
 
     Args:
         func: The function to walk.
@@ -140,24 +141,29 @@ def _calls_with_statement_lines(
     """
     found: list[tuple[ast.Call, range]] = []
 
-    def visit(node: ast.AST, lines: range) -> None:
-        """Descend, narrowing the lines to the innermost statement.
+    def visit(node: ast.AST, lines: range | None) -> None:
+        """Descend, tracking the innermost simple statement's lines.
 
         Args:
             node: The node to visit.
-            lines: The lines of the statement enclosing it so far.
+            lines: The lines of the enclosing simple statement, or None
+                inside a compound statement's header.
         """
         if isinstance(node, ast.stmt):
-            body = getattr(node, "body", None)
-            last = body[0].lineno - 1 if body else (node.end_lineno or node.lineno)
-            lines = range(node.lineno, last + 1)
+            compound = hasattr(node, "body") or isinstance(node, ast.Match)
+            lines = (
+                None
+                if compound
+                else range(node.lineno, (node.end_lineno or node.lineno) + 1)
+            )
         if isinstance(node, ast.Call):
-            found.append((node, lines))
+            own = range(node.lineno, (node.end_lineno or node.lineno) + 1)
+            found.append((node, lines if lines is not None else own))
         for child in ast.iter_child_nodes(node):
             visit(child, lines)
 
     for statement in func.body:
-        visit(statement, range(statement.lineno, statement.lineno + 1))
+        visit(statement, None)
     return found
 
 

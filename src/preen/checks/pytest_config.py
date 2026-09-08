@@ -274,7 +274,11 @@ class PytestConfigCheck(Check):
             if key in options:
                 return _as_bool(options[key]) is True
         if not setting.in_addopts and setting.key in options:
-            return _as_bool(options[setting.key]) is not False
+            # Only a boolean setting can be written as "off"; log_level = "0"
+            # is a logging level, not a false.
+            if isinstance(setting.value, bool):
+                return _as_bool(options[setting.key]) is not False
+            return True
         return "strict" in setting.synonyms and _as_bool(options.get("strict")) is True
 
     def _minversion_issue(self, options: dict[str, Any], native: bool) -> list[Issue]:
@@ -422,6 +426,11 @@ class PytestConfigCheck(Check):
                 options["minversion"] = str(self.MIN_VERSIONS[False])
             for setting in wanted:
                 options[setting.key] = setting.value
+                # A canonical spelling already present would beat the key
+                # just written (strict_xfail over xfail_strict), so flip it.
+                for synonym in setting.synonyms:
+                    if synonym != "strict" and synonym in options:
+                        options[synonym] = True
             if flags:
                 existing = options.get("addopts")
                 if isinstance(existing, str):
