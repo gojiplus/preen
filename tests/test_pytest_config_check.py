@@ -444,3 +444,17 @@ def test_a_numeric_log_level_string_is_configured(tmp_path: Path) -> None:
         STRICT.replace('log_level = "INFO"', 'log_level = "0"')
     )
     assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_the_strict_flag_in_addopts_enables_everything(tmp_path: Path) -> None:
+    """pytest 9's `--strict` flag enables the strict option, as the ini does."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mypkg"\nversion = "0.1.0"\n\n'
+        "[tool.pytest.ini_options]\n"
+        'minversion = "9"\n'
+        'testpaths = ["tests"]\n'
+        'log_level = "INFO"\n'
+        'filterwarnings = ["error"]\n'
+        'addopts = ["--strict", "-ra"]\n'
+    )
+    assert PytestConfigCheck(tmp_path).run().issues == []

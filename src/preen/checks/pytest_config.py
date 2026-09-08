@@ -279,7 +279,9 @@ class PytestConfigCheck(Check):
             if isinstance(setting.value, bool):
                 return _as_bool(options[setting.key]) is not False
             return True
-        return "strict" in setting.synonyms and _as_bool(options.get("strict")) is True
+        # pytest 9's `--strict` flag enables the strict option, as the ini does.
+        blanket = _as_bool(options.get("strict")) is True or "--strict" in addopts
+        return "strict" in setting.synonyms and blanket
 
     def _minversion_issue(self, options: dict[str, Any], native: bool) -> list[Issue]:
         """Check PP302: a declared minimum pytest.

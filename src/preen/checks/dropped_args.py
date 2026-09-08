@@ -162,8 +162,10 @@ def _calls_with_statement_lines(
         for child in ast.iter_child_nodes(node):
             visit(child, lines)
 
-    for statement in func.body:
-        visit(statement, None)
+    # Children, not just the body: a default value or a decorator is part of
+    # the function too, and a call there drops arguments like any other.
+    for child in ast.iter_child_nodes(func):
+        visit(child, None)
     return found
 
 

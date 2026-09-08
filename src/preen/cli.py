@@ -160,12 +160,16 @@ def check(
     important_count = 0
 
     for check_name, result in results.items():
-        if result.passed:
+        # A check may pass and still have something to say: a skip notice
+        # is informational, never gating, but it has to reach the terminal.
+        if result.passed and not result.issues:
             status = "[green]passed[/green]"
             issue_text = ""
             impact_text = ""
         else:
-            if result.has_errors:
+            if result.passed:
+                status = "[green]passed[/green]"
+            elif result.has_errors:
                 status = "[red]failed[/red]"
                 has_errors = True
             else:
@@ -203,7 +207,7 @@ def check(
             console.print(f"  {important_count} important (can override)")
 
         for check_name, result in results.items():
-            if not result.passed:
+            if result.issues:
                 if explain:
                     educator.explain_check(check_name, result.issues)
                 else:

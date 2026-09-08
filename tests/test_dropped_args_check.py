@@ -380,3 +380,22 @@ def test_calls_in_compound_headers_are_covered_only_by_their_own_lines(
 ) -> None:
     found = _run(tmp_path, mod=INNER + "\n\ndef outer(x, level=0.95):\n" + body)
     assert len(found) == expected
+
+
+def test_calls_in_defaults_and_decorators_are_still_seen(tmp_path: Path) -> None:
+    """The function's signature is part of the function, not just its body."""
+    found = _run(
+        tmp_path,
+        mod=INNER
+        + """
+
+def deco(value):
+    return lambda f: f
+
+
+@deco(inner(1))
+def outer(x, level=0.95, y=inner(2)):
+    return x
+""",
+    )
+    assert len(found) == 2

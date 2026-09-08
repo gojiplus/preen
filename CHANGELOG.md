@@ -37,7 +37,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Fifty-three defects found by twelve rounds of independent review of this
+- Fifty-six defects found by thirteen rounds of independent review of this
   release, most in the two new checks, before they reached anyone.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
@@ -46,7 +46,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   alias, a specific setting written as `false` is off whatever `strict`
   says, an ini string such as `"true"` is a boolean while `log_level = "0"`
   is a level, and the fix flips a canonical `strict_xfail = false` it finds
-  rather than writing an alias it would then lose to.
+  rather than writing an alias it would then lose to, and `--strict` in
+  `addopts` enables everything as pytest 9 says it does.
   `examples` no longer reports `from pkg import submodule` as a missing
   symbol, follows a relative `from .api import *` in `__init__`, and treats
   an unresolvable star import, a cycle of star imports, or a module-level
@@ -77,7 +78,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ini_options` that is not one. And a `# preen: allow-dropped-arg` trailing
   a code line covers that line only, not the one beneath it, a marker
   anywhere on a wrapped statement still reaches the call inside it, and a
-  call in an `if`, `match` or `except` header is covered by its own line.
+  call in an `if`, `match` or `except` header is covered by its own line,
+  while a call in a decorator or default value is still seen. And `preen
+  check` prints an informational notice on a check that passes, such as
+  "doctest examples not executed", instead of hiding it behind "passed".
   A fixture parameter named like the package shadows it inside that
   function alone, not for the rest of the document. Finally, a
   comment at any indent inside a workflow's `with:` block no longer ends
