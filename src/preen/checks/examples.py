@@ -34,6 +34,7 @@ import subprocess
 import tempfile
 import textwrap
 import time
+from collections.abc import Iterable
 from pathlib import Path
 
 from .base import Check, CheckResult, Impact, Issue, Severity
@@ -260,24 +261,27 @@ def referenced_symbols(text: str, package: str) -> set[str]:
     # `from mypkg import client as mp` retires `mp` until it is imported again.
     aliases = {package}
     for tree in trees:
-        imported = {
-            a.asname or a.name
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Import)
-            for a in node.names
-            if a.name == package
-        }
-        found.update(
-            a.name
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom) and node.module == package
-            for a in node.names
-            if a.name != "*" and not a.name.startswith("__")
-        )
+        # `import mypkg`, `import mypkg as mp` and `import mypkg.sub` all bind
+        # a name to the package. An import inside a helper function binds it
+        # there alone, so only a top-level one carries to later blocks.
+        imported = _package_aliases(ast.walk(tree), package)
+        imported_top = _package_aliases(_own_scope(tree), package)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or not node.module:
+                continue
+            if node.module == package:
+                found.update(
+                    a.name
+                    for a in node.names
+                    if a.name != "*" and not a.name.startswith("__")
+                )
+            elif node.module.startswith(package + "."):
+                # `from mypkg.sub import x` reaches for `mypkg.sub` at least.
+                found.add(node.module.split(".")[1])
         live = (aliases | imported) - _locally_bound(tree, package)
         # What carries to the next block is only what this one rebinds at
         # top level. A fixture parameter shadows inside its function alone.
-        carried = (aliases | imported) - _locally_bound(tree, package, whole=False)
+        carried = (aliases | imported_top) - _locally_bound(tree, package, whole=False)
         # `mypkg.callback = ...` creates the attribute rather than reaching
         # for it, and a later `mypkg.callback()` then finds what it made.
         for node in ast.walk(tree):
@@ -290,6 +294,29 @@ def referenced_symbols(text: str, package: str) -> set[str]:
                 (created if isinstance(node.ctx, ast.Store) else found).add(node.attr)
         aliases = carried
     return found - created
+
+
+def _package_aliases(nodes: Iterable[ast.AST], package: str) -> set[str]:
+    """Names that ``import`` statements among some nodes bind to the package.
+
+    Args:
+        nodes: The nodes to look through.
+        package: The importable package name.
+
+    Returns:
+        The bound names: ``mypkg`` for ``import mypkg`` or ``import
+        mypkg.sub``, ``mp`` for ``import mypkg as mp``.
+    """
+    names: set[str] = set()
+    for node in nodes:
+        if not isinstance(node, ast.Import):
+            continue
+        for a in node.names:
+            if a.name == package:
+                names.add(a.asname or a.name)
+            elif a.asname is None and a.name.split(".")[0] == package:
+                names.add(package)
+    return names
 
 
 def _pattern_names(pattern: ast.pattern) -> set[str]:

@@ -718,3 +718,54 @@ def test_a_vendored_readme_under_docs_is_not_the_repo_s_documentation(tmp_path):
     vendored.mkdir(parents=True)
     (vendored / "README.md").write_text("```python\nimport mypkg\nmypkg.gone()\n```")
     assert ExamplesCheck(repo).run().passed
+
+
+def test_importing_a_submodule_revives_the_package_name(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme="""
+            ```python
+            mypkg = 1
+            ```
+            ```python
+            import mypkg.cli
+            mypkg.gone
+            ```
+        """,
+    )
+    (tmp_path / "src" / "mypkg" / "cli.py").write_text("")
+    assert not ExamplesCheck(repo).run().passed
+
+
+def test_a_from_import_of_a_missing_submodule_is_reported(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme="```python\nfrom mypkg.does_not_exist import anything\n```",
+    )
+    assert [i.description for i in _errors(ExamplesCheck(repo).run())] == [
+        "README.md shows `mypkg.does_not_exist`, which the package does not define"
+    ]
+
+
+def test_a_function_local_import_does_not_leak_into_later_blocks(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme="""
+            ```python
+            from mypkg import client as mp
+            ```
+            ```python
+            def helper():
+                import mypkg as mp
+                return mp
+            ```
+            ```python
+            mp.request()
+            ```
+        """,
+    )
+    (tmp_path / "src" / "mypkg" / "client.py").write_text("def request(): ...\n")
+    assert ExamplesCheck(repo).run().passed
