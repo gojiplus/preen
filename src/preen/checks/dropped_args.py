@@ -122,6 +122,33 @@ def _index(trees: dict[Path, ast.Module]) -> dict[str, FuncDef]:
     return found
 
 
+def _owns_block(node: ast.AST) -> bool:
+    """Whether a node has a header and then a suite of statements.
+
+    Args:
+        node: Any node.
+
+    Returns:
+        True for a compound statement, an except handler or a match case.
+    """
+    return isinstance(node, ast.Match) or isinstance(getattr(node, "body", None), list)
+
+
+def _start_line(node: ast.AST) -> int:
+    """First line of a node, taken from its children when it has none.
+
+    Args:
+        node: Any node; a ``match_case`` carries no position of its own.
+
+    Returns:
+        The 1-based line.
+    """
+    own = getattr(node, "lineno", None)
+    if own is not None:
+        return own
+    return min((_start_line(c) for c in ast.iter_child_nodes(node)), default=0)
+
+
 def _calls_with_statement_lines(
     func: FuncDef,
 ) -> list[tuple[ast.Call, range]]:
@@ -130,8 +157,8 @@ def _calls_with_statement_lines(
     A marker anywhere on a simple statement covers the calls in it, so a
     wrapped call whose marker sits on the first line is still heard. A call
     in a compound statement's header (``if inner(x):``, ``match inner(x):``,
-    ``except inner(x):``) is covered by its own lines only, or a marker on
-    ``if`` would silence its whole body.
+    ``except inner(x):``) is covered by the header's lines, which may wrap,
+    and never by its body's, or a marker on ``if`` would silence the body.
 
     Args:
         func: The function to walk.
@@ -141,21 +168,38 @@ def _calls_with_statement_lines(
     """
     found: list[tuple[ast.Call, range]] = []
 
+    def header_end(node: ast.AST) -> int:
+        """Last line of a block owner's header, before its body starts.
+
+        Args:
+            node: A compound statement, except handler or match case.
+
+        Returns:
+            The end line of whatever precedes the body: a condition, an
+            iterable, a subject, a pattern, decorators and parameters.
+        """
+        end = _start_line(node)
+        pending = [c for c in ast.iter_child_nodes(node) if not _owns_block(c)]
+        while pending:
+            child = pending.pop()
+            if isinstance(child, ast.stmt):
+                continue
+            end = max(end, getattr(child, "end_lineno", None) or end)
+            pending.extend(c for c in ast.iter_child_nodes(child) if not _owns_block(c))
+        return end
+
     def visit(node: ast.AST, lines: range | None) -> None:
-        """Descend, tracking the innermost simple statement's lines.
+        """Descend, tracking the lines a marker may sit on for this node.
 
         Args:
             node: The node to visit.
-            lines: The lines of the enclosing simple statement, or None
-                inside a compound statement's header.
+            lines: The enclosing simple statement's lines, or a block
+                owner's header lines.
         """
-        if isinstance(node, ast.stmt):
-            compound = hasattr(node, "body") or isinstance(node, ast.Match)
-            lines = (
-                None
-                if compound
-                else range(node.lineno, (node.end_lineno or node.lineno) + 1)
-            )
+        if _owns_block(node):
+            lines = range(_start_line(node), header_end(node) + 1)
+        elif isinstance(node, ast.stmt):
+            lines = range(node.lineno, (node.end_lineno or node.lineno) + 1)
         if isinstance(node, ast.Call):
             own = range(node.lineno, (node.end_lineno or node.lineno) + 1)
             found.append((node, lines if lines is not None else own))

@@ -61,7 +61,13 @@ def _documented_files(project_dir: Path) -> list[Path]:
     found = [p for p in (project_dir / "README.md",) if p.exists()]
     docs = project_dir / "docs"
     if docs.is_dir():
-        found.extend(sorted(p for p in docs.rglob("*.md") if "_build" not in p.parts))
+        found.extend(
+            sorted(
+                p
+                for p in docs.rglob("*.md")
+                if "_build" not in p.relative_to(docs).parts
+            )
+        )
     return found
 
 

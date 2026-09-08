@@ -399,3 +399,21 @@ def outer(x, level=0.95, y=inner(2)):
 """,
     )
     assert len(found) == 2
+
+
+def test_a_marker_on_a_wrapped_header_covers_the_call_in_it(tmp_path: Path) -> None:
+    """The header of a compound statement may wrap; its marker still counts."""
+    found = _run(
+        tmp_path,
+        mod=INNER
+        + """
+
+def outer(x, level=0.95):
+    if (  # preen: allow-dropped-arg
+        inner(x)
+    ):
+        return 1
+    return 0
+""",
+    )
+    assert found == []

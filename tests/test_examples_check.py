@@ -697,3 +697,15 @@ def test_a_comprehension_variable_does_not_retire_the_package(tmp_path):
     assert [i.description for i in _errors(ExamplesCheck(repo).run())] == [
         "README.md shows `mypkg.gone`, which the package does not define"
     ]
+
+
+def test_a_build_directory_above_the_repo_does_not_hide_docs(tmp_path):
+    # Only docs/**/_build is generated output; the repo's own path is not.
+    root = tmp_path / "_build" / "repo"
+    root.mkdir(parents=True)
+    repo = _repo(root, init="", readme="# nothing\n")
+    (root / "docs").mkdir()
+    (root / "docs" / "guide.md").write_text(
+        "```python\nimport mypkg\nmypkg.gone()\n```"
+    )
+    assert not ExamplesCheck(repo).run().passed

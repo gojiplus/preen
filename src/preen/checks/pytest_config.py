@@ -295,8 +295,8 @@ class PytestConfigCheck(Check):
             for flag in addopts
         ):
             return True
-        if setting.key == "--strict-markers" and "--strict" in addopts:
-            return True  # an alias in every pytest this check accepts
+        if not pytest9 and setting.key == "--strict-markers" and "--strict" in addopts:
+            return True  # on pytest 8, --strict is an alias of --strict-markers
         for key in (k for k in setting.synonyms if k != "strict") if pytest9 else ():
             if key in options:
                 return _as_bool(options[key]) is True

@@ -487,3 +487,19 @@ def test_pytest_9_spellings_need_pytest_9(
         'filterwarnings = ["error"]\n' + extra
     )
     assert _codes(PytestConfigCheck(tmp_path).run()) == codes
+
+
+def test_under_pytest_9_an_explicit_false_beats_the_strict_flag(tmp_path: Path) -> None:
+    """Verified against pytest 9.1.1: `--strict` with `strict_markers = false`
+    still lets an unregistered marker through."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mypkg"\nversion = "0.1.0"\n\n'
+        "[tool.pytest.ini_options]\n"
+        'minversion = "9"\n'
+        'testpaths = ["tests"]\n'
+        'log_level = "INFO"\n'
+        'filterwarnings = ["error"]\n'
+        'addopts = ["--strict", "-ra"]\n'
+        "strict_markers = false\n"
+    )
+    assert _codes(PytestConfigCheck(tmp_path).run()) == ["PP307"]
