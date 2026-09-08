@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import tomlkit
+from tomlkit.items import Array, Comment, Table, Whitespace
 
 from .base import Check, CheckResult, Fix, Impact, Issue, Severity
 
@@ -95,6 +96,37 @@ SETTINGS: tuple[Setting, ...] = (
         ),
     ),
 )
+
+
+def _split_trailing(table: Table) -> tuple[Table, list[Comment | Whitespace]]:
+    """Copy a table up to its last key, returning what trailed that key.
+
+    tomlkit adds a new key after everything already in a table, and that
+    includes a trailing blank line and a comment that really introduces the
+    next section (python-poetry/tomlkit#295, open). It offers no public way to
+    insert earlier, so the caller builds a fresh table: the copy, the new keys,
+    then the trailing items put back. Comments between keys stay where they
+    were.
+
+    Args:
+        table: The parsed table.
+
+    Returns:
+        The copy, and the comment and whitespace items after its last key.
+    """
+    copy = tomlkit.table()
+    trailing: list[Comment | Whitespace] = []
+    for key, item in table.value.body:
+        if key is None:
+            # Only comments and whitespace go keyless in a table body.
+            assert isinstance(item, Comment | Whitespace)  # noqa: S101
+            trailing.append(item)
+            continue
+        for decoration in trailing:
+            copy.add(decoration)
+        trailing = []
+        copy.add(key, item)
+    return copy, trailing
 
 
 class PytestConfigCheck(Check):
@@ -304,7 +336,8 @@ class PytestConfigCheck(Check):
             document = tomlkit.parse(pyproject.read_text(encoding="utf-8"))
             tool = document.setdefault("tool", tomlkit.table(is_super_table=True))
             pytest_table = tool.setdefault("pytest", tomlkit.table(is_super_table=True))
-            options = pytest_table.setdefault("ini_options", tomlkit.table())
+            current = pytest_table.setdefault("ini_options", tomlkit.table())
+            options, trailing = _split_trailing(current)
 
             if minversion:
                 options["minversion"] = str(self.MIN_VERSIONS[False])
@@ -318,9 +351,15 @@ class PytestConfigCheck(Check):
                     # gojiplus/get-weather-data, and pytest then looked for a
                     # test path called `live'`.
                     options["addopts"] = " ".join([existing.strip(), *flags])
+                elif isinstance(existing, Array):
+                    # Extending in place keeps a multi-line list multi-line.
+                    existing.extend(flags)
                 else:
-                    options["addopts"] = [*self._addopts(dict(options)), *flags]
+                    options["addopts"] = flags
 
+            for item in trailing:
+                options.add(item)
+            pytest_table["ini_options"] = options
             pyproject.write_text(tomlkit.dumps(document), encoding="utf-8")
 
         return Fix(
