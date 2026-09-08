@@ -1280,9 +1280,10 @@ def _assert_release_migratable(repo: Path) -> None:
         project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get(
             "project", {}
         )
-    except (OSError, tomllib.TOMLDecodeError):
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         return
-    if "version" in project:
+    if not isinstance(project, dict) or "version" in project:
+        # A malformed [project] is the metadata check's business.
         return
     _version_from_latest_tag(repo)
 

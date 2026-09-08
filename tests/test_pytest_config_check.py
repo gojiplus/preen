@@ -287,3 +287,51 @@ def test_fix_handles_an_inline_pytest_table(tmp_path: Path) -> None:
     assert options["xfail_strict"] is True
     assert options["testpaths"] == ["tests"]
     assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_fix_keeps_a_dotted_key_pytest_table_dotted(tmp_path: Path) -> None:
+    """`pytest.ini_options.testpaths = [...]` under `[tool]` worked at 0.5.0."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.0.0"\n\n'
+        "[tool]\n"
+        'pytest.ini_options.testpaths = ["tests/unit"]\n'
+        "\n# next\n"
+        "[tool.coverage.run]\n"
+        'source = ["src"]\n'
+    )
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+
+    text = (tmp_path / "pyproject.toml").read_text()
+    options = tomllib.loads(text)["tool"]["pytest"]["ini_options"]
+    assert options["testpaths"] == ["tests/unit"]
+    assert options["xfail_strict"] is True
+    assert "[pytest.ini_options]" not in text
+    assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_fix_handles_several_dotted_pytest_keys(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.0.0"\n\n'
+        "[tool]\n"
+        'pytest.ini_options.testpaths = ["tests"]\n'
+        'pytest.ini_options.addopts = ["-ra"]\n'
+    )
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+    assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_fix_replaces_an_ini_options_that_is_not_a_table(tmp_path: Path) -> None:
+    """pytest ignores a non-table `ini_options`; the fix writes a real one."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.0.0"\n\n'
+        "[tool.pytest]\n"
+        'ini_options = "invalid"\n'
+    )
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+    assert PytestConfigCheck(tmp_path).run().issues == []

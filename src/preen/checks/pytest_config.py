@@ -17,12 +17,13 @@ repo whose table is missing settings.
 """
 
 import tomllib
+from collections.abc import MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
 
 import tomlkit
-from tomlkit.items import Array, Comment, InlineTable, Table, Whitespace
+from tomlkit.items import Array, Comment, Table, Whitespace
 
 from .base import Check, CheckResult, Fix, Impact, Issue, Severity
 
@@ -96,6 +97,26 @@ SETTINGS: tuple[Setting, ...] = (
         ),
     ),
 )
+
+
+def _ends_with_decoration(table: Table) -> bool:
+    """Whether a plain table's body ends with a comment or blank line.
+
+    Only such a table needs rebuilding, and only a plain one can be: an
+    inline table has no trailing decoration, and a dotted-key table renders
+    from its keys rather than a header, so a rebuilt copy would lose the
+    ``tool.`` prefix.
+
+    Args:
+        table: Whatever sits at ``tool.pytest.ini_options``.
+
+    Returns:
+        True when rebuilding is both needed and safe.
+    """
+    if table.is_super_table():
+        return False
+    body = table.value.body
+    return bool(body) and body[-1][0] is None
 
 
 def _split_trailing(table: Table) -> tuple[Table, list[Comment | Whitespace]]:
@@ -337,12 +358,17 @@ class PytestConfigCheck(Check):
             tool = document.setdefault("tool", tomlkit.table(is_super_table=True))
             pytest_table = tool.setdefault("pytest", tomlkit.table(is_super_table=True))
             current = pytest_table.setdefault("ini_options", tomlkit.table())
-            if isinstance(current, InlineTable):
-                # `pytest = {ini_options = {...}}` has no trailing decoration
-                # to step over, and tomlkit refuses a table inside it.
-                options, trailing = current, []
-            else:
-                options, trailing = _split_trailing(current)
+            if not isinstance(current, MutableMapping):
+                # `ini_options = "invalid"`: pytest ignores it; write a real one.
+                current = pytest_table["ini_options"] = tomlkit.table()
+            rebuilt: Table | None = None
+            trailing: list[Comment | Whitespace] = []
+            if isinstance(current, Table) and _ends_with_decoration(current):
+                rebuilt, trailing = _split_trailing(current)
+            # Otherwise append in place: there is nothing to step over, and
+            # that keeps an inline table inline and a dotted key dotted,
+            # which a rebuild cannot.
+            options = current if rebuilt is None else rebuilt
 
             if minversion:
                 options["minversion"] = str(self.MIN_VERSIONS[False])
@@ -362,10 +388,10 @@ class PytestConfigCheck(Check):
                 else:
                     options["addopts"] = flags
 
-            for item in trailing:
-                options.add(item)
-            if options is not current:
-                pytest_table["ini_options"] = options
+            if rebuilt is not None:
+                for item in trailing:
+                    rebuilt.add(item)
+                pytest_table["ini_options"] = rebuilt
             pyproject.write_text(tomlkit.dumps(document), encoding="utf-8")
 
         return Fix(

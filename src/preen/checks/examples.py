@@ -145,10 +145,22 @@ def _locally_bound(tree: ast.AST, package: str) -> set[str]:
             ),
         ):
             bound.update(_target_names(node.target))
-        elif isinstance(node, ast.With):
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
             for item in node.items:
                 if item.optional_vars is not None:
                     bound.update(_target_names(item.optional_vars))
+        elif isinstance(node, ast.Lambda):
+            args = node.args
+            bound.update(
+                a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)
+            )
+        elif (
+            isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar))
+            and node.name
+        ):
+            bound.add(node.name)
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            bound.add(node.rest)
         elif isinstance(node, ast.Import):
             # `import mypkg` and `import mypkg as mp` bind the package itself;
             # `import mypkg.sub` binds `mypkg` too. Anything else bound here,
@@ -208,10 +220,13 @@ def referenced_symbols(text: str, package: str) -> set[str]:
             if a.name != "*" and not a.name.startswith("__")
         )
         live = (aliases | imported) - _locally_bound(tree, package)
+        # `mypkg.callback = ...` creates the attribute rather than reaching
+        # for it, so only loads count.
         found.update(
             node.attr
             for node in ast.walk(tree)
             if isinstance(node, ast.Attribute)
+            and isinstance(node.ctx, ast.Load)
             and isinstance(node.value, ast.Name)
             and node.value.id in live
             and not node.attr.startswith("__")
@@ -301,6 +316,8 @@ def _defined_names(
                     )
             elif isinstance(node, ast.AnnAssign):
                 names.update(_target_names(node.target))
+            elif isinstance(node, ast.TypeAlias):
+                names.update(_target_names(node.name))
             elif isinstance(node, ast.Try):
                 collect(node.body)
                 for handler in node.handlers:

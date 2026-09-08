@@ -37,16 +37,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Twenty-three defects found by three rounds of independent review of this
-  release, all but two in the two new checks, before they reached anyone.
+- Thirty defects found by four rounds of independent review of this
+  release, most in the two new checks, before they reached anyone.
   `examples` no longer reports `from pkg import submodule` as a missing
   symbol, follows a relative `from .api import *` in `__init__`, and treats
   an unresolvable star import, a cycle of star imports, or a module-level
   `__getattr__` as "exports unknown" rather than "exports empty". It sees
-  names bound by tuple unpacking, comprehensions, imports, and local `def`
-  or `class` statements, in both the package and the example, and an alias
-  rebound to a submodule stays rebound in later blocks. A block indented
-  inside a Markdown list is read. With doctests on, a closing fence right
+  names bound by tuple unpacking, comprehensions, imports, `except ... as`,
+  `lambda`, `match` patterns, and local `def` or `class` statements, in both
+  the package and the example, exports a `type` alias, treats
+  `mypkg.callback = ...` as creating the attribute rather than reaching for
+  it, and an alias rebound to a submodule stays rebound in later blocks. A
+  block indented inside a Markdown list is read. With doctests on, a closing fence right
   after expected output no longer counts as more output, indented or not, a
   relative project path resolves before the subprocess changes directory, a
   `Scripts\python.exe` venv is found, a missing venv is informational rather
@@ -54,10 +56,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   compare against statically, and a hanging example is reported rather than
   aborting the whole run. `python-floor` reads the whole specifier with
   `packaging`, so `>3.10`, `~=3.11` and `==3.11.9` are flagged and
-  `>=3.10,>=3.12` is not. Both checks read files as UTF-8 explicitly. `preen
-  fix pytest-config` handles the inline form `pytest = {ini_options = {...}}`
-  again. And a `# preen: allow-dropped-arg` trailing a code line covers
-  that line only, not the one beneath it.
+  `>=3.10,>=3.12` is not. Both checks read files as UTF-8 explicitly, and a
+  `project` that is not a table is passed over rather than a traceback, in
+  `python-floor` and in the release-migration precondition alike. `preen fix
+  pytest-config` handles the inline form `pytest = {ini_options = {...}}`
+  and dotted keys under `[tool]` again, rebuilding the table only when it
+  ends in a comment or blank line, and writes a real table over an
+  `ini_options` that is not one. And a `# preen: allow-dropped-arg` trailing
+  a code line covers that line only, not the one beneath it.
 
 - `dropped-args` honors a `# preen: allow-dropped-arg` marker that opens a
   multi-line comment. It used to look only at the call's own lines and the

@@ -136,3 +136,13 @@ def test_patch_level_bounds_still_place_the_floor(tmp_path, spec, expected):
         f'[project]\nname = "x"\nrequires-python = "{spec}"\n'
     )
     assert declared_floor(tmp_path / "pyproject.toml") == expected
+
+
+@pytest.mark.parametrize("project", ["123", '"invalid"'])
+def test_a_project_that_is_not_a_table_is_passed_over(tmp_path, project):
+    # The metadata check's business; this one must not crash on it.
+    (tmp_path / "pyproject.toml").write_text(
+        f"project = {project}\n[tool.preen]\nenforce_python_floor = true\n"
+    )
+    assert declared_floor(tmp_path / "pyproject.toml") is None
+    assert PythonFloorCheck(tmp_path).run().passed

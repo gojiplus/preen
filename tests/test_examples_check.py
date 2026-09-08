@@ -501,3 +501,30 @@ def test_an_indented_fence_is_not_expected_output(tmp_path):
         tmp_path, "1. Try it:\n\n   ```python\n   >>> 1 + 1\n   2\n   ```\n"
     )
     assert ExamplesCheck(repo).run().passed
+
+
+def test_a_type_alias_is_an_export(tmp_path):
+    init = tmp_path / "__init__.py"
+    init.write_text("type Item = str\n")
+    assert {"Item"} <= (exported_symbols(init) or set())
+
+
+def test_assigning_an_attribute_is_not_reaching_for_it():
+    text = "```python\nimport mypkg\nmypkg.callback = lambda: 42\nmypkg.real()\n```"
+    assert referenced_symbols(text, "mypkg") == {"real"}
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        "async def f():\n    async with thing() as mypkg:\n        mypkg.x()\n",
+        "try:\n    pass\nexcept Exception as mypkg:\n    mypkg.x()\n",
+        "f = lambda mypkg: mypkg.x()\n",
+        "match obj:\n    case [mypkg]:\n        mypkg.x()\n",
+        "match obj:\n    case {'k': mypkg}:\n        mypkg.x()\n",
+        "match obj:\n    case [*mypkg]:\n        mypkg.x()\n",
+        "match obj:\n    case {**mypkg}:\n        mypkg.x()\n",
+    ],
+)
+def test_every_binding_form_shadows_the_package(block):
+    assert referenced_symbols(f"```python\n{block}```", "mypkg") == set()

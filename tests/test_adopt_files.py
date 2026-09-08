@@ -580,3 +580,16 @@ def test_commented_inputs_survive_the_overwrite() -> None:
     assert "coverage-floor: 70" in merged
     assert """python-versions: '["3.12", "3.13", "3.14"]'""" in merged
     assert any("coverage-floor" in entry for entry in preserved)
+
+
+@pytest.mark.parametrize(
+    "content", [b"project = 123\n", b'[project]\nname = "x"\nversion = "1.0"\n\xff']
+)
+def test_release_migration_passes_over_a_pyproject_it_cannot_read(
+    tmp_path: Path, content: bytes
+) -> None:
+    """A malformed pyproject is the metadata check's business, not a traceback."""
+    from preen.adopt import _assert_release_migratable
+
+    (tmp_path / "pyproject.toml").write_bytes(content)
+    _assert_release_migratable(tmp_path)  # does not raise

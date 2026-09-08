@@ -47,7 +47,10 @@ def requires_python(pyproject: Path) -> str | None:
         data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         return None
-    raw = data.get("project", {}).get("requires-python")
+    project = data.get("project")
+    if not isinstance(project, dict):
+        return None
+    raw = project.get("requires-python")
     return str(raw) if raw else None
 
 
