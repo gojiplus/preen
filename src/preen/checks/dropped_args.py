@@ -18,8 +18,9 @@ a coverage simulation whose bootstrap arm reported identical coverage at every
 nominal level because the level never arrived.
 
 Suppress a deliberate one with a ``# preen: allow-dropped-arg`` comment on the
-call or the line above it, for the case where the callee is meant to compute
-with its own default.
+call, or in the comment block directly above it, for the case where the callee
+is meant to compute with its own default. The marker may open a rationale that
+runs to several lines.
 """
 
 import ast
@@ -66,19 +67,30 @@ def _positional_names(node: FuncDef) -> list[str]:
 
 
 def _allowed_lines(source: str) -> set[int]:
-    """Find lines carrying the suppression comment.
+    """Find the lines a suppression comment covers.
+
+    A marker covers its own line, any comment-only lines that follow it
+    without a break, and the first line after those. That lets it open a
+    rationale of several lines and still reach the call underneath; before,
+    only the line directly above the call counted, and a marker that started
+    a longer comment was silently ignored.
 
     Args:
         source: File contents.
 
     Returns:
-        1-based line numbers whose text contains the allow comment.
+        1-based line numbers within reach of an allow comment.
     """
-    return {
-        i
-        for i, line in enumerate(source.splitlines(), start=1)
-        if ALLOW_COMMENT in line
-    }
+    lines = source.splitlines()
+    covered: set[int] = set()
+    for i, line in enumerate(lines, start=1):
+        if ALLOW_COMMENT not in line:
+            continue
+        end = i
+        while end < len(lines) and lines[end].lstrip().startswith("#"):
+            end += 1
+        covered.update(range(i, end + 2))
+    return covered
 
 
 def _index(trees: dict[Path, ast.Module]) -> dict[str, FuncDef]:
@@ -140,9 +152,7 @@ def find_dropped(
                     continue
                 if any(kw.arg is None for kw in call.keywords):
                     continue  # `**kwargs` forwards everything; nothing dropped
-                # The marker may sit on any line of the call, or on the line
-                # just above it, which is where a standalone comment goes.
-                span = range(call.lineno - 1, (call.end_lineno or call.lineno) + 1)
+                span = range(call.lineno, (call.end_lineno or call.lineno) + 1)
                 if skip & set(span):
                     continue
 

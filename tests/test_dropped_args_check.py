@@ -234,3 +234,47 @@ def test_reproduces_the_bugs_this_check_was_written_for(
 
     assert len(found) == 1, f"{label}: {found}"
     assert expected in found[0]
+
+
+def test_the_allow_comment_may_open_a_multi_line_rationale(tmp_path: Path) -> None:
+    """The marker on the first line of a comment block still counts.
+
+    A reason that takes a few lines naturally starts with the marker, which
+    then sits more than one line above the call. Two fleet repositories had to
+    restructure their comments, and split a wrapped call, to be heard.
+    """
+    found = _run(
+        tmp_path,
+        mod="""
+def inner(x, level=0.95):
+    return x * level
+
+
+def outer(x, level=0.95):
+    # preen: allow-dropped-arg -- the rationale runs to several lines,
+    # because the reason this argument is deliberately not forwarded
+    # takes more than one line to explain properly.
+    return inner(x)
+""",
+    )
+
+    assert found == []
+
+
+def test_the_allow_comment_does_not_reach_across_code(tmp_path: Path) -> None:
+    """A marker above an unrelated statement must not cover the next call."""
+    found = _run(
+        tmp_path,
+        mod="""
+def inner(x, level=0.95):
+    return x * level
+
+
+def outer(x, level=0.95):
+    # preen: allow-dropped-arg
+    y = x + 1
+    return inner(y)
+""",
+    )
+
+    assert len(found) == 1
