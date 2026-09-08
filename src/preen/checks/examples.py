@@ -39,12 +39,13 @@ from pathlib import Path
 
 from .base import Check, CheckResult, Impact, Issue, Severity
 
-#: Fenced blocks worth reading. Bash and text blocks document something else.
-_PY_BLOCK = re.compile(r"```(?:python|py|pycon)\n(.*?)```", re.DOTALL)
+#: Fenced blocks worth reading, backtick or tilde. Bash and text blocks
+#: document something else.
+_PY_BLOCK = re.compile(r"(```|~~~)(?:python|py|pycon)\n(.*?)\1", re.DOTALL)
 
 #: A fence line. Blanked before doctest reads a document, so expected output
 #: ends at the fence instead of swallowing it.
-_FENCE_LINE = re.compile(r"^[ \t]*```.*$", re.MULTILINE)
+_FENCE_LINE = re.compile(r"^[ \t]*(?:```|~~~).*$", re.MULTILINE)
 
 #: Seconds one document's doctests may take. Module-level so a test can lower it.
 DOCTEST_TIMEOUT = 120.0
@@ -248,7 +249,7 @@ def referenced_symbols(text: str, package: str) -> set[str]:
     found: set[str] = set()
     created: set[str] = set()
     trees = []
-    for block in _PY_BLOCK.findall(text):
+    for _fence, block in _PY_BLOCK.findall(text):
         try:
             # Dedented so a block inside a Markdown list still parses.
             trees.append(ast.parse(_strip_prompts(textwrap.dedent(block))))
@@ -278,6 +279,14 @@ def referenced_symbols(text: str, package: str) -> set[str]:
             elif node.module.startswith(package + "."):
                 # `from mypkg.sub import x` reaches for `mypkg.sub` at least.
                 found.add(node.module.split(".")[1])
+        # So does `import mypkg.sub`, with or without an alias.
+        found.update(
+            a.name.split(".")[1]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for a in node.names
+            if a.name.startswith(package + ".")
+        )
         live = (aliases | imported) - _locally_bound(tree, package)
         # What carries to the next block is only what this one rebinds at
         # top level. A fixture parameter shadows inside its function alone.

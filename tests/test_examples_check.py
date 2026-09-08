@@ -769,3 +769,25 @@ def test_a_function_local_import_does_not_leak_into_later_blocks(tmp_path):
     )
     (tmp_path / "src" / "mypkg" / "client.py").write_text("def request(): ...\n")
     assert ExamplesCheck(repo).run().passed
+
+
+@pytest.mark.parametrize(
+    "block", ["import mypkg.removed\n", "import mypkg.removed as old\n"]
+)
+def test_a_dotted_import_of_a_missing_submodule_is_reported(tmp_path, block):
+    repo = _repo(tmp_path, init="", readme=f"```python\n{block}```")
+    assert [i.description for i in _errors(ExamplesCheck(repo).run())] == [
+        "README.md shows `mypkg.removed`, which the package does not define"
+    ]
+
+
+def test_a_tilde_fenced_block_is_read(tmp_path):
+    repo = _repo(
+        tmp_path, init="", readme="~~~python\nimport mypkg\nmypkg.gone()\n~~~\n"
+    )
+    assert not ExamplesCheck(repo).run().passed
+
+
+def test_a_tilde_fence_is_not_expected_output(tmp_path):
+    repo = _doctest_repo(tmp_path, "~~~python\n>>> 1 + 1\n2\n~~~\n")
+    assert ExamplesCheck(repo).run().passed
