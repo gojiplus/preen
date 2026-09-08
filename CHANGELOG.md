@@ -37,7 +37,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Sixty-three defects found by seventeen rounds of independent review of
+- Sixty-four defects found by eighteen rounds of independent review of
   this release, most in the two new checks, before they reached anyone.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
@@ -86,7 +86,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   call in an `if`, `match` or `except` header is covered by the header's
   lines, wrapped or not, and never by the body's,
   while a call in a decorator or default value is still seen and a marker
-  above the `def` covers it. And `preen
+  on the decorator or above the `def` covers it. And `preen
   check` prints an informational notice on a check that passes, such as
   "doctest examples not executed", instead of hiding it behind "passed".
   A fixture parameter or comprehension variable named like the package

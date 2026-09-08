@@ -435,3 +435,21 @@ def outer(
 """,
     )
     assert found == []
+
+
+def test_a_marker_on_a_decorator_line_covers_that_call(tmp_path: Path) -> None:
+    """A def's header begins at its first decorator, not at `def`."""
+    found = _run(
+        tmp_path,
+        mod=INNER
+        + """
+
+def outer(x, level=0.95):
+    @inner(x)  # preen: allow-dropped-arg
+    def helper():
+        return 1
+
+    return helper()
+""",
+    )
+    assert found == []

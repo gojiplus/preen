@@ -144,8 +144,10 @@ def _start_line(node: ast.AST) -> int:
         The 1-based line.
     """
     own = getattr(node, "lineno", None)
+    # A decorated def or class begins at its first decorator, not at `def`.
+    decorators = [d.lineno for d in getattr(node, "decorator_list", [])]
     if own is not None:
-        return own
+        return min([own, *decorators])
     return min((_start_line(c) for c in ast.iter_child_nodes(node)), default=0)
 
 
