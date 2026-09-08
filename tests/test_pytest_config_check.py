@@ -263,3 +263,27 @@ def test_fix_leaves_a_trailing_comment_where_it_was(tmp_path: Path) -> None:
         'source = ["src"]\n'
     )
     assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_fix_handles_an_inline_pytest_table(tmp_path: Path) -> None:
+    """`pytest = {ini_options = {...}}` is valid TOML and worked at 0.5.0.
+
+    Rebuilding the options as a regular table broke it: tomlkit refuses a
+    table inside an inline table.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.0.0"\n\n'
+        "[tool]\n"
+        'pytest = {ini_options = {testpaths = ["tests"]}}\n'
+    )
+
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+
+    options = tomllib.loads((tmp_path / "pyproject.toml").read_text())["tool"][
+        "pytest"
+    ]["ini_options"]
+    assert options["xfail_strict"] is True
+    assert options["testpaths"] == ["tests"]
+    assert PytestConfigCheck(tmp_path).run().issues == []

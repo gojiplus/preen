@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import tomlkit
-from tomlkit.items import Array, Comment, Table, Whitespace
+from tomlkit.items import Array, Comment, InlineTable, Table, Whitespace
 
 from .base import Check, CheckResult, Fix, Impact, Issue, Severity
 
@@ -337,7 +337,12 @@ class PytestConfigCheck(Check):
             tool = document.setdefault("tool", tomlkit.table(is_super_table=True))
             pytest_table = tool.setdefault("pytest", tomlkit.table(is_super_table=True))
             current = pytest_table.setdefault("ini_options", tomlkit.table())
-            options, trailing = _split_trailing(current)
+            if isinstance(current, InlineTable):
+                # `pytest = {ini_options = {...}}` has no trailing decoration
+                # to step over, and tomlkit refuses a table inside it.
+                options, trailing = current, []
+            else:
+                options, trailing = _split_trailing(current)
 
             if minversion:
                 options["minversion"] = str(self.MIN_VERSIONS[False])
@@ -359,7 +364,8 @@ class PytestConfigCheck(Check):
 
             for item in trailing:
                 options.add(item)
-            pytest_table["ini_options"] = options
+            if options is not current:
+                pytest_table["ini_options"] = options
             pyproject.write_text(tomlkit.dumps(document), encoding="utf-8")
 
         return Fix(

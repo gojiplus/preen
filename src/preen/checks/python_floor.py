@@ -1,7 +1,7 @@
 """Whether a repo meets the Python floor the fleet standard declares.
 
 This check exists because a written standard and an executable checker are two
-artefacts that can disagree, and nothing forced them to agree. STANDARD.md has
+artifacts that can disagree, and nothing forced them to agree. STANDARD.md has
 declared ``requires-python = ">=3.12"`` for some time while 30 of 51 adopted
 repos shipped ``>=3.11``, py-canon's own package among them. Every one passed:
 the `metadata` check tests only that ``requires-python`` is present and has no
@@ -14,10 +14,11 @@ switched off rather than obeyed. Enable it through ``[tool.preen]`` per repo
 as each one moves, and flip the default once the campaign is finished.
 """
 
-import re
 import time
 import tomllib
 from pathlib import Path
+
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
 
 from .base import Check, CheckResult, Impact, Issue, Severity
 
@@ -26,27 +27,55 @@ from .base import Check, CheckResult, Impact, Issue, Severity
 #: py-canon checkout is available beside this one.
 STANDARD_FLOOR = (3, 12)
 
-_FLOOR = re.compile(r">=\s*(\d+)\.(\d+)")
+#: Every minor release an interpreter could plausibly be, oldest first.
+_MINORS = [(2, m) for m in range(8)] + [(3, m) for m in range(40)]
 
 
-def declared_floor(pyproject: Path) -> tuple[int, ...] | None:
-    """Read the lower bound from a repo's requires-python.
+def requires_python(pyproject: Path) -> str | None:
+    """Read a repo's requires-python string.
 
     Args:
         pyproject: Path to the repo's pyproject.toml.
 
     Returns:
-        The floor as a version tuple, or None where none is declared or the
-        file does not parse. An unparsable pyproject is the `metadata`
-        check's business, not this one's, so it is passed over rather than
-        reported twice.
+        The raw specifier, or None where none is declared or the file does
+        not parse. An unparsable pyproject is the `metadata` check's business,
+        not this one's, so it is passed over rather than reported twice.
     """
     try:
         data = tomllib.loads(pyproject.read_text())
     except (OSError, tomllib.TOMLDecodeError):
         return None
-    match = _FLOOR.search(str(data.get("project", {}).get("requires-python", "")))
-    return (int(match.group(1)), int(match.group(2))) if match else None
+    raw = data.get("project", {}).get("requires-python")
+    return str(raw) if raw else None
+
+
+def declared_floor(pyproject: Path) -> tuple[int, ...] | None:
+    """Work out the oldest minor release a repo's requires-python admits.
+
+    The whole specifier decides, not its first ``>=``: ``>3.10`` still admits
+    3.10.1, ``~=3.11`` admits 3.11, and ``>=3.10,>=3.12`` has a floor of 3.12.
+    Each minor is probed at ``X.Y`` and at a late patch, because an exclusive
+    bound rejects the first and admits the second.
+
+    Args:
+        pyproject: Path to the repo's pyproject.toml.
+
+    Returns:
+        The floor as a ``(major, minor)`` tuple, or None where none is
+        declared, none can be parsed, or nothing is admitted.
+    """
+    raw = requires_python(pyproject)
+    if raw is None:
+        return None
+    try:
+        spec = SpecifierSet(raw)
+    except InvalidSpecifier:
+        return None
+    for major, minor in _MINORS:
+        if spec.contains(f"{major}.{minor}") or spec.contains(f"{major}.{minor}.99"):
+            return (major, minor)
+    return None
 
 
 class PythonFloorCheck(Check):
@@ -93,8 +122,9 @@ class PythonFloorCheck(Check):
                     check=self.name,
                     severity=Severity.ERROR,
                     description=(
-                        f"requires-python is >={have}, below the >={want} the "
-                        f"fleet standard declares"
+                        f"requires-python is {requires_python(pyproject)}, which "
+                        f"admits Python {have}, below the >={want} the fleet "
+                        f"standard declares"
                     ),
                     file=pyproject,
                     impact=Impact.IMPORTANT,

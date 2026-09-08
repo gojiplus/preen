@@ -8,6 +8,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.6.0] - 2026-09-07
 
+### Added
+
+- An `examples` check: does the documentation still name symbols the package
+  defines. It parses every fenced Python block in README.md and docs/,
+  collects the attributes and imports reached for on the package, and
+  compares them against what the package exposes, all with `ast` and without
+  importing anything. Set `[tool.preen] run_doctests = true` to also execute
+  `>>>` examples under the repo's own `.venv`. Off by default because, across
+  the fleet, the only doctest failures were illustrative blocks that depend on
+  earlier state or a live API.
+
+- A `python-floor` check: does `requires-python` meet the floor the fleet
+  standard declares. STANDARD.md said `>=3.12` while 30 of 51 adopted repos
+  shipped `>=3.11` and every one passed, because nothing compared the two.
+  Off until the fleet migrates; enable per repo with `[tool.preen]
+  enforce_python_floor = true`.
+
 ### Changed
 
 - `pytest-config` findings gate instead of advising. They shipped
@@ -19,6 +36,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   no pytest table at all, stays informational: that repo may have no tests.
 
 ### Fixed
+
+- Eleven defects found by two independent reviews of this release, ten of
+  them in the two new checks before they reached anyone. `examples` no longer
+  reports `from pkg import submodule` as a missing symbol, follows a relative
+  `from .api import *` in `__init__`, and treats an unresolvable star import
+  as "exports unknown" rather than "exports empty". It sees names bound by
+  tuple unpacking, comprehensions and local imports, in both the package and
+  the example. With doctests on, a closing fence right after expected output
+  no longer counts as more output, a relative project path resolves before
+  the subprocess changes directory, examples run even when there is no single
+  package to compare against statically, and a hanging example is reported
+  rather than aborting the whole run. `python-floor` reads the whole
+  specifier with `packaging`, so `>3.10` and `~=3.11` are flagged and
+  `>=3.10,>=3.12` is not. `preen fix pytest-config` handles the inline form
+  `pytest = {ini_options = {...}}` again.
 
 - `dropped-args` honors a `# preen: allow-dropped-arg` marker that opens a
   multi-line comment. It used to look only at the call's own lines and the

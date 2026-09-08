@@ -29,7 +29,9 @@ binding that shadows the package name, and a name defined inside a try/except.
 
 import ast
 import re
+import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -37,6 +39,13 @@ from .base import Check, CheckResult, Impact, Issue, Severity
 
 #: Fenced blocks worth reading. Bash and text blocks document something else.
 _PY_BLOCK = re.compile(r"```(?:python|py|pycon)\n(.*?)```", re.DOTALL)
+
+#: A fence line. Blanked before doctest reads a document, so expected output
+#: ends at the fence instead of swallowing it.
+_FENCE_LINE = re.compile(r"^```.*$", re.MULTILINE)
+
+#: Seconds one document's doctests may take. Module-level so a test can lower it.
+DOCTEST_TIMEOUT = 120.0
 
 
 def _documented_files(project_dir: Path) -> list[Path]:
@@ -64,16 +73,33 @@ def _strip_prompts(block: str) -> str:
     Returns:
         Source with prompts removed and expected-output lines dropped.
     """
-    if ">>>" not in block:
+    lines = block.splitlines()
+    if not any(line.strip().startswith(">>>") for line in lines):
         return block
     return "\n".join(
-        line.strip()[4:]
-        for line in block.splitlines()
-        if line.strip().startswith((">>> ", "... "))
+        line.strip()[4:] for line in lines if line.strip().startswith((">>> ", "... "))
     )
 
 
-def _locally_bound(tree: ast.AST) -> set[str]:
+def _target_names(target: ast.expr) -> set[str]:
+    """Names an assignment target binds, through tuple and list unpacking.
+
+    Args:
+        target: The target expression.
+
+    Returns:
+        Every plain name inside it.
+    """
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, ast.Starred):
+        return _target_names(target.value)
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return set().union(*(_target_names(e) for e in target.elts))
+    return set()
+
+
+def _locally_bound(tree: ast.AST, package: str) -> set[str]:
     """Names a block binds itself, which therefore are not the package.
 
     layoutlens documents a pytest fixture called ``layoutlens``, so every
@@ -83,9 +109,12 @@ def _locally_bound(tree: ast.AST) -> set[str]:
 
     Args:
         tree: A parsed code block.
+        package: The importable package name, so importing it does not count
+            as shadowing it.
 
     Returns:
-        Every name bound as a parameter, assignment, loop or with target.
+        Every name bound as a parameter, assignment, loop, with or
+        comprehension target, or by importing something other than the package.
     """
     bound: set[str] = set()
     for node in ast.walk(tree):
@@ -99,17 +128,34 @@ def _locally_bound(tree: ast.AST) -> set[str]:
             if args.kwarg:
                 bound.add(args.kwarg.arg)
         elif isinstance(node, ast.Assign):
-            bound.update(t.id for t in node.targets if isinstance(t, ast.Name))
-        elif isinstance(node, (ast.For, ast.AsyncFor)) and isinstance(
-            node.target, ast.Name
+            bound.update(*(_target_names(t) for t in node.targets))
+        elif isinstance(
+            node,
+            (
+                ast.AnnAssign,
+                ast.AugAssign,
+                ast.NamedExpr,
+                ast.For,
+                ast.AsyncFor,
+                ast.comprehension,
+            ),
         ):
-            bound.add(node.target.id)
+            bound.update(_target_names(node.target))
         elif isinstance(node, ast.With):
+            for item in node.items:
+                if item.optional_vars is not None:
+                    bound.update(_target_names(item.optional_vars))
+        elif isinstance(node, ast.Import):
             bound.update(
-                item.optional_vars.id
-                for item in node.items
-                if isinstance(item.optional_vars, ast.Name)
+                a.asname or a.name.split(".")[0]
+                for a in node.names
+                if a.name.split(".")[0] != package
             )
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and (node.module or "").split(".")[0] != package
+        ):
+            bound.update(a.asname or a.name for a in node.names if a.name != "*")
     return bound
 
 
@@ -151,7 +197,7 @@ def referenced_symbols(text: str, package: str) -> set[str]:
                 )
 
     for tree in trees:
-        live = aliases - _locally_bound(tree)
+        live = aliases - _locally_bound(tree, package)
         found.update(
             node.attr
             for node in ast.walk(tree)
@@ -163,8 +209,104 @@ def referenced_symbols(text: str, package: str) -> set[str]:
     return found
 
 
+def _relative_module(origin: Path, level: int, module: str | None) -> Path | None:
+    """Locate the file a relative import names.
+
+    Args:
+        origin: The module doing the importing.
+        level: Number of leading dots.
+        module: The dotted name after the dots, if any.
+
+    Returns:
+        The target's ``__init__.py`` or ``.py`` file, or None if it is not
+        inside this package tree.
+    """
+    if level < 1:
+        return None
+    base = origin.parent
+    for _ in range(level - 1):
+        base = base.parent
+    target = base.joinpath(*module.split(".")) if module else base
+    if (target / "__init__.py").exists():
+        return target / "__init__.py"
+    if target.with_suffix(".py").exists():
+        return target.with_suffix(".py")
+    return None
+
+
+def _defined_names(path: Path) -> set[str] | None:
+    """Read every name a module defines at top level, without importing it.
+
+    A relative star import is followed into the sibling module; any other star
+    import makes the set unknowable from here.
+
+    Args:
+        path: The module file.
+
+    Returns:
+        The names, or None if the file cannot be parsed or its exports cannot
+        be resolved statically.
+    """
+    try:
+        tree = ast.parse(path.read_text())
+    except (OSError, SyntaxError):
+        return None
+
+    names: set[str] = set()
+    stars: list[tuple[int, str | None]] = []
+
+    def collect(body: list[ast.stmt]) -> None:
+        """Gather names from a statement list, descending into try and if.
+
+        Args:
+            body: Statements to walk.
+        """
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(node.name)
+            elif isinstance(node, ast.Import):
+                names.update(a.asname or a.name.split(".")[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                if any(a.name == "*" for a in node.names):
+                    stars.append((node.level, node.module))
+                names.update(a.asname or a.name for a in node.names if a.name != "*")
+            elif isinstance(node, ast.Assign):
+                names.update(*(_target_names(t) for t in node.targets))
+                declares_all = any(
+                    isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
+                )
+                if declares_all and isinstance(node.value, (ast.List, ast.Tuple)):
+                    names.update(
+                        e.value
+                        for e in node.value.elts
+                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                    )
+            elif isinstance(node, ast.AnnAssign):
+                names.update(_target_names(node.target))
+            elif isinstance(node, ast.Try):
+                collect(node.body)
+                for handler in node.handlers:
+                    collect(handler.body)
+                collect(node.orelse)
+                collect(node.finalbody)
+            elif isinstance(node, ast.If):
+                collect(node.body)
+                collect(node.orelse)
+
+    collect(tree.body)
+    for level, module in stars:
+        target = _relative_module(path, level, module)
+        pulled = _defined_names(target) if target is not None else None
+        if pulled is None:
+            return None
+        # Permissive on purpose: a star import honors the target's __all__,
+        # but a name outside it is still reachable as an attribute.
+        names.update(n for n in pulled if not n.startswith("_"))
+    return names
+
+
 def exported_symbols(init: Path) -> set[str] | None:
-    """Read every name a package's ``__init__`` defines, without importing it.
+    """Read every name a package exposes, without importing it.
 
     Deliberately permissive. ``__all__`` governs ``from x import *``, not
     attribute access, so a name absent from it can still be valid --
@@ -177,50 +319,18 @@ def exported_symbols(init: Path) -> set[str] | None:
         init: Path to the package's ``__init__.py``.
 
     Returns:
-        The names the module defines, or None if the file cannot be parsed.
+        The names ``__init__`` defines plus every child module and subpackage,
+        which ``from pkg import child`` loads without ``__init__`` naming it.
+        None if the exports cannot be read statically.
     """
-    try:
-        tree = ast.parse(init.read_text())
-    except (OSError, SyntaxError):
+    names = _defined_names(init)
+    if names is None:
         return None
-
-    names: set[str] = set()
-
-    def collect(body: list[ast.stmt]) -> None:
-        """Gather names from a statement list, descending into try and if.
-
-        Args:
-            body: Statements to walk.
-        """
-        for node in body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                names.add(node.name)
-            elif isinstance(node, (ast.Import, ast.ImportFrom)):
-                names.update(a.asname or a.name.split(".")[0] for a in node.names)
-            elif isinstance(node, ast.Assign):
-                names.update(t.id for t in node.targets if isinstance(t, ast.Name))
-                declares_all = any(
-                    isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
-                )
-                if declares_all and isinstance(node.value, (ast.List, ast.Tuple)):
-                    names.update(
-                        e.value
-                        for e in node.value.elts
-                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
-                    )
-            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-                names.add(node.target.id)
-            elif isinstance(node, ast.Try):
-                collect(node.body)
-                for handler in node.handlers:
-                    collect(handler.body)
-                collect(node.orelse)
-                collect(node.finalbody)
-            elif isinstance(node, ast.If):
-                collect(node.body)
-                collect(node.orelse)
-
-    collect(tree.body)
+    for child in init.parent.iterdir():
+        if child.suffix == ".py" and child.stem != "__init__":
+            names.add(child.stem)
+        elif child.is_dir() and (child / "__init__.py").exists():
+            names.add(child.name)
     return names
 
 
@@ -277,13 +387,11 @@ class ExamplesCheck(Check):
         started = time.time()
         issues: list[Issue] = []
 
+        # Only the static tier needs one package to compare against.
         located = self._package_init()
-        if located is None:
-            return CheckResult(self.name, True, [], time.time() - started)
-        package, init = located
-        exported = exported_symbols(init)
-
-        if exported is not None:
+        exported = exported_symbols(located[1]) if located else None
+        if located and exported is not None:
+            package = located[0]
             for doc in _documented_files(self.project_dir):
                 used = referenced_symbols(doc.read_text(), package)
                 issues.extend(
@@ -319,10 +427,9 @@ class ExamplesCheck(Check):
         if not PreenConfig.from_pyproject(self.project_dir).run_doctests:
             return []
 
-        docs = [
-            d for d in _documented_files(self.project_dir) if ">>>" in d.read_text()
-        ]
-        interpreter = self.project_dir / ".venv" / "bin" / "python"
+        root = self.project_dir.resolve()
+        docs = [d for d in _documented_files(root) if ">>>" in d.read_text()]
+        interpreter = root / ".venv" / "bin" / "python"
         if not docs:
             return []
         if not interpreter.exists():
@@ -338,26 +445,61 @@ class ExamplesCheck(Check):
 
         issues = []
         for doc in docs:
-            done = subprocess.run(
-                [str(interpreter), "-m", "doctest", str(doc)],
-                capture_output=True,
-                text=True,
-                cwd=self.project_dir,
-                timeout=120,
-                check=False,
-            )
-            if done.returncode != 0:
+            failure = self._doctest(doc, interpreter, root)
+            if failure is not None:
                 issues.append(
                     Issue(
                         check=self.name,
                         severity=Severity.ERROR,
-                        description=(
-                            f"{doc.name} has a documented example that no "
-                            f"longer reproduces"
-                        ),
+                        description=f"{doc.name} {failure[0]}",
                         file=doc,
                         impact=Impact.IMPORTANT,
-                        explanation=(done.stdout or done.stderr).strip()[:600],
+                        explanation=failure[1],
                     )
                 )
         return issues
+
+    @staticmethod
+    def _doctest(doc: Path, interpreter: Path, root: Path) -> tuple[str, str] | None:
+        """Run one document's doctests under the repo's interpreter.
+
+        doctest reads expected output up to a blank line or the next prompt,
+        so a closing fence straight after the output became part of what it
+        expected. The document is copied with every fence line blanked, which
+        keeps line numbers intact, and run from a scratch directory.
+
+        Args:
+            doc: The document.
+            interpreter: The repo's Python.
+            root: The repo root, absolute, which the examples run from.
+
+        Returns:
+            ``(what happened, detail)`` on failure, None on success.
+        """
+        scratch = Path(tempfile.mkdtemp(prefix="preen-doctest-"))
+        try:
+            copy = scratch / doc.name
+            copy.write_text(_FENCE_LINE.sub("", doc.read_text()))
+            try:
+                done = subprocess.run(
+                    [str(interpreter), "-m", "doctest", str(copy)],
+                    capture_output=True,
+                    text=True,
+                    cwd=root,
+                    timeout=DOCTEST_TIMEOUT,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                return (
+                    f"has a documented example that did not finish within "
+                    f"{DOCTEST_TIMEOUT:g} seconds",
+                    "A hanging example is reported rather than aborting the run.",
+                )
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+        if done.returncode == 0:
+            return None
+        return (
+            "has a documented example that no longer reproduces",
+            (done.stdout or done.stderr).strip()[:600],
+        )
