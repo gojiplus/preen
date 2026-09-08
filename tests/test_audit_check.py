@@ -496,3 +496,57 @@ def test_non_dict_dependency_entries_are_skipped(tmp_path: Path, monkeypatch) ->
 
 def test_can_fix_is_false(tmp_path: Path) -> None:
     assert AuditCheck(tmp_path).can_fix() is False
+
+
+def test_audit_ignore_reports_but_does_not_fail(tmp_path: Path, monkeypatch) -> None:
+    """An ignored advisory drops out of the failure and shows up as info."""
+    _write_lock(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.preen]\naudit_ignore = ["GHSA-abcd-1234", "PYSEC-2024-9999"]\n'
+    )
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:2] == ["uv", "export"]:
+            return _completed(cmd, returncode=0, stdout="urllib3==1.26.0\n")
+        if cmd == ["pip-audit", "--version"]:
+            return _completed(cmd, returncode=0, stdout="pip-audit 2.7\n")
+        if cmd[0] == "pip-audit":
+            return _completed(cmd, returncode=1, stdout=VULN_REPORT)
+        raise AssertionError(f"unexpected call: {cmd}")
+
+    monkeypatch.setattr("preen.checks.audit.subprocess.run", fake_run)
+    result = AuditCheck(tmp_path).run()
+
+    # jinja2's two advisories are both ignored, so only urllib3 still fails.
+    errors = [i for i in result.issues if i.severity == Severity.ERROR]
+    assert not result.passed
+    assert [i.description.split()[0] for i in errors] == ["urllib3"]
+
+    infos = [i for i in result.issues if i.severity == Severity.INFO]
+    assert len(infos) == 1
+    assert "audit_ignore" in infos[0].description
+    assert "jinja2 3.0.0: GHSA-abcd-1234" in infos[0].description
+    assert "jinja2 3.0.0: PYSEC-2024-9999" in infos[0].description
+
+
+def test_audit_ignore_of_every_advisory_passes(tmp_path: Path, monkeypatch) -> None:
+    """When everything pip-audit found is ignored, the check passes."""
+    _write_lock(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.preen]\n"
+        'audit_ignore = ["PYSEC-2023-0001", "GHSA-abcd-1234", "PYSEC-2024-9999"]\n'
+    )
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:2] == ["uv", "export"]:
+            return _completed(cmd, returncode=0, stdout="urllib3==1.26.0\n")
+        if cmd == ["pip-audit", "--version"]:
+            return _completed(cmd, returncode=0, stdout="pip-audit 2.7\n")
+        if cmd[0] == "pip-audit":
+            return _completed(cmd, returncode=1, stdout=VULN_REPORT)
+        raise AssertionError(f"unexpected call: {cmd}")
+
+    monkeypatch.setattr("preen.checks.audit.subprocess.run", fake_run)
+    result = AuditCheck(tmp_path).run()
+    assert result.passed
+    assert all(i.severity == Severity.INFO for i in result.issues)

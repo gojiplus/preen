@@ -128,6 +128,10 @@ enforce_python_floor = false  # gate on the standard's Python floor
 # `links` check to silence one of those would stop the README being checked,
 # which is where a broken link actually costs a reader something.
 link_ignore = ["https://api.example.com/*"]
+
+# Advisory ids `audit` should report but not fail on, for the case where no
+# fixed release exists yet. Still shown as info so the exception stays visible.
+audit_ignore = ["GHSA-8mgp-746c-j5xp"]
 ```
 
 ## Notes

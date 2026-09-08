@@ -27,6 +27,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   shipped `>=3.11` and every one passed, because nothing compared the two.
   Off until the fleet migrates; enable per repo with `[tool.preen]
   enforce_python_floor = true`.
+### Added
+
+- `[tool.preen] audit_ignore`: advisory ids the `audit` check reports as info
+  instead of failing on. For the case where the fix does not exist yet:
+  themains/piedomains locks nltk 3.10.3, the current release, which
+  GHSA-8mgp-746c-j5xp names with no patched version. Skipping the whole
+  check to silence one advisory would stop every other dependency being
+  scanned.
 
 ### Changed
 

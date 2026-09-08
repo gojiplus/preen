@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from ..config import PreenConfig
 from .base import Check, CheckResult, Impact, Issue, Severity
 
 #: No existing subprocess check in this project sets an explicit timeout;
@@ -180,8 +181,11 @@ class AuditCheck(Check):
         if not isinstance(dependencies, list):
             return self._skip("pip-audit could not complete; skipping audit.")
 
-        vuln_issues = self._issues_from_dependencies(dependencies)
+        ignored_ids = set(PreenConfig.from_pyproject(self.project_dir).audit_ignore)
+        vuln_issues, ignored = self._issues_from_dependencies(dependencies, ignored_ids)
         issues = list(vuln_issues)
+        if ignored:
+            issues.append(self._ignored_issue(ignored))
         if dropped:
             issues.append(self._dropped_issue(dropped))
 
@@ -253,27 +257,39 @@ class AuditCheck(Check):
         except (subprocess.SubprocessError, OSError):
             return None
 
-    def _issues_from_dependencies(self, dependencies: list) -> list[Issue]:
+    def _issues_from_dependencies(
+        self, dependencies: list, ignored_ids: frozenset[str] | set[str] = frozenset()
+    ) -> tuple[list[Issue], list[str]]:
         """Build an Issue per vulnerable dependency from a pip-audit report.
 
         Args:
             dependencies: The `"dependencies"` list from a pip-audit JSON
                 report. Non-dict entries are skipped rather than raising.
+            ignored_ids: Advisory ids from ``[tool.preen] audit_ignore``.
+                A vulnerability with one of these ids does not produce an
+                Issue; it is reported back so the caller can note it.
 
         Returns:
-            One Issue per vulnerability found across all dependencies.
+            One Issue per vulnerable dependency, and the list of
+            ``"<package> <version>: <id>"`` strings that were ignored.
         """
         issues = []
+        ignored: list[str] = []
         for dependency in dependencies:
             if not isinstance(dependency, dict):
                 continue
 
-            vulns = dependency.get("vulns", [])
+            name = dependency.get("name", "<unknown>")
+            version = dependency.get("version", "<unknown>")
+            vulns = []
+            for vuln in dependency.get("vulns", []):
+                if vuln.get("id") in ignored_ids:
+                    ignored.append(f"{name} {version}: {vuln['id']}")
+                else:
+                    vulns.append(vuln)
             if not vulns:
                 continue
 
-            name = dependency.get("name", "<unknown>")
-            version = dependency.get("version", "<unknown>")
             vuln_ids = ", ".join(vuln.get("id", "") for vuln in vulns if vuln.get("id"))
             fix_versions = sorted(
                 {fv for vuln in vulns for fv in vuln.get("fix_versions", [])}
@@ -297,7 +313,23 @@ class AuditCheck(Check):
                     ),
                 )
             )
-        return issues
+        return issues, ignored
+
+    def _ignored_issue(self, entries: list[str]) -> Issue:
+        """Build the info issue naming advisories ignored by configuration."""
+        return Issue(
+            check=self.name,
+            severity=Severity.INFO,
+            description=(
+                f"ignored per [tool.preen] audit_ignore: {', '.join(entries)}"
+            ),
+            impact=Impact.INFORMATIONAL,
+            explanation=(
+                "These advisories are listed in audit_ignore, usually because "
+                "no fixed release exists yet. Remove the entry once upstream "
+                "ships a fix so the check gates on it again."
+            ),
+        )
 
     def _dropped_issue(self, names: list[str]) -> Issue:
         """Build the info issue naming packages dropped from the scan."""
