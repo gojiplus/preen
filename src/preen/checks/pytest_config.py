@@ -231,21 +231,44 @@ class PytestConfigCheck(Check):
             return raw.split()
         return [str(entry) for entry in raw]
 
-    def _missing(self, options: dict[str, Any]) -> list[Setting]:
+    def _missing(self, options: dict[str, Any], native: bool) -> list[Setting]:
         """Return the settings the repo has not configured.
 
         Args:
             options: The pytest options table.
+            native: Whether the table is pytest 9's native one.
 
         Returns:
             The missing settings, in declaration order.
         """
         addopts = self._addopts(options)
-        return [s for s in SETTINGS if not self._satisfied(s, options, addopts)]
+        # The strict settings and the blanket --strict arrived in pytest 9.
+        # On pytest 8 the settings are unknown and --strict only aliases
+        # --strict-markers, so they count only where 9 is the floor.
+        pytest9 = native or self._declared_major(options) >= 9
+        return [
+            s for s in SETTINGS if not self._satisfied(s, options, addopts, pytest9)
+        ]
+
+    @staticmethod
+    def _declared_major(options: dict[str, Any]) -> int:
+        """Read the major of a declared ``minversion``, or 0 if none parses.
+
+        Args:
+            options: The pytest options table.
+
+        Returns:
+            The major version.
+        """
+        declared = options.get("minversion")
+        try:
+            return int(str(declared).split(".", maxsplit=1)[0])
+        except ValueError:
+            return 0
 
     @staticmethod
     def _satisfied(
-        setting: Setting, options: dict[str, Any], addopts: list[str]
+        setting: Setting, options: dict[str, Any], addopts: list[str], pytest9: bool
     ) -> bool:
         """Whether a setting is configured, by its own key or a synonym.
 
@@ -260,6 +283,8 @@ class PytestConfigCheck(Check):
             setting: The setting to look for.
             options: The pytest options table.
             addopts: ``addopts`` as a list of flags.
+            pytest9: Whether the repo runs on pytest 9 or later, where the
+                strict settings and the blanket ``--strict`` exist.
 
         Returns:
             True when the repo has it on.
@@ -270,7 +295,9 @@ class PytestConfigCheck(Check):
             for flag in addopts
         ):
             return True
-        for key in (k for k in setting.synonyms if k != "strict"):
+        if setting.key == "--strict-markers" and "--strict" in addopts:
+            return True  # an alias in every pytest this check accepts
+        for key in (k for k in setting.synonyms if k != "strict") if pytest9 else ():
             if key in options:
                 return _as_bool(options[key]) is True
         if not setting.in_addopts and setting.key in options:
@@ -281,7 +308,7 @@ class PytestConfigCheck(Check):
             return True
         # pytest 9's `--strict` flag enables the strict option, as the ini does.
         blanket = _as_bool(options.get("strict")) is True or "--strict" in addopts
-        return "strict" in setting.synonyms and blanket
+        return pytest9 and "strict" in setting.synonyms and blanket
 
     def _minversion_issue(self, options: dict[str, Any], native: bool) -> list[Issue]:
         """Check PP302: a declared minimum pytest.
@@ -294,13 +321,8 @@ class PytestConfigCheck(Check):
             At most one issue.
         """
         floor = self.MIN_VERSIONS[native]
-        declared = options.get("minversion")
-        if declared is not None:
-            try:
-                if int(str(declared).split(".", maxsplit=1)[0]) >= floor:
-                    return []
-            except ValueError:
-                pass
+        if self._declared_major(options) >= floor:
+            return []
         return [
             self._issue(
                 "PP302",
@@ -358,7 +380,7 @@ class PytestConfigCheck(Check):
             issue.proposed_fix = self._write_fix([], minversion=True)
             return CheckResult(check=self.name, passed=True, issues=[issue])
 
-        missing = self._missing(options)
+        missing = self._missing(options, native)
         version_issues = self._minversion_issue(options, native)
         issues = [
             *version_issues,

@@ -37,7 +37,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Fifty-seven defects found by fourteen rounds of independent review of
+- Fifty-eight defects found by fifteen rounds of independent review of
   this release, most in the two new checks, before they reached anyone.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
@@ -47,7 +47,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   says, an ini string such as `"true"` is a boolean while `log_level = "0"`
   is a level, and the fix flips a canonical `strict_xfail = false` it finds
   rather than writing an alias it would then lose to, and `--strict` in
-  `addopts` enables everything as pytest 9 says it does.
+  `addopts` enables everything as pytest 9 says it does. All of that
+  applies only where pytest 9 is the declared floor or the native
+  `[tool.pytest]` table is in use; on pytest 8 those settings do not
+  exist and `--strict` only aliases `--strict-markers`.
   `examples` no longer reports `from pkg import submodule` as a missing
   symbol, follows a relative `from .api import *` in `__init__`, and treats
   an unresolvable star import, a cycle of star imports, or a module-level

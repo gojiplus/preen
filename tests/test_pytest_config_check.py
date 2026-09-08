@@ -458,3 +458,32 @@ def test_the_strict_flag_in_addopts_enables_everything(tmp_path: Path) -> None:
         'addopts = ["--strict", "-ra"]\n'
     )
     assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+@pytest.mark.parametrize(
+    ("extra", "codes"),
+    [
+        # pytest 8: --strict only aliases --strict-markers.
+        ('addopts = ["--strict", "-ra"]\n', ["PP305", "PP306"]),
+        # pytest 8 has no strict, strict_config or strict_xfail settings.
+        ('addopts = ["-ra"]\nstrict = true\n', ["PP305", "PP306", "PP307"]),
+        (
+            'addopts = ["-ra"]\nstrict_config = true\nstrict_markers = true\n'
+            "strict_xfail = true\n",
+            ["PP305", "PP306", "PP307"],
+        ),
+    ],
+)
+def test_pytest_9_spellings_need_pytest_9(
+    tmp_path: Path, extra: str, codes: list[str]
+) -> None:
+    """A repo on pytest 8 gets nothing from the pytest 9 spellings."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mypkg"\nversion = "0.1.0"\n\n'
+        "[tool.pytest.ini_options]\n"
+        'minversion = "8"\n'
+        'testpaths = ["tests"]\n'
+        'log_level = "INFO"\n'
+        'filterwarnings = ["error"]\n' + extra
+    )
+    assert _codes(PytestConfigCheck(tmp_path).run()) == codes
