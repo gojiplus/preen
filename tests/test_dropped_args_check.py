@@ -278,3 +278,22 @@ def outer(x, level=0.95):
     )
 
     assert len(found) == 1
+
+
+def test_a_trailing_marker_covers_only_its_own_line(tmp_path: Path) -> None:
+    """A marker after code on one line says nothing about the next line."""
+    found = _run(
+        tmp_path,
+        mod="""
+def inner(x, level=0.95):
+    return x * level
+
+
+def outer(x, level=0.95):
+    a = inner(x)  # preen: allow-dropped-arg
+    b = inner(x)
+    return a + b
+""",
+    )
+
+    assert len(found) == 1

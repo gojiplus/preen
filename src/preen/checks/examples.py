@@ -32,6 +32,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import textwrap
 import time
 from pathlib import Path
 
@@ -42,7 +43,7 @@ _PY_BLOCK = re.compile(r"```(?:python|py|pycon)\n(.*?)```", re.DOTALL)
 
 #: A fence line. Blanked before doctest reads a document, so expected output
 #: ends at the fence instead of swallowing it.
-_FENCE_LINE = re.compile(r"^```.*$", re.MULTILINE)
+_FENCE_LINE = re.compile(r"^[ \t]*```.*$", re.MULTILINE)
 
 #: Seconds one document's doctests may take. Module-level so a test can lower it.
 DOCTEST_TIMEOUT = 120.0
@@ -118,7 +119,10 @@ def _locally_bound(tree: ast.AST, package: str) -> set[str]:
     """
     bound: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(node, ast.ClassDef):
+            bound.add(node.name)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            bound.add(node.name)
             args = node.args
             bound.update(
                 a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)
@@ -178,29 +182,32 @@ def referenced_symbols(text: str, package: str) -> set[str]:
     trees = []
     for block in _PY_BLOCK.findall(text):
         try:
-            trees.append(ast.parse(_strip_prompts(block)))
+            # Dedented so a block inside a Markdown list still parses.
+            trees.append(ast.parse(_strip_prompts(textwrap.dedent(block))))
         except SyntaxError:
             # A fragment rather than a program. Not this check's business.
             continue
 
-    # Gathered across the whole document rather than per block: a README
-    # imports the package once at the top and uses that alias throughout.
+    # Aliases carry across blocks in document order: a README imports the
+    # package once at the top and uses that name throughout, and a later
+    # `from mypkg import client as mp` retires `mp` until it is imported again.
     aliases = {package}
     for tree in trees:
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                aliases.update(
-                    a.asname or a.name for a in node.names if a.name == package
-                )
-            elif isinstance(node, ast.ImportFrom) and node.module == package:
-                found.update(
-                    a.name
-                    for a in node.names
-                    if a.name != "*" and not a.name.startswith("__")
-                )
-
-    for tree in trees:
-        live = aliases - _locally_bound(tree, package)
+        imported = {
+            a.asname or a.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for a in node.names
+            if a.name == package
+        }
+        found.update(
+            a.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module == package
+            for a in node.names
+            if a.name != "*" and not a.name.startswith("__")
+        )
+        live = (aliases | imported) - _locally_bound(tree, package)
         found.update(
             node.attr
             for node in ast.walk(tree)
@@ -209,6 +216,7 @@ def referenced_symbols(text: str, package: str) -> set[str]:
             and node.value.id in live
             and not node.attr.startswith("__")
         )
+        aliases = live | imported
     return found
 
 
@@ -429,7 +437,8 @@ class ExamplesCheck(Check):
                 )
 
         issues.extend(self._run_doctests())
-        return CheckResult(self.name, not issues, issues, time.time() - started)
+        blocking = [issue for issue in issues if issue.severity != Severity.INFO]
+        return CheckResult(self.name, not blocking, issues, time.time() - started)
 
     def _run_doctests(self) -> list[Issue]:
         """Execute doctest-style examples, where a repo has asked for it.

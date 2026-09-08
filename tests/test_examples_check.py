@@ -413,3 +413,91 @@ def test_a_windows_style_venv_is_found(tmp_path):
     result = ExamplesCheck(repo).run()
     assert not result.passed
     assert "no longer reproduces" in result.issues[0].description
+
+
+def test_a_local_class_or_function_named_like_the_package_is_not_it(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="def real(): ...\n",
+        readme="""
+            ```python
+            import mypkg
+
+            class mypkg:
+                fake = 1
+
+            mypkg.fake
+            ```
+            ```python
+            def mypkg(): ...
+            mypkg.other
+            ```
+        """,
+    )
+    assert ExamplesCheck(repo).run().passed
+
+
+def test_a_missing_venv_is_informational_not_a_failure(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="def real(): ...\n",
+        readme="```python\n>>> 1 + 1\n2\n```\n",
+        pyproject='[project]\nname = "mypkg"\n\n[tool.preen]\nrun_doctests = true\n',
+    )
+    result = ExamplesCheck(repo).run()
+    assert result.passed
+    assert [i.severity.value for i in result.issues] == ["info"]
+
+
+def test_an_alias_rebinding_carries_into_later_blocks(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme="""
+            ```python
+            import mypkg as mp
+            ```
+            ```python
+            from mypkg import client as mp
+            ```
+            ```python
+            mp.request()
+            ```
+        """,
+    )
+    (tmp_path / "src" / "mypkg" / "client.py").write_text("def request(): ...\n")
+    assert ExamplesCheck(repo).run().passed
+
+
+def test_an_alias_reimported_later_is_the_package_again(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme="""
+            ```python
+            from mypkg import client as mp
+            ```
+            ```python
+            import mypkg as mp
+            mp.gone()
+            ```
+        """,
+    )
+    (tmp_path / "src" / "mypkg" / "client.py").write_text("")
+    assert not ExamplesCheck(repo).run().passed
+
+
+def test_an_indented_block_is_still_read(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme="1. Try it:\n\n   ```python\n   import mypkg\n   mypkg.gone()\n   ```\n",
+    )
+    assert not ExamplesCheck(repo).run().passed
+
+
+def test_an_indented_fence_is_not_expected_output(tmp_path):
+    repo = _doctest_repo(
+        tmp_path, "1. Try it:\n\n   ```python\n   >>> 1 + 1\n   2\n   ```\n"
+    )
+    assert ExamplesCheck(repo).run().passed

@@ -69,11 +69,12 @@ def _positional_names(node: FuncDef) -> list[str]:
 def _allowed_lines(source: str) -> set[int]:
     """Find the lines a suppression comment covers.
 
-    A marker covers its own line, any comment-only lines that follow it
-    without a break, and the first line after those. That lets it open a
-    rationale of several lines and still reach the call underneath; before,
-    only the line directly above the call counted, and a marker that started
-    a longer comment was silently ignored.
+    A marker on a code line covers that line. A marker on a comment line
+    covers the comment-only lines that follow it without a break and the
+    first line after those, so it can open a rationale of several lines and
+    still reach the call underneath. Before, only the line directly above the
+    call counted, and a marker that started a longer comment was silently
+    ignored.
 
     Args:
         source: File contents.
@@ -85,6 +86,9 @@ def _allowed_lines(source: str) -> set[int]:
     covered: set[int] = set()
     for i, line in enumerate(lines, start=1):
         if ALLOW_COMMENT not in line:
+            continue
+        if not line.lstrip().startswith("#"):
+            covered.add(i)
             continue
         end = i
         while end < len(lines) and lines[end].lstrip().startswith("#"):
