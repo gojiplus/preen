@@ -709,3 +709,12 @@ def test_a_build_directory_above_the_repo_does_not_hide_docs(tmp_path):
         "```python\nimport mypkg\nmypkg.gone()\n```"
     )
     assert not ExamplesCheck(repo).run().passed
+
+
+def test_a_vendored_readme_under_docs_is_not_the_repo_s_documentation(tmp_path):
+    # docs/.venv or docs/node_modules hold other people's READMEs.
+    repo = _repo(tmp_path, init="", readme="# nothing\n")
+    vendored = tmp_path / "docs" / ".venv" / "lib" / "dep"
+    vendored.mkdir(parents=True)
+    (vendored / "README.md").write_text("```python\nimport mypkg\nmypkg.gone()\n```")
+    assert ExamplesCheck(repo).run().passed

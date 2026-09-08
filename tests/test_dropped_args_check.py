@@ -417,3 +417,21 @@ def outer(x, level=0.95):
 """,
     )
     assert found == []
+
+
+def test_a_marker_above_a_def_covers_calls_in_its_signature(tmp_path: Path) -> None:
+    found = _run(
+        tmp_path,
+        mod=INNER
+        + """
+
+# preen: allow-dropped-arg
+def outer(
+    x,
+    level=0.95,
+    y=inner(1),
+):
+    return x
+""",
+    )
+    assert found == []

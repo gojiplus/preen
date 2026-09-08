@@ -49,11 +49,13 @@ _FENCE_LINE = re.compile(r"^[ \t]*```.*$", re.MULTILINE)
 DOCTEST_TIMEOUT = 120.0
 
 
-def _documented_files(project_dir: Path) -> list[Path]:
+def _documented_files(project_dir: Path, excluded: frozenset[str]) -> list[Path]:
     """Documentation worth checking for examples.
 
     Args:
         project_dir: The repo root.
+        excluded: Directory names no check looks inside, such as ``.venv``;
+            a README vendored there belongs to someone else's package.
 
     Returns:
         README plus any markdown under docs/, skipping generated output.
@@ -61,11 +63,12 @@ def _documented_files(project_dir: Path) -> list[Path]:
     found = [p for p in (project_dir / "README.md",) if p.exists()]
     docs = project_dir / "docs"
     if docs.is_dir():
+        skip = excluded | {"_build"}
         found.extend(
             sorted(
                 p
                 for p in docs.rglob("*.md")
-                if "_build" not in p.relative_to(docs).parts
+                if not skip & set(p.relative_to(docs).parts)
             )
         )
     return found
@@ -565,7 +568,7 @@ class ExamplesCheck(Check):
         exported = exported_symbols(located[1]) if located else None
         if located and exported is not None:
             package = located[0]
-            for doc in _documented_files(self.project_dir):
+            for doc in _documented_files(self.project_dir, self.excluded_dirs()):
                 used = referenced_symbols(doc.read_text(encoding="utf-8"), package)
                 issues.extend(
                     Issue(
@@ -603,7 +606,9 @@ class ExamplesCheck(Check):
 
         root = self.project_dir.resolve()
         docs = [
-            d for d in _documented_files(root) if ">>>" in d.read_text(encoding="utf-8")
+            d
+            for d in _documented_files(root, self.excluded_dirs())
+            if ">>>" in d.read_text(encoding="utf-8")
         ]
         interpreter = next(
             (

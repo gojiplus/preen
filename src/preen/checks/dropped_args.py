@@ -207,9 +207,11 @@ def _calls_with_statement_lines(
             visit(child, lines)
 
     # Children, not just the body: a default value or a decorator is part of
-    # the function too, and a call there drops arguments like any other.
+    # the function too, and a call there drops arguments like any other. The
+    # function's own header lines cover them, so a marker above the def works.
+    header = range(_start_line(func), header_end(func) + 1)
     for child in ast.iter_child_nodes(func):
-        visit(child, None)
+        visit(child, header)
     return found
 
 

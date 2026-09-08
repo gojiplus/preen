@@ -37,7 +37,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Sixty-one defects found by sixteen rounds of independent review of
+- Sixty-three defects found by seventeen rounds of independent review of
   this release, most in the two new checks, before they reached anyone.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
@@ -64,8 +64,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `mypkg.callback = ...` as creating an attribute a later block may use, an
   alias rebound to a submodule stays rebound in later blocks, and a
   star import carries an underscore name its target's `__all__` lists. A
-  block indented inside a Markdown list is read, and a `_build` directory
-  above the repo no longer hides its docs. With doctests on, a closing fence right
+  block indented inside a Markdown list is read, a `_build` directory
+  above the repo no longer hides its docs, and a README vendored under
+  `docs/.venv` or `docs/node_modules` is not the repo's documentation. With doctests on, a closing fence right
   after expected output no longer counts as more output, indented or not, a
   relative project path resolves before the subprocess changes directory, a
   `Scripts\python.exe` venv is found, a missing venv is informational rather
@@ -84,7 +85,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   anywhere on a wrapped statement still reaches the call inside it, and a
   call in an `if`, `match` or `except` header is covered by the header's
   lines, wrapped or not, and never by the body's,
-  while a call in a decorator or default value is still seen. And `preen
+  while a call in a decorator or default value is still seen and a marker
+  above the `def` covers it. And `preen
   check` prints an informational notice on a check that passes, such as
   "doctest examples not executed", instead of hiding it behind "passed".
   A fixture parameter or comprehension variable named like the package
