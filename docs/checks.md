@@ -210,7 +210,8 @@ more than once, since a bare call cannot then be attributed with confidence. A
 `**kwargs` forward counts as passing everything. No auto-fix: forwarding the
 parameter is usually right, but sometimes the callee is meant to use its own
 default, and only the author knows which. Mark a deliberate one with `# preen:
-allow-dropped-arg` on the call or the line above it.
+allow-dropped-arg` on the call or in the comment block directly above it; the
+marker may open a rationale that runs to several lines.
 
 ### `audit`
 

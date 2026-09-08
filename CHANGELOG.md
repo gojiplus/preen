@@ -18,6 +18,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `dropped-args` honours a `# preen: allow-dropped-arg` marker that opens a
+  multi-line comment. It used to look only at the call's own lines and the
+  one directly above, so a marker followed by two lines of rationale was
+  silently ignored and the finding looked unaddressed. The marker now covers
+  the whole comment block beneath it and the first line after that.
+
 - `preen fix pytest-config` keeps a string `addopts` a string. Splitting it to
   build a list tore quoted arguments apart: gojiplus/get-weather-data writes
   `addopts = "-v --tb=short -m 'not live'"`, which became
