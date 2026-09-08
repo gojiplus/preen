@@ -528,3 +528,33 @@ def test_assigning_an_attribute_is_not_reaching_for_it():
 )
 def test_every_binding_form_shadows_the_package(block):
     assert referenced_symbols(f"```python\n{block}```", "mypkg") == set()
+
+
+def test_a_rebinding_in_the_importing_block_still_carries_forward(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme="""
+            ```python
+            import mypkg as mp
+            from mypkg import client as mp
+            ```
+            ```python
+            mp.request()
+            ```
+        """,
+    )
+    (tmp_path / "src" / "mypkg" / "client.py").write_text("def request(): ...\n")
+    assert ExamplesCheck(repo).run().passed
+
+
+def test_a_star_import_keeps_an_underscore_name_that_all_exports(tmp_path):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("from .api import *\n")
+    (pkg / "api.py").write_text(
+        "__all__ = ['_public']\ndef _public(): ...\ndef _private(): ...\n"
+    )
+    names = exported_symbols(pkg / "__init__.py") or set()
+    assert "_public" in names
+    assert "_private" not in names

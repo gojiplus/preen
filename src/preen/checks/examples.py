@@ -231,7 +231,7 @@ def referenced_symbols(text: str, package: str) -> set[str]:
             and node.value.id in live
             and not node.attr.startswith("__")
         )
-        aliases = live | imported
+        aliases = live
     return found
 
 
@@ -262,7 +262,7 @@ def _relative_module(origin: Path, level: int, module: str | None) -> Path | Non
 
 def _defined_names(
     path: Path, visiting: frozenset[Path] = frozenset()
-) -> set[str] | None:
+) -> tuple[set[str], set[str]] | None:
     """Read every name a module defines at top level, without importing it.
 
     A relative star import is followed into the sibling module; any other star
@@ -274,8 +274,9 @@ def _defined_names(
         visiting: Modules already on the star-import path, to stop a cycle.
 
     Returns:
-        The names, or None if the file cannot be parsed or its exports cannot
-        be resolved statically.
+        ``(names, declared)``: every name defined, and the subset a literal
+        ``__all__`` lists. None if the file cannot be parsed or its exports
+        cannot be resolved statically.
     """
     path = path.resolve()
     if path in visiting:
@@ -286,6 +287,7 @@ def _defined_names(
         return None
 
     names: set[str] = set()
+    declared: set[str] = set()
     stars: list[tuple[int, str | None]] = []
 
     def collect(body: list[ast.stmt]) -> None:
@@ -309,11 +311,12 @@ def _defined_names(
                     isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
                 )
                 if declares_all and isinstance(node.value, (ast.List, ast.Tuple)):
-                    names.update(
+                    declared.update(
                         e.value
                         for e in node.value.elts
                         if isinstance(e, ast.Constant) and isinstance(e.value, str)
                     )
+                    names.update(declared)
             elif isinstance(node, ast.AnnAssign):
                 names.update(_target_names(node.target))
             elif isinstance(node, ast.TypeAlias):
@@ -339,10 +342,14 @@ def _defined_names(
         )
         if pulled is None:
             return None
+        pulled_names, pulled_declared = pulled
         # Permissive on purpose: a star import honors the target's __all__,
-        # but a name outside it is still reachable as an attribute.
-        names.update(n for n in pulled if not n.startswith("_"))
-    return names
+        # but a name outside it is still reachable as an attribute. An
+        # underscore name arrives only when __all__ lists it.
+        names.update(
+            n for n in pulled_names if not n.startswith("_") or n in pulled_declared
+        )
+    return names, declared
 
 
 def exported_symbols(init: Path) -> set[str] | None:
@@ -363,9 +370,10 @@ def exported_symbols(init: Path) -> set[str] | None:
         which ``from pkg import child`` loads without ``__init__`` naming it.
         None if the exports cannot be read statically.
     """
-    names = _defined_names(init)
-    if names is None:
+    defined = _defined_names(init)
+    if defined is None:
         return None
+    names = defined[0]
     for child in init.parent.iterdir():
         if child.suffix == ".py" and child.stem != "__init__":
             names.add(child.stem)

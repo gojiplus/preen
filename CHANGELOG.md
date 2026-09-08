@@ -37,7 +37,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Thirty defects found by four rounds of independent review of this
+- Thirty-two defects found by five rounds of independent review of this
   release, most in the two new checks, before they reached anyone.
   `examples` no longer reports `from pkg import submodule` as a missing
   symbol, follows a relative `from .api import *` in `__init__`, and treats
@@ -47,7 +47,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `lambda`, `match` patterns, and local `def` or `class` statements, in both
   the package and the example, exports a `type` alias, treats
   `mypkg.callback = ...` as creating the attribute rather than reaching for
-  it, and an alias rebound to a submodule stays rebound in later blocks. A
+  it, an alias rebound to a submodule stays rebound in later blocks, and a
+  star import carries an underscore name its target's `__all__` lists. A
   block indented inside a Markdown list is read. With doctests on, a closing fence right
   after expected output no longer counts as more output, indented or not, a
   relative project path resolves before the subprocess changes directory, a
