@@ -39,7 +39,8 @@ class Setting:
         why: What goes wrong without it.
         in_addopts: True when the setting is a flag inside ``addopts``.
         synonyms: ini keys that, set to true, satisfy it as well. pytest 9
-            accepts the strict flags as settings, and ``strict`` for all.
+            accepts the strict flags as settings, and ``strict`` for all of
+            them, with the specific setting taking precedence.
     """
 
     code: str
@@ -220,21 +221,41 @@ class PytestConfigCheck(Check):
             The missing settings, in declaration order.
         """
         addopts = self._addopts(options)
-        missing = []
-        for setting in SETTINGS:
-            if setting.in_addopts:
-                # -ra, -rA and -rfE all satisfy PP308's "print a summary".
-                present = any(
-                    flag == setting.key
-                    or (setting.key == "-ra" and flag.startswith("-r"))
-                    for flag in addopts
-                )
-            else:
-                present = setting.key in options
-            present = present or any(options.get(k) is True for k in setting.synonyms)
-            if not present:
-                missing.append(setting)
-        return missing
+        return [s for s in SETTINGS if not self._satisfied(s, options, addopts)]
+
+    @staticmethod
+    def _satisfied(
+        setting: Setting, options: dict[str, Any], addopts: list[str]
+    ) -> bool:
+        """Whether a setting is configured, by its own key or a synonym.
+
+        A specific setting written as ``false`` is the opposite of configured,
+        and it beats the blanket ``strict``: pytest 9.1.1 with ``strict =
+        true`` errors on an unregistered marker, and adding ``strict_markers =
+        false`` lets it pass.
+
+        Args:
+            setting: The setting to look for.
+            options: The pytest options table.
+            addopts: ``addopts`` as a list of flags.
+
+        Returns:
+            True when the repo has it on.
+        """
+        if setting.in_addopts:
+            # -ra, -rA and -rfE all satisfy PP308's "print a summary".
+            if any(
+                flag == setting.key or (setting.key == "-ra" and flag.startswith("-r"))
+                for flag in addopts
+            ):
+                return True
+        elif setting.key in options:
+            return options[setting.key] is not False
+        specific = [k for k in setting.synonyms if k != "strict"]
+        for key in specific:
+            if key in options:
+                return options[key] is True
+        return "strict" in setting.synonyms and options.get("strict") is True
 
     def _minversion_issue(self, options: dict[str, Any], native: bool) -> list[Issue]:
         """Check PP302: a declared minimum pytest.

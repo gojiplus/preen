@@ -359,3 +359,37 @@ def test_pytest_9_ini_spellings_of_strictness_count(tmp_path: Path, extra: str) 
     )
     result = PytestConfigCheck(tmp_path).run()
     assert result.issues == []
+
+
+@pytest.mark.parametrize(
+    ("extra", "code"),
+    [
+        ("strict = true\nstrict_markers = false\n", "PP307"),
+        ("strict = true\nstrict_config = false\n", "PP306"),
+        ("strict = true\nstrict_xfail = false\n", "PP305"),
+        ("strict = true\nxfail_strict = false\n", "PP305"),
+    ],
+)
+def test_an_explicit_false_beats_strict(tmp_path: Path, extra: str, code: str) -> None:
+    """pytest gives the specific setting precedence over the blanket `strict`.
+
+    Verified by running pytest 9.1.1: `strict = true` alone errors on an
+    unregistered marker; adding `strict_markers = false` lets it pass.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mypkg"\nversion = "0.1.0"\n\n'
+        "[tool.pytest.ini_options]\n"
+        'minversion = "9"\n'
+        'testpaths = ["tests"]\n'
+        'log_level = "INFO"\n'
+        'filterwarnings = ["error"]\n'
+        'addopts = ["-ra"]\n' + extra
+    )
+    assert _codes(PytestConfigCheck(tmp_path).run()) == [code]
+
+
+def test_xfail_strict_false_is_not_configured(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        STRICT.replace("xfail_strict = true", "xfail_strict = false")
+    )
+    assert _codes(PytestConfigCheck(tmp_path).run()) == ["PP305"]
