@@ -60,15 +60,20 @@ def _blank_fences(text: str) -> str:
     """
     out = []
     open_marker: str | None = None
+    open_indent = 0
     for line in text.splitlines(keepends=True):
         stripped = line.lstrip()
+        indent = len(line) - len(stripped)
         marker = next((m for m in ("```", "~~~") if stripped.startswith(m)), None)
         if open_marker is None and marker is not None:
-            open_marker = marker
+            open_marker, open_indent = marker, indent
             line = "\n" if line.endswith("\n") else ""
         elif open_marker is not None and marker == open_marker:
-            open_marker = None
-            line = "\n" if line.endswith("\n") else ""
+            # CommonMark closes a fence indented up to three spaces further;
+            # deeper than that it is content, such as a fence in a string.
+            if indent <= open_indent + 3:
+                open_marker = None
+                line = "\n" if line.endswith("\n") else ""
         out.append(line)
     return "".join(out)
 
@@ -337,9 +342,12 @@ def referenced_symbols(text: str, package: str) -> set[str]:
                 and node.value.id in live
                 and not node.attr.startswith("__")
             ):
-                (created if isinstance(node.ctx, ast.Store) else found).add(node.attr)
+                if isinstance(node.ctx, ast.Store):
+                    created.add(node.attr)
+                elif node.attr not in created:
+                    found.add(node.attr)
         aliases = carried
-    return found - created
+    return found
 
 
 def _package_aliases(nodes: Iterable[ast.AST], package: str) -> set[str]:
@@ -431,9 +439,25 @@ def _relative_module(origin: Path, level: int, module: str | None) -> Path | Non
     return None
 
 
+def _string_elements(node: ast.List | ast.Tuple) -> set[str]:
+    """The string literals in a list or tuple display.
+
+    Args:
+        node: The display, such as the value of ``__all__``.
+
+    Returns:
+        Its string constants.
+    """
+    return {
+        e.value
+        for e in node.elts
+        if isinstance(e, ast.Constant) and isinstance(e.value, str)
+    }
+
+
 def _defined_names(
     path: Path, visiting: frozenset[Path] = frozenset()
-) -> tuple[set[str], set[str]] | None:
+) -> tuple[set[str], set[str] | None] | None:
     """Read every name a module defines at top level, without importing it.
 
     A relative star import is followed into the sibling module; any other star
@@ -445,9 +469,10 @@ def _defined_names(
         visiting: Modules already on the star-import path, to stop a cycle.
 
     Returns:
-        ``(names, declared)``: every name defined, and the subset a literal
-        ``__all__`` lists. None if the file cannot be parsed or its exports
-        cannot be resolved statically.
+        ``(names, declared)``: every name defined, and what a literal
+        ``__all__`` lists, or None for that when there is no usable one.
+        None altogether if the file cannot be parsed or its exports cannot
+        be resolved statically.
     """
     path = path.resolve()
     if path in visiting:
@@ -458,7 +483,7 @@ def _defined_names(
         return None
 
     names: set[str] = set()
-    declared: set[str] = set()
+    declared: set[str] | None = None
     stars: list[tuple[int, str | None]] = []
     # `__all__ += [...]` or `__all__.extend(...)` means the literal list is
     # not the whole story; then it is treated as if there were none.
@@ -470,6 +495,7 @@ def _defined_names(
         Args:
             body: Statements to walk.
         """
+        nonlocal declared
         for node in body:
             names.update(_walrus_names(node))
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -486,11 +512,7 @@ def _defined_names(
                     isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
                 )
                 if declares_all and isinstance(node.value, (ast.List, ast.Tuple)):
-                    declared.update(
-                        e.value
-                        for e in node.value.elts
-                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
-                    )
+                    declared = _string_elements(node.value)
                     names.update(declared)
             elif isinstance(node, ast.AugAssign):
                 names.update(_target_names(node.target))
@@ -511,11 +533,7 @@ def _defined_names(
                     and node.target.id == "__all__"
                     and isinstance(node.value, (ast.List, ast.Tuple))
                 ):
-                    declared.update(
-                        e.value
-                        for e in node.value.elts
-                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
-                    )
+                    declared = _string_elements(node.value)
                     names.update(declared)
             elif isinstance(node, ast.TypeAlias):
                 names.update(_target_names(node.name))
@@ -547,7 +565,7 @@ def _defined_names(
 
     collect(tree.body)
     if grown:
-        declared = set()
+        declared = None
     if "__getattr__" in names:
         # PEP 562: attributes are made on demand, so no static list is complete.
         return None
@@ -560,10 +578,12 @@ def _defined_names(
             return None
         pulled_names, pulled_declared = pulled
         # A star import brings in exactly what the target's __all__ lists,
-        # underscores included, or every public name when it has none.
-        names.update(
-            pulled_declared or {n for n in pulled_names if not n.startswith("_")}
-        )
+        # underscores included and an empty list included, or every public
+        # name when it has none.
+        if pulled_declared is not None:
+            names.update(pulled_declared)
+        else:
+            names.update(n for n in pulled_names if not n.startswith("_"))
     return names, declared
 
 

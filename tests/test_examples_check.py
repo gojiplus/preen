@@ -861,3 +861,34 @@ def test_an_extended_all_is_not_exhaustive(tmp_path):
     )
     names = exported_symbols(pkg / "__init__.py") or set()
     assert {"first", "second"} <= names
+
+
+def test_an_attribute_used_before_it_is_created_is_missing(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme=(
+            "```python\nimport mypkg\nmypkg.missing\n```\n"
+            "```python\nmypkg.missing = 1\n```"
+        ),
+    )
+    assert [i.description for i in _errors(ExamplesCheck(repo).run())] == [
+        "README.md shows `mypkg.missing`, which the package does not define"
+    ]
+
+
+def test_an_explicitly_empty_all_exports_nothing(tmp_path):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("from .target import *\n")
+    (pkg / "target.py").write_text("__all__ = []\nfoo = 1\n")
+    assert "foo" not in (exported_symbols(pkg / "__init__.py") or set())
+
+
+def test_a_deeply_indented_fence_lookalike_is_content(tmp_path):
+    # CommonMark: a closing fence may be indented three spaces at most.
+    repo = _doctest_repo(
+        tmp_path,
+        '```python\nexample = """\n    ```\n"""\n```\n\n```python\n>>> 1 + 1\n2\n```\n',
+    )
+    assert ExamplesCheck(repo).run().passed

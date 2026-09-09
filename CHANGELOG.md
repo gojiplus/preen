@@ -37,7 +37,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Seventy-six defects found by twenty-three rounds of independent review
+- Seventy-nine defects found by twenty-four rounds of independent review
   of this release, most in the two new checks, before they reached anyone.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
@@ -61,9 +61,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   names bound by tuple unpacking, comprehensions, imports, `except ... as`,
   `lambda`, `match` patterns, and local `def` or `class` statements, in both
   the package and the example, exports a `type` alias, treats
-  `mypkg.callback = ...` as creating an attribute a later block may use, an
+  `mypkg.callback = ...` as creating an attribute a later block may use
+  (but not an earlier one), an
   alias rebound to a submodule stays rebound in later blocks, and a
-  star import brings in exactly what its target's `__all__` lists, unless
+  star import brings in exactly what its target's `__all__` lists, nothing
+  for an empty one, unless
   that list is grown afterwards with `+=` or `extend`, when every public
   name counts. A
   block indented inside a Markdown list is read, a `_build` directory
