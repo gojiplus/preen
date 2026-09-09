@@ -28,6 +28,7 @@ binding that shadows the package name, and a name defined inside a try/except.
 """
 
 import ast
+import re
 import shutil
 import subprocess
 import tempfile
@@ -38,6 +39,10 @@ from pathlib import Path
 
 from .base import Check, CheckResult, Impact, Issue, Severity
 
+#: A list item's marker and the space after it: the item's content starts
+#: past it, and a fence may be indented three spaces past that.
+_LIST_ITEM = re.compile(r"(?:[-*+]|\d{1,9}[.)])[ \t]+")
+
 #: Info strings that mark a fenced block as Python. Bash and text blocks
 #: document something else.
 _PYTHON_INFO = {"python", "py", "pycon"}
@@ -46,11 +51,15 @@ _PYTHON_INFO = {"python", "py", "pycon"}
 def _fences(text: str) -> list[tuple[int, int | None, str]]:
     """Find every fenced block in a Markdown document.
 
-    The rules are CommonMark's: a fence is three or more backticks or tildes,
-    a closing fence uses the same character, is at least as long, is indented
-    at most three spaces further, and has nothing after it. A fence-looking
-    line inside a block that breaks any of those is content, so a Python
-    block shown inside a Markdown block is not code.
+    The rules are CommonMark's: a fence is three or more backticks or tildes
+    indented at most three spaces past its container, a closing fence uses
+    the same character, is at least as long, is indented at most three spaces
+    further, and has nothing after it. A fence-looking line inside a block
+    that breaks any of those is content, so a Python block shown inside a
+    Markdown block is not code, and one indented four spaces outside any
+    list is an indented code block showing Markdown, not a fence. A list
+    item moves the container's edge to its content, so a fence inside a
+    list still counts.
 
     Args:
         text: The document.
@@ -64,13 +73,22 @@ def _fences(text: str) -> list[tuple[int, int | None, str]]:
     open_at = -1
     open_marker = ""
     open_indent = 0
+    container = 0
     for index, line in enumerate(lines):
         stripped = line.lstrip()
         indent = len(line) - len(stripped)
         marker = _fence_marker(stripped)
+        if open_at < 0 and stripped:
+            item = _LIST_ITEM.match(stripped)
+            if item is not None:
+                container = indent + len(item.group(0))
+            elif indent < container:
+                container = 0
         if marker is None:
             continue
         if open_at < 0:
+            if indent > container + 3:
+                continue
             open_at, open_marker, open_indent = index, marker, indent
             found.append((index, None, stripped[len(marker) :].strip()))
         elif (
@@ -479,9 +497,12 @@ def _scan_scope(
             - _locally_bound(nodes, package)
             - _parameters(root)
         )
+    augmented: set[int] = set()
     for node in nodes:
         if top_down:
             live |= _package_aliases([node], package)
+        if isinstance(node, ast.AugAssign):
+            augmented.add(id(node.target))
         if isinstance(node, ast.ImportFrom) and node.module:
             if node.module == package:
                 found.update(
@@ -507,7 +528,8 @@ def _scan_scope(
         ):
             # `mypkg.callback = ...` creates the attribute rather than
             # reaching for it, and a later `mypkg.callback()` finds it.
-            if isinstance(node.ctx, ast.Store):
+            # `mypkg.n += 1` reads the attribute before it writes it.
+            if isinstance(node.ctx, ast.Store) and id(node) not in augmented:
                 created.add(node.attr)
             elif node.attr not in created:
                 found.add(node.attr)

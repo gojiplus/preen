@@ -1139,3 +1139,33 @@ def test_a_class_body_runs_top_down():
         "class Demo:\n    a = mypkg.before\n    mypkg = 1\n    b = mypkg.after\n```"
     )
     assert referenced_symbols(text, "mypkg") == {"before"}
+
+
+def test_an_indented_code_block_showing_a_fence_is_a_literal(tmp_path):
+    # Four spaces outside any list: CommonMark's indented code block.
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme=(
+            "Write this:\n\n    ```python\n    import mypkg\n"
+            "    mypkg.gone()\n    ```\n"
+        ),
+    )
+    assert ExamplesCheck(repo).run().passed
+
+
+def test_a_fence_inside_a_deeply_nested_list_is_still_a_fence(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme=(
+            "1. Outer\n   - Inner:\n\n     ```python\n     import mypkg\n"
+            "     mypkg.gone()\n     ```\n"
+        ),
+    )
+    assert not ExamplesCheck(repo).run().passed
+
+
+def test_an_augmented_assignment_reads_its_target():
+    text = "```python\nimport mypkg\nmypkg.gone += 1\nmypkg.gone\n```"
+    assert referenced_symbols(text, "mypkg") == {"gone"}

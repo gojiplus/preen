@@ -37,12 +37,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- One hundred and nine defects found by thirty-four rounds of
+- One hundred and eleven defects found by thirty-five rounds of
   independent review of this release, most in the two new checks, before
   they reached anyone. Fenced blocks are found by CommonMark's rules
   rather than a regular expression: a space before the language, a longer
-  closing fence, and a Python block shown inside a Markdown block are all
-  read as Markdown reads them. `preen fix pytest-config` on a repo with no pytest
+  closing fence, a Python block shown inside a Markdown block, and one
+  shown in an indented code block are all read as Markdown reads them. `preen fix pytest-config` on a repo with no pytest
   table writes the whole configuration, not `minversion` alone, so one fix
   does not turn an informational finding into seven blocking ones.
   `preen fix pytest-config` writes into pytest 9's native `[tool.pytest]`
@@ -114,7 +114,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scope alone, an import inside a helper function aliases the package
   there and nowhere else, a class body's names are not visible to its
   methods while a def's decorators, defaults and annotations and a
-  comprehension's first iterable run where they sit, an assignment's value, a walrus's value or a loop's iterable is read before its target is written, a write inside a helper that never runs creates nothing outside it, and
+  comprehension's first iterable run where they sit, an assignment's value, a walrus's value or a loop's iterable is read before its target is written and `+=` reads its target too, a write inside a helper that never runs creates nothing outside it, and
   a `:=` inside a comprehension binds the enclosing block. `import mypkg.sub`
   binds the package name too, and `from mypkg.missing import x` or
   `import mypkg.missing` reaches for `mypkg.missing`. Tilde fences are read
