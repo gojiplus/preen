@@ -699,3 +699,35 @@ def test_listing_two_names_for_one_advisory_marks_neither_stale(
     )
     assert result.passed
     assert not [i for i in result.issues if "match no advisory" in i.description]
+
+
+def test_null_or_string_aliases_do_not_crash(tmp_path: Path, monkeypatch) -> None:
+    """A report with aliases: null, or a bare string, still yields the finding."""
+    report = json.dumps(
+        {
+            "dependencies": [
+                {
+                    "name": "a",
+                    "version": "1",
+                    "vulns": [{"id": "PYSEC-1", "aliases": None, "fix_versions": []}],
+                },
+                {
+                    "name": "b",
+                    "version": "1",
+                    "vulns": [
+                        {"id": "PYSEC-2", "aliases": "GHSA-x", "fix_versions": []}
+                    ],
+                },
+            ],
+            "fixes": [],
+        }
+    )
+    result = _run_with_config(
+        tmp_path, monkeypatch, '[tool.preen]\naudit_ignore = ["GHSA-x"]\n', report
+    )
+    assert not result.passed
+    errors = sorted(
+        i.description.split()[0] for i in result.issues if i.severity == Severity.ERROR
+    )
+    # Neither crashes; the bare-string alias is not treated as a match either.
+    assert errors == ["a", "b"]

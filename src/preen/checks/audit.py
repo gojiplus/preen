@@ -298,7 +298,13 @@ class AuditCheck(Check):
             version = dependency.get("version", "<unknown>")
             vulns = []
             for vuln in dependency.get("vulns", []):
-                names = [vuln.get("id"), *vuln.get("aliases", [])]
+                # pip-audit emits aliases as a list, but a report is data from
+                # outside: null or a bare string must not crash the check.
+                aliases = vuln.get("aliases")
+                names = [
+                    vuln.get("id"),
+                    *(aliases if isinstance(aliases, list) else []),
+                ]
                 hits = [
                     n for n in names if isinstance(n, str) and n.lower() in ignored_ids
                 ]
