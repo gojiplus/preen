@@ -170,9 +170,13 @@ def _scope_nodes(root: ast.AST) -> list[ast.AST]:
         The nodes, root excluded.
     """
     out: list[ast.AST] = []
+    # A comprehension's first iterable runs where the comprehension sits.
+    outside = {id(node) for node in _scope_header(root)}
     pending = list(reversed(_scope_body(root)))
     while pending:
         node = pending.pop()
+        if id(node) in outside:
+            continue
         out.append(node)
         if isinstance(node, _SCOPES):
             # Its decorators, defaults, annotations and bases run out here,
@@ -208,9 +212,11 @@ def _scope_header(node: ast.AST) -> list[ast.AST]:
 
     Returns:
         Decorators, parameter defaults and annotations, the return
-        annotation, and a class's bases and keywords. A comprehension has
-        none: it is entered whole.
+        annotation, a class's bases and keywords, and a comprehension's
+        first iterable.
     """
+    if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+        return [node.generators[0].iter]
     if isinstance(node, ast.ClassDef):
         return [*node.decorator_list, *node.bases, *(k.value for k in node.keywords)]
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
@@ -732,8 +738,16 @@ def exported_symbols(init: Path) -> set[str] | None:
         return None
     names = defined[0]
     for child in init.parent.iterdir():
-        if child.suffix == ".py" and child.stem != "__init__":
-            names.add(child.stem)
+        # A module is a .py file or a compiled extension such as
+        # `_fast.cpython-313-darwin.so`; the import name is up to the first dot.
+        module = child.name.split(".")[0]
+        if (
+            child.is_file()
+            and child.suffix in {".py", ".so", ".pyd"}
+            and module.isidentifier()
+            and module != "__init__"
+        ):
+            names.add(module)
         elif child.is_dir() and child.name.isidentifier():
             # With or without __init__.py: a bare directory is a namespace
             # package, and `from pkg import child` loads it.

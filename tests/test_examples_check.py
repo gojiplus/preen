@@ -985,3 +985,19 @@ def test_a_function_header_evaluates_in_the_enclosing_scope():
         "    def example(self, value=mypkg.option):\n        return mypkg.inside\n```"
     )
     assert referenced_symbols(text, "mypkg") == {"inside"}
+
+
+def test_a_compiled_extension_module_is_an_importable_child(tmp_path):
+    repo = _repo(tmp_path, init="", readme="```python\nfrom mypkg import _fast\n```")
+    (tmp_path / "src" / "mypkg" / "_fast.cpython-313-darwin.so").write_bytes(b"")
+    assert ExamplesCheck(repo).run().passed
+
+
+def test_a_comprehension_s_first_iterable_runs_in_the_enclosing_scope():
+    text = (
+        "```python\nimport mypkg\nfrom types import SimpleNamespace\n"
+        "class Demo:\n    mypkg = SimpleNamespace(items=[1, 2])\n"
+        "    values = [x for x in mypkg.items]\n"
+        "    later = [mypkg.inner for x in [1]]\n```"
+    )
+    assert referenced_symbols(text, "mypkg") == {"inner"}
