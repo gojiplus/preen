@@ -1021,3 +1021,31 @@ def test_a_function_scope_binding_applies_throughout_the_function():
     # Inside a def, a name assigned anywhere is local everywhere in it.
     text = "```python\nimport mypkg\ndef f():\n    mypkg.early\n    mypkg = 1\n```"
     assert referenced_symbols(text, "mypkg") == set()
+
+
+def test_a_fence_string_inside_a_block_does_not_end_it(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme='```python\nimport mypkg\nmarker = "```"\nmypkg.gone()\n```\n',
+    )
+    assert not ExamplesCheck(repo).run().passed
+
+
+def test_a_four_backtick_block_may_print_three(tmp_path):
+    repo = _doctest_repo(tmp_path, '````python\n>>> print("```")\n```\n````\n')
+    assert ExamplesCheck(repo).run().passed
+
+
+def test_an_assignment_s_value_is_read_before_the_alias_is_rebound():
+    text = "```python\nimport mypkg\nmypkg = mypkg.removed()\n```"
+    assert referenced_symbols(text, "mypkg") == {"removed"}
+
+
+def test_a_write_inside_an_uncalled_helper_does_not_create_the_attribute():
+    text = (
+        "```python\nimport mypkg\n"
+        "def setup():\n    mypkg.removed = lambda: 1\n"
+        "mypkg.removed()\n```"
+    )
+    assert referenced_symbols(text, "mypkg") == {"removed"}

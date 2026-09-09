@@ -209,13 +209,15 @@ class PytestConfigCheck(Check):
         except (OSError, tomllib.TOMLDecodeError):
             return None, False
 
-        legacy = data.get("tool", {}).get("pytest", {}).get("ini_options")
-        if isinstance(legacy, dict):
-            return legacy, False
-        native = data.get("tool", {}).get("pytest")
-        if isinstance(native, dict):
-            return native, True
-        return None, False
+        pytest_table = data.get("tool", {}).get("pytest")
+        if not isinstance(pytest_table, dict):
+            return None, False
+        if "ini_options" in pytest_table:
+            # The legacy layout, even when the value is not a table: the fix
+            # then writes a real one over it.
+            legacy = pytest_table["ini_options"]
+            return (legacy if isinstance(legacy, dict) else {}), False
+        return pytest_table, True
 
     def _addopts(self, options: dict[str, Any]) -> list[str]:
         """Return ``addopts`` as a list of flags.
@@ -377,7 +379,7 @@ class PytestConfigCheck(Check):
                 ),
                 gating=False,
             )
-            issue.proposed_fix = self._write_fix([], minversion=True)
+            issue.proposed_fix = self._write_fix([], minversion=True, native=native)
             return CheckResult(check=self.name, passed=True, issues=[issue])
 
         missing = self._missing(options, native)
@@ -399,18 +401,23 @@ class PytestConfigCheck(Check):
         ]
         if issues:
             issues[0].proposed_fix = self._write_fix(
-                missing, minversion=bool(version_issues)
+                missing, minversion=bool(version_issues), native=native
             )
 
         blocking = [issue for issue in issues if issue.severity != Severity.INFO]
         return CheckResult(check=self.name, passed=not blocking, issues=issues)
 
-    def _write_fix(self, missing: list[Setting], minversion: bool) -> Fix:
+    def _write_fix(
+        self, missing: list[Setting], minversion: bool, native: bool = False
+    ) -> Fix:
         """Build a fix that writes the missing settings into pyproject.toml.
 
         Args:
             missing: Settings to add.
             minversion: Whether to write ``minversion`` too.
+            native: Whether the repo uses pytest 9's ``[tool.pytest]`` table,
+                which must then take the settings itself: pytest refuses a
+                file that has both it and ``[tool.pytest.ini_options]``.
 
         Returns:
             The fix.
@@ -418,7 +425,8 @@ class PytestConfigCheck(Check):
         wanted = [setting for setting in missing if not setting.in_addopts]
         flags = [setting.key for setting in missing if setting.in_addopts]
 
-        lines = [f'minversion = "{self.MIN_VERSIONS[False]}"'] if minversion else []
+        floor = self.MIN_VERSIONS[native]
+        lines = [f'minversion = "{floor}"'] if minversion else []
         # tomlkit.item renders TOML rather than Python: `true`, not `True`.
         lines += [
             f"{setting.key} = {tomlkit.item(setting.value).as_string()}"
@@ -432,11 +440,17 @@ class PytestConfigCheck(Check):
             pyproject = self.project_dir / "pyproject.toml"
             document = tomlkit.parse(pyproject.read_text(encoding="utf-8"))
             tool = document.setdefault("tool", tomlkit.table(is_super_table=True))
-            pytest_table = tool.setdefault("pytest", tomlkit.table(is_super_table=True))
-            current = pytest_table.setdefault("ini_options", tomlkit.table())
+            if native:
+                pytest_table, key = tool, "pytest"
+            else:
+                pytest_table = tool.setdefault(
+                    "pytest", tomlkit.table(is_super_table=True)
+                )
+                key = "ini_options"
+            current = pytest_table.setdefault(key, tomlkit.table())
             if not isinstance(current, MutableMapping):
                 # `ini_options = "invalid"`: pytest ignores it; write a real one.
-                current = pytest_table["ini_options"] = tomlkit.table()
+                current = pytest_table[key] = tomlkit.table()
             rebuilt: Table | None = None
             trailing: list[Comment | Whitespace] = []
             if isinstance(current, Table) and _ends_with_decoration(current):
@@ -447,7 +461,7 @@ class PytestConfigCheck(Check):
             options = current if rebuilt is None else rebuilt
 
             if minversion:
-                options["minversion"] = str(self.MIN_VERSIONS[False])
+                options["minversion"] = str(floor)
             for setting in wanted:
                 options[setting.key] = setting.value
                 # A canonical spelling already present would beat the key
@@ -472,7 +486,7 @@ class PytestConfigCheck(Check):
             if rebuilt is not None:
                 for item in trailing:
                     rebuilt.add(item)
-                pytest_table["ini_options"] = rebuilt
+                pytest_table[key] = rebuilt
             pyproject.write_text(tomlkit.dumps(document), encoding="utf-8")
 
         return Fix(

@@ -41,7 +41,10 @@ from .base import Check, CheckResult, Impact, Issue, Severity
 
 #: Fenced blocks worth reading, backtick or tilde. Bash and text blocks
 #: document something else.
-_PY_BLOCK = re.compile(r"(```|~~~)(?:python|py|pycon)\n(.*?)\1", re.DOTALL)
+_PY_BLOCK = re.compile(
+    r"^[ \t]*(`{3,}|~{3,})(?:python|py|pycon)[ \t]*\n(.*?)^[ \t]*\1[ \t]*$",
+    re.DOTALL | re.MULTILINE,
+)
 
 
 def _blank_fences(text: str) -> str:
@@ -64,18 +67,40 @@ def _blank_fences(text: str) -> str:
     for line in text.splitlines(keepends=True):
         stripped = line.lstrip()
         indent = len(line) - len(stripped)
-        marker = next((m for m in ("```", "~~~") if stripped.startswith(m)), None)
+        marker = _fence_marker(stripped)
         if open_marker is None and marker is not None:
             open_marker, open_indent = marker, indent
             line = "\n" if line.endswith("\n") else ""
-        elif open_marker is not None and marker == open_marker:
-            # CommonMark closes a fence indented up to three spaces further;
-            # deeper than that it is content, such as a fence in a string.
-            if indent <= open_indent + 3:
-                open_marker = None
-                line = "\n" if line.endswith("\n") else ""
+        elif (
+            open_marker is not None
+            and marker is not None
+            and marker[0] == open_marker[0]
+            and len(marker) >= len(open_marker)
+            # CommonMark closes a fence indented up to three spaces further
+            # and at least as long as the opening; anything else is content,
+            # such as a fence in a string or a shorter fence being shown.
+            and indent <= open_indent + 3
+        ):
+            open_marker = None
+            line = "\n" if line.endswith("\n") else ""
         out.append(line)
     return "".join(out)
+
+
+def _fence_marker(stripped: str) -> str | None:
+    """The run of backticks or tildes a line opens with, if any.
+
+    Args:
+        stripped: The line without its leading whitespace.
+
+    Returns:
+        The run, three characters or longer, or None.
+    """
+    for char in "`~":
+        run = len(stripped) - len(stripped.lstrip(char))
+        if run >= 3:
+            return char * run
+    return None
 
 
 #: Seconds one document's doctests may take. Module-level so a test can lower it.
@@ -141,6 +166,20 @@ def _target_names(target: ast.expr) -> set[str]:
         return set().union(*(_target_names(e) for e in target.elts))
     return set()
 
+
+#: Statements and expressions whose bindings arrive through a target Name.
+_TARGET_BINDERS = (
+    ast.Assign,
+    ast.AnnAssign,
+    ast.AugAssign,
+    ast.NamedExpr,
+    ast.For,
+    ast.AsyncFor,
+    ast.With,
+    ast.AsyncWith,
+    ast.TypeAlias,
+    ast.comprehension,
+)
 
 #: Nodes that open a scope of their own.
 _SCOPES = (
@@ -428,7 +467,15 @@ def _scan_scope(
             # A method does not see its class's namespace; it sees what the
             # class saw. Anything else nested sees this scope.
             outer = inherited if isinstance(root, ast.ClassDef) else live
-            _scan_scope(node, outer, package, found, created)
+            # A def or lambda body runs later, if at all, so what it writes
+            # is not there yet for the code around it; a class body or
+            # comprehension runs now.
+            deferred = isinstance(
+                node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+            )
+            _scan_scope(
+                node, outer, package, found, set(created) if deferred else created
+            )
         if top_down:
             # A binding takes effect once it runs: a Name in Store context
             # comes after the value it is assigned, a def or class after
@@ -437,7 +484,9 @@ def _scan_scope(
                 node.ctx, (ast.Store, ast.Del)
             ):
                 live.discard(node.id)
-            else:
+            elif not isinstance(node, _TARGET_BINDERS):
+                # Anything that binds through a target is handled at that
+                # target's Name, after its value; the rest binds here.
                 live -= _locally_bound([node], package)
     return live
 

@@ -104,7 +104,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scope alone, an import inside a helper function aliases the package
   there and nowhere else, a class body's names are not visible to its
   methods while a def's decorators, defaults and annotations and a
-  comprehension's first iterable run where they sit, an assignment's value is read before its target is written, and
+  comprehension's first iterable run where they sit, an assignment's value is read before its target is written, a write inside a helper that never runs creates nothing outside it, and
   a `:=` inside a comprehension binds the enclosing block. `import mypkg.sub`
   binds the package name too, and `from mypkg.missing import x` or
   `import mypkg.missing` reaches for `mypkg.missing`. Tilde fences are read

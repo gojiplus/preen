@@ -503,3 +503,21 @@ def test_under_pytest_9_an_explicit_false_beats_the_strict_flag(tmp_path: Path) 
         "strict_markers = false\n"
     )
     assert _codes(PytestConfigCheck(tmp_path).run()) == ["PP307"]
+
+
+def test_fix_writes_into_the_native_pytest_9_table(tmp_path: Path) -> None:
+    """pytest refuses a file with both [tool.pytest] and ini_options."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.0.0"\n\n'
+        "[tool.pytest]\n"
+        'minversion = "9.0"\n'
+        'addopts = ["-ra"]\n'
+    )
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+
+    data = tomllib.loads((tmp_path / "pyproject.toml").read_text())
+    assert "ini_options" not in data["tool"]["pytest"]
+    assert data["tool"]["pytest"]["xfail_strict"] is True
+    assert PytestConfigCheck(tmp_path).run().issues == []
