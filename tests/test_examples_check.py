@@ -1178,3 +1178,11 @@ def test_a_static_finding_is_advisory_in_this_release(tmp_path):
     result = ExamplesCheck(repo).run()
     assert not result.passed
     assert [i.impact for i in result.issues] == [Impact.INFORMATIONAL]
+
+
+def test_a_type_parameter_bound_reaches_for_the_package():
+    text = (
+        "```python\nimport mypkg\n"
+        "def func[T: mypkg.Bound](x: T) -> T:\n    return x\n```"
+    )
+    assert referenced_symbols(text, "mypkg") == {"Bound"}

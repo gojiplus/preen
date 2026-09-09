@@ -40,7 +40,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- One hundred and eleven defects found by thirty-five rounds of
+- One hundred and twelve defects found by thirty-six rounds of
   independent review of this release, most in the two new checks, before
   they reached anyone. Fenced blocks are found by CommonMark's rules
   rather than a regular expression: a space before the language, a longer
@@ -116,7 +116,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   or comprehension variable named like the package shadows it inside that
   scope alone, an import inside a helper function aliases the package
   there and nowhere else, a class body's names are not visible to its
-  methods while a def's decorators, defaults and annotations and a
+  methods while a def's decorators, defaults, annotations, type-parameter
+  bounds and a
   comprehension's first iterable run where they sit, an assignment's value, a walrus's value or a loop's iterable is read before its target is written and `+=` reads its target too, a write inside a helper that never runs creates nothing outside it, and
   a `:=` inside a comprehension binds the enclosing block. `import mypkg.sub`
   binds the package name too, and `from mypkg.missing import x` or

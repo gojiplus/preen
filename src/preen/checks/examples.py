@@ -316,7 +316,12 @@ def _scope_header(node: ast.AST) -> list[ast.AST]:
     if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
         return [node.generators[0].iter]
     if isinstance(node, ast.ClassDef):
-        return [*node.decorator_list, *node.bases, *(k.value for k in node.keywords)]
+        return [
+            *node.decorator_list,
+            *node.bases,
+            *(k.value for k in node.keywords),
+            *_type_parameter_parts(node),
+        ]
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
         args = node.args
         header: list[ast.AST] = [
@@ -334,8 +339,27 @@ def _scope_header(node: ast.AST) -> list[ast.AST]:
         returns = getattr(node, "returns", None)
         if returns is not None:
             header.append(returns)
+        header.extend(_type_parameter_parts(node))
         return header
     return []
+
+
+def _type_parameter_parts(node: ast.AST) -> list[ast.AST]:
+    """The bounds and defaults of a def's or class's PEP 695 type parameters.
+
+    Args:
+        node: A def or class.
+
+    Returns:
+        The expressions, which evaluate where the def sits.
+    """
+    parts: list[ast.AST] = []
+    for param in getattr(node, "type_params", []):
+        for attr in ("bound", "default_value"):
+            value = getattr(param, attr, None)
+            if value is not None:
+                parts.append(value)
+    return parts
 
 
 def _children_in_evaluation_order(node: ast.AST) -> list[ast.AST]:
