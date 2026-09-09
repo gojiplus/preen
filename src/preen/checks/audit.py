@@ -181,11 +181,19 @@ class AuditCheck(Check):
         if not isinstance(dependencies, list):
             return self._skip("pip-audit could not complete; skipping audit.")
 
-        ignored_ids = set(PreenConfig.from_pyproject(self.project_dir).audit_ignore)
-        vuln_issues, ignored = self._issues_from_dependencies(dependencies, ignored_ids)
+        configured = PreenConfig.from_pyproject(self.project_dir).audit_ignore
+        vuln_issues, ignored, matched = self._issues_from_dependencies(
+            dependencies, {i.lower() for i in configured}
+        )
         issues = list(vuln_issues)
         if ignored:
             issues.append(self._ignored_issue(ignored))
+        # An entry that matched nothing is the signal the comment next to it
+        # promised: upstream shipped a fix, or the package left the lock, and
+        # the exception can go.
+        stale = sorted(i for i in configured if i.lower() not in matched)
+        if stale:
+            issues.append(self._stale_ignore_issue(stale))
         if dropped:
             issues.append(self._dropped_issue(dropped))
 
@@ -259,26 +267,29 @@ class AuditCheck(Check):
 
     def _issues_from_dependencies(
         self, dependencies: list, ignored_ids: frozenset[str] | set[str] = frozenset()
-    ) -> tuple[list[Issue], list[str]]:
+    ) -> tuple[list[Issue], list[str], set[str]]:
         """Build an Issue per vulnerable dependency from a pip-audit report.
 
         Args:
             dependencies: The `"dependencies"` list from a pip-audit JSON
                 report. Non-dict entries are skipped rather than raising.
-            ignored_ids: Advisory ids from ``[tool.preen] audit_ignore``.
-                A vulnerability whose primary id or any alias is listed does
-                not produce an Issue; it is reported back so the caller can
-                note it. pip-audit names one advisory several ways, PYSEC as
-                the id with the GHSA and CVE in ``aliases`` for the same
-                finding, and a repo will write down whichever it read.
+            ignored_ids: Advisory ids from ``[tool.preen] audit_ignore``,
+                lower-cased. A vulnerability whose primary id or any alias is
+                listed does not produce an Issue; it is reported back so the
+                caller can note it. pip-audit names one advisory several
+                ways, PYSEC as the id with the GHSA and CVE in ``aliases``
+                for the same finding, and a repo will write down whichever
+                it read, in whatever case it read it.
 
         Returns:
-            One Issue per vulnerable dependency, and the list of
+            One Issue per vulnerable dependency; the list of
             ``"<package> <version>: <id>"`` strings that were ignored, where
-            the id is the one the configuration matched.
+            the id is the one the configuration matched; and the lower-cased
+            configured ids that matched something.
         """
         issues = []
         ignored: list[str] = []
+        matched_ids: set[str] = set()
         for dependency in dependencies:
             if not isinstance(dependency, dict):
                 continue
@@ -288,9 +299,17 @@ class AuditCheck(Check):
             vulns = []
             for vuln in dependency.get("vulns", []):
                 names = [vuln.get("id"), *vuln.get("aliases", [])]
-                matched = next((n for n in names if n in ignored_ids), None)
+                matched = next(
+                    (
+                        n
+                        for n in names
+                        if isinstance(n, str) and n.lower() in ignored_ids
+                    ),
+                    None,
+                )
                 if matched is not None:
                     ignored.append(f"{name} {version}: {matched}")
+                    matched_ids.add(matched.lower())
                 else:
                     vulns.append(vuln)
             if not vulns:
@@ -301,7 +320,9 @@ class AuditCheck(Check):
                 {fv for vuln in vulns for fv in vuln.get("fix_versions", [])}
             )
 
-            description = f"{name} {version} has known vulnerabilities: {vuln_ids}"
+            description = f"{name} {version} has known vulnerabilities"
+            if vuln_ids:
+                description += f": {vuln_ids}"
             if fix_versions:
                 description += f" (fix available: {', '.join(fix_versions)})"
 
@@ -319,7 +340,24 @@ class AuditCheck(Check):
                     ),
                 )
             )
-        return issues, ignored
+        return issues, ignored, matched_ids
+
+    def _stale_ignore_issue(self, entries: list[str]) -> Issue:
+        """Build the info issue naming audit_ignore entries that matched nothing."""
+        return Issue(
+            check=self.name,
+            severity=Severity.INFO,
+            description=(
+                "audit_ignore entries that match no advisory in the lock: "
+                f"{', '.join(entries)}"
+            ),
+            impact=Impact.INFORMATIONAL,
+            explanation=(
+                "Usually upstream shipped a fix and the lock moved past the "
+                "advisory, or the package left the lock. Remove the entry so "
+                "the check gates on that advisory again if it returns."
+            ),
+        )
 
     def _ignored_issue(self, entries: list[str]) -> Issue:
         """Build the info issue naming advisories ignored by configuration."""

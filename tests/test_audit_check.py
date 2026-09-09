@@ -599,3 +599,71 @@ def test_audit_ignore_matches_an_alias(tmp_path: Path, monkeypatch) -> None:
     # Reported under the name the configuration used, so the reader can find
     # the entry to remove later.
     assert "nltk 3.10.3: GHSA-8mgp-746c-j5xp" in result.issues[0].description
+
+
+def _run_with_config(tmp_path: Path, monkeypatch, config: str, report: str):
+    _write_lock(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(config)
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:2] == ["uv", "export"]:
+            return _completed(cmd, returncode=0, stdout="pkg==1.0\n")
+        if cmd == ["pip-audit", "--version"]:
+            return _completed(cmd, returncode=0, stdout="pip-audit 2.7\n")
+        if cmd[0] == "pip-audit":
+            return _completed(cmd, returncode=1, stdout=report)
+        raise AssertionError(f"unexpected call: {cmd}")
+
+    monkeypatch.setattr("preen.checks.audit.subprocess.run", fake_run)
+    return AuditCheck(tmp_path).run()
+
+
+def test_audit_ignore_is_case_insensitive(tmp_path: Path, monkeypatch) -> None:
+    """A repo that typed the id in lower case still gets its exception."""
+    result = _run_with_config(
+        tmp_path,
+        monkeypatch,
+        '[tool.preen]\naudit_ignore = ["pysec-2023-0001"]\n',
+        VULN_REPORT,
+    )
+    errors = [i for i in result.issues if i.severity == Severity.ERROR]
+    assert [i.description.split()[0] for i in errors] == ["jinja2"]
+    infos = [i for i in result.issues if i.severity == Severity.INFO]
+    assert any("urllib3 1.26.0: PYSEC-2023-0001" in i.description for i in infos)
+
+
+def test_audit_ignore_reports_entries_that_match_nothing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The signal that upstream shipped a fix and the entry can go."""
+    result = _run_with_config(
+        tmp_path,
+        monkeypatch,
+        '[tool.preen]\naudit_ignore = ["GHSA-abcd-1234", "GHSA-gone-0000"]\n',
+        VULN_REPORT,
+    )
+    stale = [i for i in result.issues if "match no advisory" in i.description]
+    assert len(stale) == 1
+    assert "GHSA-gone-0000" in stale[0].description
+    assert "GHSA-abcd-1234" not in stale[0].description
+    assert stale[0].severity == Severity.INFO
+    # Still failing on urllib3 and on jinja2's other, unignored advisory.
+    assert not result.passed
+
+
+def test_vulnerability_without_an_id_still_reports(tmp_path: Path, monkeypatch) -> None:
+    """A report entry with no id is neither dropped nor printed with a dangling colon."""
+    report = json.dumps(
+        {
+            "dependencies": [
+                {"name": "pkg", "version": "1.0", "vulns": [{"fix_versions": ["1.1"]}]}
+            ],
+            "fixes": [],
+        }
+    )
+    result = _run_with_config(tmp_path, monkeypatch, "[tool.preen]\n", report)
+    assert not result.passed
+    assert (
+        result.issues[0].description
+        == "pkg 1.0 has known vulnerabilities (fix available: 1.1)"
+    )
