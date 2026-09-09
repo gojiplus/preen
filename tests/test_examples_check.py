@@ -843,3 +843,21 @@ def test_a_star_import_honors_the_target_s_all(tmp_path):
     names = exported_symbols(pkg / "__init__.py") or set()
     assert "foo" in names
     assert "bar" not in names
+
+
+def test_only_the_block_s_own_fences_are_blanked_for_doctest(tmp_path):
+    # An expected-output line that happens to look like a fence is output.
+    repo = _doctest_repo(tmp_path, '~~~pycon\n>>> print("```")\n```\n~~~\n')
+    assert ExamplesCheck(repo).run().passed
+
+
+def test_an_extended_all_is_not_exhaustive(tmp_path):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("from .core import *\n")
+    (pkg / "core.py").write_text(
+        "__all__ = ['first']\n__all__ += ['second']\n"
+        "def first(): ...\ndef second(): ...\n"
+    )
+    names = exported_symbols(pkg / "__init__.py") or set()
+    assert {"first", "second"} <= names

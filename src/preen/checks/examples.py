@@ -43,9 +43,35 @@ from .base import Check, CheckResult, Impact, Issue, Severity
 #: document something else.
 _PY_BLOCK = re.compile(r"(```|~~~)(?:python|py|pycon)\n(.*?)\1", re.DOTALL)
 
-#: A fence line. Blanked before doctest reads a document, so expected output
-#: ends at the fence instead of swallowing it.
-_FENCE_LINE = re.compile(r"^[ \t]*(?:```|~~~).*$", re.MULTILINE)
+
+def _blank_fences(text: str) -> str:
+    """Blank the lines that open and close each fenced block.
+
+    doctest reads expected output up to a blank line or the next prompt, so
+    a closing fence straight after the output would become part of what it
+    expected. Only a block's own two fences go; a line inside a tilde block
+    that merely looks like a backtick fence is content, and stays.
+
+    Args:
+        text: A Markdown document.
+
+    Returns:
+        The document with fence lines emptied, line count unchanged.
+    """
+    out = []
+    open_marker: str | None = None
+    for line in text.splitlines(keepends=True):
+        stripped = line.lstrip()
+        marker = next((m for m in ("```", "~~~") if stripped.startswith(m)), None)
+        if open_marker is None and marker is not None:
+            open_marker = marker
+            line = "\n" if line.endswith("\n") else ""
+        elif open_marker is not None and marker == open_marker:
+            open_marker = None
+            line = "\n" if line.endswith("\n") else ""
+        out.append(line)
+    return "".join(out)
+
 
 #: Seconds one document's doctests may take. Module-level so a test can lower it.
 DOCTEST_TIMEOUT = 120.0
@@ -434,6 +460,9 @@ def _defined_names(
     names: set[str] = set()
     declared: set[str] = set()
     stars: list[tuple[int, str | None]] = []
+    # `__all__ += [...]` or `__all__.extend(...)` means the literal list is
+    # not the whole story; then it is treated as if there were none.
+    grown: list[bool] = []
 
     def collect(body: list[ast.stmt]) -> None:
         """Gather names from a statement list, descending into try and if.
@@ -463,6 +492,18 @@ def _defined_names(
                         if isinstance(e, ast.Constant) and isinstance(e.value, str)
                     )
                     names.update(declared)
+            elif isinstance(node, ast.AugAssign):
+                names.update(_target_names(node.target))
+                if isinstance(node.target, ast.Name) and node.target.id == "__all__":
+                    grown.append(True)
+            elif (
+                isinstance(node, ast.Expr)
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Attribute)
+                and isinstance(node.value.func.value, ast.Name)
+                and node.value.func.value.id == "__all__"
+            ):
+                grown.append(True)
             elif isinstance(node, ast.AnnAssign):
                 names.update(_target_names(node.target))
                 if (
@@ -505,6 +546,8 @@ def _defined_names(
                     collect(case.body)
 
     collect(tree.body)
+    if grown:
+        declared = set()
     if "__getattr__" in names:
         # PEP 562: attributes are made on demand, so no static list is complete.
         return None
@@ -717,7 +760,7 @@ class ExamplesCheck(Check):
         try:
             copy = scratch / doc.name
             copy.write_text(
-                _FENCE_LINE.sub("", doc.read_text(encoding="utf-8")), encoding="utf-8"
+                _blank_fences(doc.read_text(encoding="utf-8")), encoding="utf-8"
             )
             try:
                 done = subprocess.run(

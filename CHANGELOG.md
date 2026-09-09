@@ -37,7 +37,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Seventy-four defects found by twenty-two rounds of independent review
+- Seventy-six defects found by twenty-three rounds of independent review
   of this release, most in the two new checks, before they reached anyone.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
@@ -63,11 +63,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the package and the example, exports a `type` alias, treats
   `mypkg.callback = ...` as creating an attribute a later block may use, an
   alias rebound to a submodule stays rebound in later blocks, and a
-  star import brings in exactly what its target's `__all__` lists. A
+  star import brings in exactly what its target's `__all__` lists, unless
+  that list is grown afterwards with `+=` or `extend`, when every public
+  name counts. A
   block indented inside a Markdown list is read, a `_build` directory
   above the repo no longer hides its docs, and a README vendored under
   `docs/.venv` or `docs/node_modules` is not the repo's documentation. With doctests on, a closing fence right
-  after expected output no longer counts as more output, indented or not, a
+  after expected output no longer counts as more output, indented or not,
+  while a line of output that merely looks like a fence is left alone, a
   relative project path resolves before the subprocess changes directory, a
   `Scripts\python.exe` venv is found, a missing venv is informational rather
   than a failure, examples run even when there is no single package to
