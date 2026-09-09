@@ -457,11 +457,9 @@ def _find_with_block(lines: list[str]) -> _WithBlock | None:
         # annotated both of its overrides and kept neither: `python-versions`
         # went, and `coverage-floor: 70` was replaced with 0.
         if stripped.startswith("#"):
-            # Only while still inside the block; a comment at or below the
-            # block's own indent belongs to whatever follows it.
-            if len(line) - len(line.lstrip()) > len(block.indent):
-                continue
-            break
+            # Wherever it sits: a comment's indent means nothing in YAML, so
+            # the next real line decides whether the block has ended.
+            continue
         entry = _WITH_INPUT_RE.match(line)
         if entry is None or len(entry.group(1)) <= len(block.indent):
             break
@@ -1280,9 +1278,10 @@ def _assert_release_migratable(repo: Path) -> None:
         project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get(
             "project", {}
         )
-    except (OSError, tomllib.TOMLDecodeError):
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         return
-    if "version" in project:
+    if not isinstance(project, dict) or "version" in project:
+        # A malformed [project] is the metadata check's business.
         return
     _version_from_latest_tag(repo)
 

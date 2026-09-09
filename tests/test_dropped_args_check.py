@@ -278,3 +278,201 @@ def outer(x, level=0.95):
     )
 
     assert len(found) == 1
+
+
+def test_a_trailing_marker_covers_only_its_own_line(tmp_path: Path) -> None:
+    """A marker after code on one line says nothing about the next line."""
+    found = _run(
+        tmp_path,
+        mod="""
+def inner(x, level=0.95):
+    return x * level
+
+
+def outer(x, level=0.95):
+    a = inner(x)  # preen: allow-dropped-arg
+    b = inner(x)
+    return a + b
+""",
+    )
+
+    assert len(found) == 1
+
+
+def test_a_marker_on_the_first_line_of_a_statement_covers_the_call(
+    tmp_path: Path,
+) -> None:
+    """The call starts a line below the marker, but it is the same statement."""
+    found = _run(
+        tmp_path,
+        mod="""
+def inner(x, level=0.95):
+    return x * level
+
+
+def outer(x, level=0.95):
+    result = (  # preen: allow-dropped-arg
+        inner(x)
+    )
+    return result
+""",
+    )
+
+    assert found == []
+
+
+def test_a_marker_on_a_compound_header_does_not_cover_its_body(tmp_path: Path) -> None:
+    found = _run(
+        tmp_path,
+        mod="""
+def inner(x, level=0.95):
+    return x * level
+
+
+def outer(x, level=0.95):
+    if x:  # preen: allow-dropped-arg
+        return inner(x)
+    return 0
+""",
+    )
+
+    assert len(found) == 1
+
+
+INNER = """
+def inner(x, level=0.95):
+    return x * level
+"""
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        # A comment marker inside the body covers the return, not the header.
+        (
+            "    if inner(x):\n"
+            "        # preen: allow-dropped-arg\n"
+            "        return inner(x)\n"
+            "    return 0\n",
+            1,
+        ),
+        # A one-line compound statement: the marker covers the call on it.
+        ("    if inner(x): pass  # preen: allow-dropped-arg\n    return 0\n", 0),
+        # match has cases, not a body; a marker on its subject line covers it.
+        (
+            "    match inner(x):  # preen: allow-dropped-arg\n"
+            "        case _:\n"
+            "            return inner(x)\n",
+            1,
+        ),
+        # An except header is not a statement; its own marker still counts.
+        (
+            "    try:\n"
+            "        return 0\n"
+            "    except inner(x):  # preen: allow-dropped-arg\n"
+            "        return 1\n",
+            0,
+        ),
+    ],
+)
+def test_calls_in_compound_headers_are_covered_only_by_their_own_lines(
+    tmp_path: Path, body: str, expected: int
+) -> None:
+    found = _run(tmp_path, mod=INNER + "\n\ndef outer(x, level=0.95):\n" + body)
+    assert len(found) == expected
+
+
+def test_calls_in_defaults_and_decorators_are_still_seen(tmp_path: Path) -> None:
+    """The function's signature is part of the function, not just its body."""
+    found = _run(
+        tmp_path,
+        mod=INNER
+        + """
+
+def deco(value):
+    return lambda f: f
+
+
+@deco(inner(1))
+def outer(x, level=0.95, y=inner(2)):
+    return x
+""",
+    )
+    assert len(found) == 2
+
+
+def test_a_marker_on_a_wrapped_header_covers_the_call_in_it(tmp_path: Path) -> None:
+    """The header of a compound statement may wrap; its marker still counts."""
+    found = _run(
+        tmp_path,
+        mod=INNER
+        + """
+
+def outer(x, level=0.95):
+    if (  # preen: allow-dropped-arg
+        inner(x)
+    ):
+        return 1
+    return 0
+""",
+    )
+    assert found == []
+
+
+def test_a_marker_above_a_def_covers_calls_in_its_signature(tmp_path: Path) -> None:
+    found = _run(
+        tmp_path,
+        mod=INNER
+        + """
+
+# preen: allow-dropped-arg
+def outer(
+    x,
+    level=0.95,
+    y=inner(1),
+):
+    return x
+""",
+    )
+    assert found == []
+
+
+def test_a_marker_on_a_decorator_line_covers_that_call(tmp_path: Path) -> None:
+    """A def's header begins at its first decorator, not at `def`."""
+    found = _run(
+        tmp_path,
+        mod=INNER
+        + """
+
+def outer(x, level=0.95):
+    @inner(x)  # preen: allow-dropped-arg
+    def helper():
+        return 1
+
+    return helper()
+""",
+    )
+    assert found == []
+
+
+def test_a_very_deep_expression_does_not_overflow(tmp_path: Path) -> None:
+    """ast.parse copes with a 1,200-term sum; so must the walk over it."""
+    terms = " + ".join(["inner(x)"] * 1200)
+    found = _run(
+        tmp_path,
+        mod=INNER + f"\n\ndef outer(x, level=0.95):\n    return {terms}\n",
+    )
+    assert len(found) == 1200
+
+
+def test_many_calls_in_one_statement_stay_fast(tmp_path: Path) -> None:
+    import time
+
+    entries = ",\n".join(["    inner(x)"] * 10000)
+    started = time.time()
+    found = _run(
+        tmp_path,
+        mod=INNER + f"\n\ndef outer(x, level=0.95):\n    return [\n{entries}\n]\n",
+    )
+    assert len(found) == 10000
+    assert time.time() - started < 5

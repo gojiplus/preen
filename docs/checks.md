@@ -125,6 +125,23 @@ into a repo directly. Never critical: a missing setting is not a broken build.
 `PP301` — no pytest table at all — stays informational, since a repo without
 one may have no tests to configure.
 
+### `python-floor`
+
+`requires-python` admits nothing older than the floor the fleet standard
+declares, currently 3.12. The whole specifier decides: `>3.10` still admits
+3.10.1 and `~=3.11` admits 3.11, so both are flagged, while `>=3.10,>=3.12`
+has an effective floor of 3.12 and passes.
+
+Off by default, deliberately. STANDARD.md had declared `>=3.12` for some time
+while 30 of 51 adopted repos shipped `>=3.11` and every one passed, because no
+check compared the two. Turning it on for everyone at once is how a check gets
+switched off rather than obeyed. Enable it per repo as each one migrates:
+
+```toml
+[tool.preen]
+enforce_python_floor = true
+```
+
 ### `metadata`
 
 Three independent pyproject.toml checks. `build-system`: important if an
@@ -243,6 +260,39 @@ dead links.
 A scan that could not run — no lychee binary, a timeout, unreadable output —
 reports that fact at info rather than passing silently: no link having been
 checked is not the same as every link being healthy.
+
+### `examples`
+
+The documentation still names symbols the package has. Every fenced Python
+block in README.md and under docs/ is parsed with `ast`, the attributes and
+imports reached for on the package are collected, and each is looked up in
+what the package exposes: the names its `__init__` defines, relative star
+imports followed, plus every child module and subpackage. Nothing is imported
+or executed, so this works against a repo whose dependencies are not
+installed. Informational in 0.6.0: an example naming something that no
+longer exists fails for the first person who copies it, and nothing else in
+the suite reads documentation, but a static reading of examples has corners,
+and a false positive here fails someone else's CI. It gates once a release
+has gone through a fleet sweep without one.
+
+Permissive where it cannot be sure. A fragment that does not parse is skipped,
+a name the enclosing scope binds itself (a fixture parameter or loop
+variable that happens to share the package's name) is not the package there,
+dunders are language protocol
+rather than API, and a star import that cannot be resolved statically or a
+module-level `__getattr__` makes the exports unknown rather than empty.
+
+Opt in to also executing `>>>` examples under the repo's own `.venv`:
+
+```toml
+[tool.preen]
+run_doctests = true
+```
+
+Off by default because, measured across the fleet, the only doctest failures
+were illustrative blocks that depend on state from an earlier block or on a
+live API. A document that takes longer than two minutes is reported as a
+failure rather than aborting the run.
 
 ## Running subsets
 

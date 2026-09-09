@@ -69,11 +69,12 @@ def _positional_names(node: FuncDef) -> list[str]:
 def _allowed_lines(source: str) -> set[int]:
     """Find the lines a suppression comment covers.
 
-    A marker covers its own line, any comment-only lines that follow it
-    without a break, and the first line after those. That lets it open a
-    rationale of several lines and still reach the call underneath; before,
-    only the line directly above the call counted, and a marker that started
-    a longer comment was silently ignored.
+    A marker on a code line covers that line. A marker on a comment line
+    covers the comment-only lines that follow it without a break and the
+    first line after those, so it can open a rationale of several lines and
+    still reach the call underneath. Before, only the line directly above the
+    call counted, and a marker that started a longer comment was silently
+    ignored.
 
     Args:
         source: File contents.
@@ -85,6 +86,9 @@ def _allowed_lines(source: str) -> set[int]:
     covered: set[int] = set()
     for i, line in enumerate(lines, start=1):
         if ALLOW_COMMENT not in line:
+            continue
+        if not line.lstrip().startswith("#"):
+            covered.add(i)
             continue
         end = i
         while end < len(lines) and lines[end].lstrip().startswith("#"):
@@ -118,6 +122,97 @@ def _index(trees: dict[Path, ast.Module]) -> dict[str, FuncDef]:
     return found
 
 
+def _owns_block(node: ast.AST) -> bool:
+    """Whether a node has a header and then a suite of statements.
+
+    Args:
+        node: Any node.
+
+    Returns:
+        True for a compound statement, an except handler or a match case.
+    """
+    return isinstance(node, ast.Match) or isinstance(getattr(node, "body", None), list)
+
+
+def _start_line(node: ast.AST) -> int:
+    """First line of a node, taken from its children when it has none.
+
+    Args:
+        node: Any node; a ``match_case`` carries no position of its own.
+
+    Returns:
+        The 1-based line.
+    """
+    own = getattr(node, "lineno", None)
+    # A decorated def or class begins at its first decorator, not at `def`.
+    decorators = [d.lineno for d in getattr(node, "decorator_list", [])]
+    if own is not None:
+        return min([own, *decorators])
+    return min((_start_line(c) for c in ast.iter_child_nodes(node)), default=0)
+
+
+def _calls_with_statement_lines(
+    func: FuncDef,
+) -> list[tuple[ast.Call, range]]:
+    """Pair each call in a function with the lines a marker must sit on.
+
+    A marker anywhere on a simple statement covers the calls in it, so a
+    wrapped call whose marker sits on the first line is still heard. A call
+    in a compound statement's header (``if inner(x):``, ``match inner(x):``,
+    ``except inner(x):``) is covered by the header's lines, which may wrap,
+    and never by its body's, or a marker on ``if`` would silence the body.
+
+    Args:
+        func: The function to walk.
+
+    Returns:
+        ``(call, lines)`` pairs, in source order.
+    """
+    found: list[tuple[ast.Call, range]] = []
+
+    def header_end(node: ast.AST) -> int:
+        """Last line of a block owner's header, before its body starts.
+
+        Args:
+            node: A compound statement, except handler or match case.
+
+        Returns:
+            The end line of whatever precedes the body: a condition, an
+            iterable, a subject, a pattern, decorators and parameters.
+        """
+        end = _start_line(node)
+        pending = [c for c in ast.iter_child_nodes(node) if not _owns_block(c)]
+        while pending:
+            child = pending.pop()
+            if isinstance(child, ast.stmt):
+                continue
+            end = max(end, getattr(child, "end_lineno", None) or end)
+            pending.extend(c for c in ast.iter_child_nodes(child) if not _owns_block(c))
+        return end
+
+    # Children, not just the body: a default value or a decorator is part of
+    # the function too, and a call there drops arguments like any other. The
+    # function's own header lines cover them, so a marker above the def works.
+    # An explicit stack rather than recursion: a 1,200-term sum parses fine
+    # and must not overflow here.
+    header = range(_start_line(func), header_end(func) + 1)
+    pending: list[tuple[ast.AST, range | None]] = [
+        (child, header) for child in ast.iter_child_nodes(func)
+    ]
+    while pending:
+        node, lines = pending.pop()
+        if _owns_block(node):
+            lines = range(_start_line(node), header_end(node) + 1)
+        elif isinstance(node, ast.stmt):
+            lines = range(node.lineno, (node.end_lineno or node.lineno) + 1)
+        if isinstance(node, ast.Call):
+            own = range(node.lineno, (node.end_lineno or node.lineno) + 1)
+            found.append((node, lines if lines is not None else own))
+        pending.extend((child, lines) for child in ast.iter_child_nodes(node))
+    found.sort(key=lambda pair: (pair[0].lineno, pair[0].col_offset))
+    return found
+
+
 def find_dropped(
     trees: dict[Path, ast.Module], allowed: dict[Path, set[int]]
 ) -> list[tuple[Path, int, str, str, str]]:
@@ -142,9 +237,7 @@ def find_dropped(
             if not caller_params:
                 continue
 
-            for call in ast.walk(caller):
-                if not isinstance(call, ast.Call):
-                    continue
+            for call, lines in _calls_with_statement_lines(caller):
                 if not isinstance(call.func, ast.Name):
                     continue
                 callee = known.get(call.func.id)
@@ -152,8 +245,7 @@ def find_dropped(
                     continue
                 if any(kw.arg is None for kw in call.keywords):
                     continue  # `**kwargs` forwards everything; nothing dropped
-                span = range(call.lineno, (call.end_lineno or call.lineno) + 1)
-                if skip & set(span):
+                if any(lines.start <= line < lines.stop for line in skip):
                     continue
 
                 supplied = {kw.arg for kw in call.keywords if kw.arg}

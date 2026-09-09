@@ -17,6 +17,7 @@ repo whose table is missing settings.
 """
 
 import tomllib
+from collections.abc import MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
@@ -37,6 +38,9 @@ class Setting:
         value: The value ``preen fix`` writes.
         why: What goes wrong without it.
         in_addopts: True when the setting is a flag inside ``addopts``.
+        synonyms: ini keys that, set to true, satisfy it as well. pytest 9
+            accepts the strict flags as settings, and ``strict`` for all of
+            them, with the specific setting taking precedence.
     """
 
     code: str
@@ -44,6 +48,7 @@ class Setting:
     value: Any
     why: str
     in_addopts: bool = False
+    synonyms: tuple[str, ...] = ()
 
 
 SETTINGS: tuple[Setting, ...] = (
@@ -64,6 +69,7 @@ SETTINGS: tuple[Setting, ...] = (
         "xfail_strict",
         True,
         "a test that starts passing keeps reporting xfail, so the fix goes unnoticed",
+        synonyms=("strict_xfail", "strict"),
     ),
     Setting(
         "PP306",
@@ -71,6 +77,7 @@ SETTINGS: tuple[Setting, ...] = (
         None,
         "a typo in this very table is otherwise ignored rather than reported",
         in_addopts=True,
+        synonyms=("strict_config", "strict"),
     ),
     Setting(
         "PP307",
@@ -78,6 +85,7 @@ SETTINGS: tuple[Setting, ...] = (
         None,
         "a typo in a marker name otherwise selects nothing, silently",
         in_addopts=True,
+        synonyms=("strict_markers", "strict"),
     ),
     Setting(
         "PP308",
@@ -96,6 +104,26 @@ SETTINGS: tuple[Setting, ...] = (
         ),
     ),
 )
+
+
+def _ends_with_decoration(table: Table) -> bool:
+    """Whether a plain table's body ends with a comment or blank line.
+
+    Only such a table needs rebuilding, and only a plain one can be: an
+    inline table has no trailing decoration, and a dotted-key table renders
+    from its keys rather than a header, so a rebuilt copy would lose the
+    ``tool.`` prefix.
+
+    Args:
+        table: Whatever sits at ``tool.pytest.ini_options``.
+
+    Returns:
+        True when rebuilding is both needed and safe.
+    """
+    if table.is_super_table():
+        return False
+    body = table.value.body
+    return bool(body) and body[-1][0] is None
 
 
 def _split_trailing(table: Table) -> tuple[Table, list[Comment | Whitespace]]:
@@ -127,6 +155,26 @@ def _split_trailing(table: Table) -> tuple[Table, list[Comment | Whitespace]]:
         trailing = []
         copy.add(key, item)
     return copy, trailing
+
+
+def _as_bool(value: object) -> bool | None:
+    """Read a boolean the way pytest reads an ini value.
+
+    Args:
+        value: A TOML boolean, or a string such as ``"true"`` or ``"no"``.
+
+    Returns:
+        The boolean, or None when it is neither.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "yes", "on", "1"}:
+            return True
+        if lowered in {"false", "no", "off", "0"}:
+            return False
+    return None
 
 
 class PytestConfigCheck(Check):
@@ -161,13 +209,15 @@ class PytestConfigCheck(Check):
         except (OSError, tomllib.TOMLDecodeError):
             return None, False
 
-        legacy = data.get("tool", {}).get("pytest", {}).get("ini_options")
-        if isinstance(legacy, dict):
-            return legacy, False
-        native = data.get("tool", {}).get("pytest")
-        if isinstance(native, dict):
-            return native, True
-        return None, False
+        pytest_table = data.get("tool", {}).get("pytest")
+        if not isinstance(pytest_table, dict):
+            return None, False
+        if "ini_options" in pytest_table:
+            # The legacy layout, even when the value is not a table: the fix
+            # then writes a real one over it.
+            legacy = pytest_table["ini_options"]
+            return (legacy if isinstance(legacy, dict) else {}), False
+        return pytest_table, True
 
     def _addopts(self, options: dict[str, Any]) -> list[str]:
         """Return ``addopts`` as a list of flags.
@@ -183,30 +233,84 @@ class PytestConfigCheck(Check):
             return raw.split()
         return [str(entry) for entry in raw]
 
-    def _missing(self, options: dict[str, Any]) -> list[Setting]:
+    def _missing(self, options: dict[str, Any], native: bool) -> list[Setting]:
         """Return the settings the repo has not configured.
 
         Args:
             options: The pytest options table.
+            native: Whether the table is pytest 9's native one.
 
         Returns:
             The missing settings, in declaration order.
         """
         addopts = self._addopts(options)
-        missing = []
-        for setting in SETTINGS:
-            if setting.in_addopts:
-                # -ra, -rA and -rfE all satisfy PP308's "print a summary".
-                present = any(
-                    flag == setting.key
-                    or (setting.key == "-ra" and flag.startswith("-r"))
-                    for flag in addopts
-                )
-            else:
-                present = setting.key in options
-            if not present:
-                missing.append(setting)
-        return missing
+        # The strict settings and the blanket --strict arrived in pytest 9.
+        # On pytest 8 the settings are unknown and --strict only aliases
+        # --strict-markers, so they count only where 9 is the floor.
+        pytest9 = native or self._declared_major(options) >= 9
+        return [
+            s for s in SETTINGS if not self._satisfied(s, options, addopts, pytest9)
+        ]
+
+    @staticmethod
+    def _declared_major(options: dict[str, Any]) -> int:
+        """Read the major of a declared ``minversion``, or 0 if none parses.
+
+        Args:
+            options: The pytest options table.
+
+        Returns:
+            The major version.
+        """
+        declared = options.get("minversion")
+        try:
+            return int(str(declared).split(".", maxsplit=1)[0])
+        except ValueError:
+            return 0
+
+    @staticmethod
+    def _satisfied(
+        setting: Setting, options: dict[str, Any], addopts: list[str], pytest9: bool
+    ) -> bool:
+        """Whether a setting is configured, by its own key or a synonym.
+
+        Precedence follows pytest 9.1.1, checked by running it: a flag in
+        ``addopts``, then the canonical setting (``strict_xfail`` over its
+        alias ``xfail_strict``, in either order), then the blanket ``strict``.
+        A specific setting written as ``false`` is the opposite of configured
+        and beats ``strict``. In ``[tool.pytest.ini_options]`` a boolean may
+        be spelled as a string, ``"true"`` or ``"yes"``, as in an ini file.
+
+        Args:
+            setting: The setting to look for.
+            options: The pytest options table.
+            addopts: ``addopts`` as a list of flags.
+            pytest9: Whether the repo runs on pytest 9 or later, where the
+                strict settings and the blanket ``--strict`` exist.
+
+        Returns:
+            True when the repo has it on.
+        """
+        # -ra, -rA and -rfE all satisfy PP308's "print a summary".
+        if setting.in_addopts and any(
+            flag == setting.key or (setting.key == "-ra" and flag.startswith("-r"))
+            for flag in addopts
+        ):
+            return True
+        if not pytest9 and setting.key == "--strict-markers" and "--strict" in addopts:
+            return True  # on pytest 8, --strict is an alias of --strict-markers
+        for key in (k for k in setting.synonyms if k != "strict") if pytest9 else ():
+            if key in options:
+                return _as_bool(options[key]) is True
+        if not setting.in_addopts and setting.key in options:
+            # Only a boolean setting can be written as "off"; log_level = "0"
+            # is a logging level, not a false.
+            if isinstance(setting.value, bool):
+                return _as_bool(options[setting.key]) is not False
+            return True
+        # pytest 9's `--strict` flag enables the strict option, as the ini does.
+        blanket = _as_bool(options.get("strict")) is True or "--strict" in addopts
+        return pytest9 and "strict" in setting.synonyms and blanket
 
     def _minversion_issue(self, options: dict[str, Any], native: bool) -> list[Issue]:
         """Check PP302: a declared minimum pytest.
@@ -219,13 +323,8 @@ class PytestConfigCheck(Check):
             At most one issue.
         """
         floor = self.MIN_VERSIONS[native]
-        declared = options.get("minversion")
-        if declared is not None:
-            try:
-                if int(str(declared).split(".", maxsplit=1)[0]) >= floor:
-                    return []
-            except ValueError:
-                pass
+        if self._declared_major(options) >= floor:
+            return []
         return [
             self._issue(
                 "PP302",
@@ -280,10 +379,13 @@ class PytestConfigCheck(Check):
                 ),
                 gating=False,
             )
-            issue.proposed_fix = self._write_fix([], minversion=True)
+            # The whole configuration, not just minversion: now that the
+            # settings gate, a fix that wrote one key would turn an
+            # informational finding into seven blocking ones.
+            issue.proposed_fix = self._write_fix(list(SETTINGS), minversion=True)
             return CheckResult(check=self.name, passed=True, issues=[issue])
 
-        missing = self._missing(options)
+        missing = self._missing(options, native)
         version_issues = self._minversion_issue(options, native)
         issues = [
             *version_issues,
@@ -302,18 +404,23 @@ class PytestConfigCheck(Check):
         ]
         if issues:
             issues[0].proposed_fix = self._write_fix(
-                missing, minversion=bool(version_issues)
+                missing, minversion=bool(version_issues), native=native
             )
 
         blocking = [issue for issue in issues if issue.severity != Severity.INFO]
         return CheckResult(check=self.name, passed=not blocking, issues=issues)
 
-    def _write_fix(self, missing: list[Setting], minversion: bool) -> Fix:
+    def _write_fix(
+        self, missing: list[Setting], minversion: bool, native: bool = False
+    ) -> Fix:
         """Build a fix that writes the missing settings into pyproject.toml.
 
         Args:
             missing: Settings to add.
             minversion: Whether to write ``minversion`` too.
+            native: Whether the repo uses pytest 9's ``[tool.pytest]`` table,
+                which must then take the settings itself: pytest refuses a
+                file that has both it and ``[tool.pytest.ini_options]``.
 
         Returns:
             The fix.
@@ -321,7 +428,8 @@ class PytestConfigCheck(Check):
         wanted = [setting for setting in missing if not setting.in_addopts]
         flags = [setting.key for setting in missing if setting.in_addopts]
 
-        lines = [f'minversion = "{self.MIN_VERSIONS[False]}"'] if minversion else []
+        floor = self.MIN_VERSIONS[native]
+        lines = [f'minversion = "{floor}"'] if minversion else []
         # tomlkit.item renders TOML rather than Python: `true`, not `True`.
         lines += [
             f"{setting.key} = {tomlkit.item(setting.value).as_string()}"
@@ -335,14 +443,35 @@ class PytestConfigCheck(Check):
             pyproject = self.project_dir / "pyproject.toml"
             document = tomlkit.parse(pyproject.read_text(encoding="utf-8"))
             tool = document.setdefault("tool", tomlkit.table(is_super_table=True))
-            pytest_table = tool.setdefault("pytest", tomlkit.table(is_super_table=True))
-            current = pytest_table.setdefault("ini_options", tomlkit.table())
-            options, trailing = _split_trailing(current)
+            if native:
+                pytest_table, key = tool, "pytest"
+            else:
+                pytest_table = tool.setdefault(
+                    "pytest", tomlkit.table(is_super_table=True)
+                )
+                key = "ini_options"
+            current = pytest_table.setdefault(key, tomlkit.table())
+            if not isinstance(current, MutableMapping):
+                # `ini_options = "invalid"`: pytest ignores it; write a real one.
+                current = pytest_table[key] = tomlkit.table()
+            rebuilt: Table | None = None
+            trailing: list[Comment | Whitespace] = []
+            if isinstance(current, Table) and _ends_with_decoration(current):
+                rebuilt, trailing = _split_trailing(current)
+            # Otherwise append in place: there is nothing to step over, and
+            # that keeps an inline table inline and a dotted key dotted,
+            # which a rebuild cannot.
+            options = current if rebuilt is None else rebuilt
 
             if minversion:
-                options["minversion"] = str(self.MIN_VERSIONS[False])
+                options["minversion"] = str(floor)
             for setting in wanted:
                 options[setting.key] = setting.value
+                # A canonical spelling already present would beat the key
+                # just written (strict_xfail over xfail_strict), so flip it.
+                for synonym in setting.synonyms:
+                    if synonym != "strict" and synonym in options:
+                        options[synonym] = True
             if flags:
                 existing = options.get("addopts")
                 if isinstance(existing, str):
@@ -357,9 +486,10 @@ class PytestConfigCheck(Check):
                 else:
                     options["addopts"] = flags
 
-            for item in trailing:
-                options.add(item)
-            pytest_table["ini_options"] = options
+            if rebuilt is not None:
+                for item in trailing:
+                    rebuilt.add(item)
+                pytest_table[key] = rebuilt
             pyproject.write_text(tomlkit.dumps(document), encoding="utf-8")
 
         return Fix(

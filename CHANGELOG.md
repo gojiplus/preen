@@ -6,6 +6,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-07
+
+### Added
+
+- An `examples` check: does the documentation still name symbols the package
+  defines. It parses every fenced Python block in README.md and docs/,
+  collects the attributes and imports reached for on the package, and
+  compares them against what the package exposes, all with `ast` and without
+  importing anything. Set `[tool.preen] run_doctests = true` to also execute
+  `>>>` examples under the repo's own `.venv`. Off by default because, across
+  the fleet, the only doctest failures were illustrative blocks that depend on
+  earlier state or a live API. The static tier is informational in this
+  release and gates once a fleet sweep shows a release with no false
+  positive; the opt-in doctest tier gates from the start, since the repo
+  asked for it.
+
+- A `python-floor` check: does `requires-python` meet the floor the fleet
+  standard declares. STANDARD.md said `>=3.12` while 30 of 51 adopted repos
+  shipped `>=3.11` and every one passed, because nothing compared the two.
+  Off until the fleet migrates; enable per repo with `[tool.preen]
+  enforce_python_floor = true`.
+
 ### Changed
 
 - `pytest-config` findings gate instead of advising. They shipped
@@ -18,7 +40,93 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- `dropped-args` honours a `# preen: allow-dropped-arg` marker that opens a
+- One hundred and twelve defects found by thirty-six rounds of
+  independent review of this release, most in the two new checks, before
+  they reached anyone. Fenced blocks are found by CommonMark's rules
+  rather than a regular expression: a space before the language, a longer
+  closing fence, a Python block shown inside a Markdown block, and one
+  shown in an indented code block are all read as Markdown reads them. `preen fix pytest-config` on a repo with no pytest
+  table writes the whole configuration, not `minversion` alone, so one fix
+  does not turn an informational finding into seven blocking ones.
+  `preen fix pytest-config` writes into pytest 9's native `[tool.pytest]`
+  table when a repo uses it, instead of adding an `ini_options` table
+  beside it that pytest refuses to run with.
+  `pytest-config` recognizes pytest 9's ini spellings of strictness
+  (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
+  of them), which matters now that its findings gate; precedence follows
+  pytest, checked by running it: the canonical `strict_xfail` beats its
+  alias, a specific setting written as `false` is off whatever `strict`
+  says, an ini string such as `"true"` is a boolean while `log_level = "0"`
+  is a level, and the fix flips a canonical `strict_xfail = false` it finds
+  rather than writing an alias it would then lose to, and `--strict` in
+  `addopts` enables everything as pytest 9 says it does. All of that
+  applies only where pytest 9 is the declared floor or the native
+  `[tool.pytest]` table is in use; on pytest 8 those settings do not
+  exist and `--strict` only aliases `--strict-markers`.
+  `examples` no longer reports `from pkg import submodule` as a missing
+  symbol, follows a relative `from .api import *` in `__init__`, and treats
+  an unresolvable star import, a cycle of star imports, or a module-level
+  `__getattr__` as "exports unknown" rather than "exports empty", and counts
+  a namespace subpackage, a compiled extension module, and a name bound
+  inside or by any module-level
+  statement (`with ... as`, `for`, `while`, `match` captures, `:=`,
+  `try`/`except*`) as exports. It sees
+  names bound by tuple unpacking, comprehensions, imports, `except ... as`,
+  `lambda`, `match` patterns, and local `def` or `class` statements, in both
+  the package and the example, exports a `type` alias, treats
+  `mypkg.callback = ...` as creating an attribute a later block may use
+  (but not an earlier one), an
+  alias rebound to a submodule stays rebound in later blocks, and a
+  star import brings in exactly what its target's `__all__` lists, nothing
+  for an empty one, or every public name as well as whatever the list
+  names literally when it is computed (`['a', *extra]`, `__all__ + [...]`) or
+  that list is grown afterwards with `+=` or `extend`, when every public
+  name counts. A
+  block indented inside a Markdown list is read, a `_build` directory
+  above the repo no longer hides its docs, and a README vendored under
+  `docs/.venv` or `docs/node_modules` is not the repo's documentation. With doctests on, a closing fence right
+  after expected output no longer counts as more output, indented or not,
+  while a line of output that merely looks like a fence, or a shorter fence
+  shown inside a longer one, is left alone, a
+  relative project path resolves before the subprocess changes directory, a
+  `Scripts\python.exe` venv is found, a missing venv is informational rather
+  than a failure, examples run even when there is no single package to
+  compare against statically, and a hanging example is reported rather than
+  aborting the whole run. `python-floor` reads the whole specifier with
+  `packaging`, so `>3.10`, `~=3.11` and `==3.11.9` are flagged and
+  `>=3.10,>=3.12` is not. Both checks read files as UTF-8 explicitly, and a
+  `project` that is not a table is passed over rather than a traceback, in
+  `python-floor` and in the release-migration precondition alike. `preen fix
+  pytest-config` handles the inline form `pytest = {ini_options = {...}}`
+  and dotted keys under `[tool]` again, rebuilding the table only when it
+  ends in a comment or blank line, and writes a real table over an
+  `ini_options` that is not one. And a `# preen: allow-dropped-arg` trailing
+  a code line covers that line only, not the one beneath it, a marker
+  anywhere on a wrapped statement still reaches the call inside it, and a
+  call in an `if`, `match` or `except` header is covered by the header's
+  lines, wrapped or not, and never by the body's,
+  while a call in a decorator or default value is still seen and a marker
+  on the decorator or above the `def` covers it. The walk is iterative, so
+  a 1,200-term expression no longer overflows the recursion limit. And `preen
+  check` prints an informational notice on a check that passes, such as
+  "doctest examples not executed", instead of hiding it behind "passed".
+  Aliases resolve per lexical scope, as Python does, and top-down in a
+  module or class body, so `mypkg.run()` before `mypkg = 1` still counts: a fixture
+  parameter
+  or comprehension variable named like the package shadows it inside that
+  scope alone, an import inside a helper function aliases the package
+  there and nowhere else, a class body's names are not visible to its
+  methods while a def's decorators, defaults, annotations, type-parameter
+  bounds and a
+  comprehension's first iterable run where they sit, an assignment's value, a walrus's value or a loop's iterable is read before its target is written and `+=` reads its target too, a write inside a helper that never runs creates nothing outside it, and
+  a `:=` inside a comprehension binds the enclosing block. `import mypkg.sub`
+  binds the package name too, and `from mypkg.missing import x` or
+  `import mypkg.missing` reaches for `mypkg.missing`. Tilde fences are read
+  like backtick ones, in both tiers. Finally, a
+  comment at any indent inside a workflow's `with:` block no longer ends
+  the block during `preen adopt`, so the inputs after it survive.
+
+- `dropped-args` honors a `# preen: allow-dropped-arg` marker that opens a
   multi-line comment. It used to look only at the call's own lines and the
   one directly above, so a marker followed by two lines of rationale was
   silently ignored and the finding looked unaddressed. The marker now covers

@@ -285,3 +285,22 @@ def test_check_cli_skip_merges_with_config_skip(tmp_path, monkeypatch) -> None:
     result = runner.invoke(app, ["check", str(tmp_path), "--skip", "ruff"])
     assert result.exit_code == 0
     assert set(captured["skip"]) == {"ruff", "links"}
+
+
+def test_check_prints_informational_issues_on_a_passing_check(monkeypatch) -> None:
+    """A skip notice on a check that still passes must reach the terminal."""
+    from preen.checks.base import Severity
+
+    issue = Issue(
+        check="examples",
+        severity=Severity.INFO,
+        description="doctest examples not executed: no .venv in this repo",
+        impact=Impact.INFORMATIONAL,
+    )
+    monkeypatch.setattr(
+        "preen.cli.run_checks",
+        lambda *a, **k: {"examples": _result("examples", passed=True, issues=[issue])},
+    )
+    result = runner.invoke(app, ["check", "--strict"])
+    assert result.exit_code == 0
+    assert "not executed" in result.output

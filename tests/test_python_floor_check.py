@@ -92,3 +92,57 @@ def test_the_mirrored_floor_matches_what_the_template_emits():
         f"preen mirrors >={'.'.join(map(str, STANDARD_FLOOR))} but py-canon's "
         f"template emits >={'.'.join(map(str, emitted))}"
     )
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        (">3.10", (3, 10)),
+        ("~=3.11", (3, 11)),
+        (">=3.10,>=3.12", (3, 12)),
+        (">=2.7", (2, 7)),
+        ("not a specifier", None),
+    ],
+)
+def test_the_whole_specifier_decides_the_floor(tmp_path, spec, expected):
+    # `>3.10` still admits 3.10.1, `~=3.11` admits 3.11, and a second `>=`
+    # can raise the floor. Reading the first `>=` got all three wrong.
+    (tmp_path / "pyproject.toml").write_text(
+        f'[project]\nname = "x"\nrequires-python = "{spec}"\n'
+    )
+    assert declared_floor(tmp_path / "pyproject.toml") == expected
+
+
+def test_an_exclusive_bound_below_the_standard_is_flagged(tmp_path):
+    result = PythonFloorCheck(_repo(tmp_path, ">3.10")).run()
+    assert not result.passed
+    assert ">3.10" in result.issues[0].description
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        ("==3.11.9", (3, 11)),
+        (">=3.11.4,<3.11.10", (3, 11)),
+        (">3.11.4,<3.11.10", (3, 11)),
+        ("==3.11.*", (3, 11)),
+        (">=3.11,!=3.11.0", (3, 11)),
+    ],
+)
+def test_patch_level_bounds_still_place_the_floor(tmp_path, spec, expected):
+    # A specifier can only carve at the versions it names, so those (and the
+    # patch after each, for an exclusive bound) are probed alongside X.Y.
+    (tmp_path / "pyproject.toml").write_text(
+        f'[project]\nname = "x"\nrequires-python = "{spec}"\n'
+    )
+    assert declared_floor(tmp_path / "pyproject.toml") == expected
+
+
+@pytest.mark.parametrize("project", ["123", '"invalid"'])
+def test_a_project_that_is_not_a_table_is_passed_over(tmp_path, project):
+    # The metadata check's business; this one must not crash on it.
+    (tmp_path / "pyproject.toml").write_text(
+        f"project = {project}\n[tool.preen]\nenforce_python_floor = true\n"
+    )
+    assert declared_floor(tmp_path / "pyproject.toml") is None
+    assert PythonFloorCheck(tmp_path).run().passed

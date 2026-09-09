@@ -3,6 +3,8 @@
 import tomllib
 from pathlib import Path
 
+import pytest
+
 from preen.checks.base import Impact
 from preen.checks.pytest_config import PytestConfigCheck
 
@@ -262,4 +264,272 @@ def test_fix_leaves_a_trailing_comment_where_it_was(tmp_path: Path) -> None:
         "[tool.coverage.run]\n"
         'source = ["src"]\n'
     )
+    assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_fix_handles_an_inline_pytest_table(tmp_path: Path) -> None:
+    """`pytest = {ini_options = {...}}` is valid TOML and worked at 0.5.0.
+
+    Rebuilding the options as a regular table broke it: tomlkit refuses a
+    table inside an inline table.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.0.0"\n\n'
+        "[tool]\n"
+        'pytest = {ini_options = {testpaths = ["tests"]}}\n'
+    )
+
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+
+    options = tomllib.loads((tmp_path / "pyproject.toml").read_text())["tool"][
+        "pytest"
+    ]["ini_options"]
+    assert options["xfail_strict"] is True
+    assert options["testpaths"] == ["tests"]
+    assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_fix_keeps_a_dotted_key_pytest_table_dotted(tmp_path: Path) -> None:
+    """`pytest.ini_options.testpaths = [...]` under `[tool]` worked at 0.5.0."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.0.0"\n\n'
+        "[tool]\n"
+        'pytest.ini_options.testpaths = ["tests/unit"]\n'
+        "\n# next\n"
+        "[tool.coverage.run]\n"
+        'source = ["src"]\n'
+    )
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+
+    text = (tmp_path / "pyproject.toml").read_text()
+    options = tomllib.loads(text)["tool"]["pytest"]["ini_options"]
+    assert options["testpaths"] == ["tests/unit"]
+    assert options["xfail_strict"] is True
+    assert "[pytest.ini_options]" not in text
+    assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_fix_handles_several_dotted_pytest_keys(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.0.0"\n\n'
+        "[tool]\n"
+        'pytest.ini_options.testpaths = ["tests"]\n'
+        'pytest.ini_options.addopts = ["-ra"]\n'
+    )
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+    assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_fix_replaces_an_ini_options_that_is_not_a_table(tmp_path: Path) -> None:
+    """pytest ignores a non-table `ini_options`; the fix writes a real one."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.0.0"\n\n'
+        "[tool.pytest]\n"
+        'ini_options = "invalid"\n'
+    )
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+    assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "strict_config = true\nstrict_markers = true\nstrict_xfail = true\n",
+        "strict = true\n",
+    ],
+)
+def test_pytest_9_ini_spellings_of_strictness_count(tmp_path: Path, extra: str) -> None:
+    """pytest 9 accepts the strict flags as ini settings, and `strict` for all."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mypkg"\nversion = "0.1.0"\n\n'
+        "[tool.pytest.ini_options]\n"
+        'minversion = "9"\n'
+        'testpaths = ["tests"]\n'
+        'log_level = "INFO"\n'
+        'filterwarnings = ["error"]\n'
+        'addopts = ["-ra"]\n' + extra
+    )
+    result = PytestConfigCheck(tmp_path).run()
+    assert result.issues == []
+
+
+@pytest.mark.parametrize(
+    ("extra", "code"),
+    [
+        ("strict = true\nstrict_markers = false\n", "PP307"),
+        ("strict = true\nstrict_config = false\n", "PP306"),
+        ("strict = true\nstrict_xfail = false\n", "PP305"),
+        ("strict = true\nxfail_strict = false\n", "PP305"),
+    ],
+)
+def test_an_explicit_false_beats_strict(tmp_path: Path, extra: str, code: str) -> None:
+    """pytest gives the specific setting precedence over the blanket `strict`.
+
+    Verified by running pytest 9.1.1: `strict = true` alone errors on an
+    unregistered marker; adding `strict_markers = false` lets it pass.
+    """
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mypkg"\nversion = "0.1.0"\n\n'
+        "[tool.pytest.ini_options]\n"
+        'minversion = "9"\n'
+        'testpaths = ["tests"]\n'
+        'log_level = "INFO"\n'
+        'filterwarnings = ["error"]\n'
+        'addopts = ["-ra"]\n' + extra
+    )
+    assert _codes(PytestConfigCheck(tmp_path).run()) == [code]
+
+
+def test_xfail_strict_false_is_not_configured(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        STRICT.replace("xfail_strict = true", "xfail_strict = false")
+    )
+    assert _codes(PytestConfigCheck(tmp_path).run()) == ["PP305"]
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        'strict = "true"\n',
+        'strict_config = "yes"\nstrict_markers = "1"\nstrict_xfail = "on"\n',
+        "strict = true\nstrict_xfail = true\nxfail_strict = false\n",
+        "strict = true\nxfail_strict = false\nstrict_xfail = true\n",
+    ],
+)
+def test_ini_strings_and_the_canonical_alias_count(tmp_path: Path, extra: str) -> None:
+    """Verified against pytest 9.1.1: ini strings are booleans, and
+    `strict_xfail` beats `xfail_strict` in either order."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mypkg"\nversion = "0.1.0"\n\n'
+        "[tool.pytest.ini_options]\n"
+        'minversion = "9"\n'
+        'testpaths = ["tests"]\n'
+        'log_level = "INFO"\n'
+        'filterwarnings = ["error"]\n'
+        'addopts = ["-ra"]\n' + extra
+    )
+    assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_an_ini_string_false_is_off(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        STRICT.replace("xfail_strict = true", 'xfail_strict = "false"')
+    )
+    assert _codes(PytestConfigCheck(tmp_path).run()) == ["PP305"]
+
+
+def test_fix_turns_on_the_canonical_xfail_setting_too(tmp_path: Path) -> None:
+    """`strict_xfail = false` beats `xfail_strict = true`, so the fix must
+    flip the canonical key or the finding never clears."""
+    (tmp_path / "pyproject.toml").write_text(
+        STRICT.replace("xfail_strict = true", "strict_xfail = false")
+    )
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+    assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_a_numeric_log_level_string_is_configured(tmp_path: Path) -> None:
+    # pytest accepts `log_level = "0"`; it is not a boolean.
+    (tmp_path / "pyproject.toml").write_text(
+        STRICT.replace('log_level = "INFO"', 'log_level = "0"')
+    )
+    assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_the_strict_flag_in_addopts_enables_everything(tmp_path: Path) -> None:
+    """pytest 9's `--strict` flag enables the strict option, as the ini does."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mypkg"\nversion = "0.1.0"\n\n'
+        "[tool.pytest.ini_options]\n"
+        'minversion = "9"\n'
+        'testpaths = ["tests"]\n'
+        'log_level = "INFO"\n'
+        'filterwarnings = ["error"]\n'
+        'addopts = ["--strict", "-ra"]\n'
+    )
+    assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+@pytest.mark.parametrize(
+    ("extra", "codes"),
+    [
+        # pytest 8: --strict only aliases --strict-markers.
+        ('addopts = ["--strict", "-ra"]\n', ["PP305", "PP306"]),
+        # pytest 8 has no strict, strict_config or strict_xfail settings.
+        ('addopts = ["-ra"]\nstrict = true\n', ["PP305", "PP306", "PP307"]),
+        (
+            'addopts = ["-ra"]\nstrict_config = true\nstrict_markers = true\n'
+            "strict_xfail = true\n",
+            ["PP305", "PP306", "PP307"],
+        ),
+    ],
+)
+def test_pytest_9_spellings_need_pytest_9(
+    tmp_path: Path, extra: str, codes: list[str]
+) -> None:
+    """A repo on pytest 8 gets nothing from the pytest 9 spellings."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mypkg"\nversion = "0.1.0"\n\n'
+        "[tool.pytest.ini_options]\n"
+        'minversion = "8"\n'
+        'testpaths = ["tests"]\n'
+        'log_level = "INFO"\n'
+        'filterwarnings = ["error"]\n' + extra
+    )
+    assert _codes(PytestConfigCheck(tmp_path).run()) == codes
+
+
+def test_under_pytest_9_an_explicit_false_beats_the_strict_flag(tmp_path: Path) -> None:
+    """Verified against pytest 9.1.1: `--strict` with `strict_markers = false`
+    still lets an unregistered marker through."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mypkg"\nversion = "0.1.0"\n\n'
+        "[tool.pytest.ini_options]\n"
+        'minversion = "9"\n'
+        'testpaths = ["tests"]\n'
+        'log_level = "INFO"\n'
+        'filterwarnings = ["error"]\n'
+        'addopts = ["--strict", "-ra"]\n'
+        "strict_markers = false\n"
+    )
+    assert _codes(PytestConfigCheck(tmp_path).run()) == ["PP307"]
+
+
+def test_fix_writes_into_the_native_pytest_9_table(tmp_path: Path) -> None:
+    """pytest refuses a file with both [tool.pytest] and ini_options."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.0.0"\n\n'
+        "[tool.pytest]\n"
+        'minversion = "9.0"\n'
+        'addopts = ["-ra"]\n'
+    )
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+
+    data = tomllib.loads((tmp_path / "pyproject.toml").read_text())
+    assert "ini_options" not in data["tool"]["pytest"]
+    assert data["tool"]["pytest"]["xfail_strict"] is True
+    assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_fix_for_a_missing_table_writes_the_whole_configuration(tmp_path: Path) -> None:
+    """One `preen fix` must not turn an informational finding into seven
+    gating ones."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.0.0"\n'
+    )
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
     assert PytestConfigCheck(tmp_path).run().issues == []
