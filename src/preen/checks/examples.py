@@ -170,13 +170,68 @@ def _scope_nodes(root: ast.AST) -> list[ast.AST]:
         The nodes, root excluded.
     """
     out: list[ast.AST] = []
-    pending = list(reversed(_children_in_evaluation_order(root)))
+    pending = list(reversed(_scope_body(root)))
     while pending:
         node = pending.pop()
         out.append(node)
-        if not isinstance(node, _SCOPES):
+        if isinstance(node, _SCOPES):
+            # Its decorators, defaults, annotations and bases run out here,
+            # where the def sits; only its body runs inside it.
+            pending.extend(reversed(_scope_header(node)))
+        else:
             pending.extend(reversed(_children_in_evaluation_order(node)))
     return out
+
+
+def _scope_body(root: ast.AST) -> list[ast.AST]:
+    """The children of a scope that run inside it.
+
+    Args:
+        root: A module, or a node that opens a scope.
+
+    Returns:
+        A def's or class's body statements, a lambda's expression, a
+        comprehension's elements and generators, a module's statements.
+    """
+    if isinstance(root, ast.Lambda):
+        return [root.body]
+    if isinstance(root, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return list(root.body)
+    return _children_in_evaluation_order(root)
+
+
+def _scope_header(node: ast.AST) -> list[ast.AST]:
+    """The parts of a def, class or lambda that run in the enclosing scope.
+
+    Args:
+        node: A node that opens a scope.
+
+    Returns:
+        Decorators, parameter defaults and annotations, the return
+        annotation, and a class's bases and keywords. A comprehension has
+        none: it is entered whole.
+    """
+    if isinstance(node, ast.ClassDef):
+        return [*node.decorator_list, *node.bases, *(k.value for k in node.keywords)]
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        args = node.args
+        header: list[ast.AST] = [
+            *getattr(node, "decorator_list", []),
+            *args.defaults,
+            *(d for d in args.kw_defaults if d is not None),
+        ]
+        params = (*args.posonlyargs, *args.args, *args.kwonlyargs)
+        header.extend(a.annotation for a in params if a.annotation is not None)
+        header.extend(
+            extra.annotation
+            for extra in (args.vararg, args.kwarg)
+            if extra is not None and extra.annotation is not None
+        )
+        returns = getattr(node, "returns", None)
+        if returns is not None:
+            header.append(returns)
+        return header
+    return []
 
 
 def _children_in_evaluation_order(node: ast.AST) -> list[ast.AST]:
@@ -543,11 +598,15 @@ def _defined_names(
             complete: Whether this is a fresh ``__all__ = [...]`` rather
                 than an addition to one.
         """
-        strings = (
-            _string_elements(value)
-            if isinstance(value, (ast.List, ast.Tuple))
-            else None
-        )
+        if isinstance(value, (ast.List, ast.Tuple)):
+            strings = _string_elements(value)
+        else:
+            # Whatever list literals sit inside the expression, at least.
+            strings = None
+            for sub in ast.walk(value):
+                if isinstance(sub, (ast.List, ast.Tuple)):
+                    listed.update(_string_elements(sub) or ())
+                    names.update(_string_elements(sub) or ())
         state["seen"] = True
         if strings is None or not complete:
             state["complete"] = False
@@ -575,8 +634,11 @@ def _defined_names(
                 declares_all = any(
                     isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
                 )
-                if declares_all and isinstance(node.value, (ast.List, ast.Tuple)):
-                    note_all(node.value, complete=True)
+                if declares_all:
+                    # `__all__ = [...]` is complete; `__all__ = __all__ + [...]`
+                    # or any other expression is only what it names.
+                    literal = isinstance(node.value, (ast.List, ast.Tuple))
+                    note_all(node.value, complete=literal)
             elif isinstance(node, ast.AugAssign):
                 names.update(_target_names(node.target))
                 if isinstance(node.target, ast.Name) and node.target.id == "__all__":

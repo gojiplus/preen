@@ -37,7 +37,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Eighty-seven defects found by twenty-seven rounds of independent review
+- Eighty-nine defects found by twenty-eight rounds of independent review
   of this release, most in the two new checks, before they reached anyone.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
@@ -66,7 +66,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   alias rebound to a submodule stays rebound in later blocks, and a
   star import brings in exactly what its target's `__all__` lists, nothing
   for an empty one, or every public name as well as the listed ones when
-  the list is computed (`['a', *extra]`) or
+  the list is computed (`['a', *extra]`, `__all__ + [...]`) or
   that list is grown afterwards with `+=` or `extend`, when every public
   name counts. A
   block indented inside a Markdown list is read, a `_build` directory
@@ -100,7 +100,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   or comprehension variable named like the package shadows it inside that
   scope alone, an import inside a helper function aliases the package
   there and nowhere else, a class body's names are not visible to its
-  methods, an assignment's value is read before its target is written, and
+  methods while a def's decorators, defaults and annotations run where the
+  def sits, an assignment's value is read before its target is written, and
   a `:=` inside a comprehension binds the enclosing block. `import mypkg.sub`
   binds the package name too, and `from mypkg.missing import x` or
   `import mypkg.missing` reaches for `mypkg.missing`. Tilde fences are read

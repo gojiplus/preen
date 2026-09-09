@@ -964,3 +964,24 @@ def test_a_class_body_name_is_not_visible_to_its_methods():
 def test_an_assignment_s_value_is_read_before_its_target_is_created():
     text = "```python\nimport mypkg\nmypkg.removed = mypkg.removed()\n```"
     assert referenced_symbols(text, "mypkg") == {"removed"}
+
+
+def test_a_reassigned_all_is_no_longer_complete(tmp_path):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("from .api import *\n")
+    (pkg / "api.py").write_text(
+        "__all__ = ['first']\n__all__ = __all__ + ['second']\n"
+        "def first(): ...\ndef second(): ...\n"
+    )
+    assert {"first", "second"} <= (exported_symbols(pkg / "__init__.py") or set())
+
+
+def test_a_function_header_evaluates_in_the_enclosing_scope():
+    # A default or decorator runs where the def sits, the body runs inside.
+    text = (
+        "```python\nimport mypkg\nfrom types import SimpleNamespace\n"
+        "class Demo:\n    mypkg = SimpleNamespace(option=42)\n"
+        "    def example(self, value=mypkg.option):\n        return mypkg.inside\n```"
+    )
+    assert referenced_symbols(text, "mypkg") == {"inside"}
