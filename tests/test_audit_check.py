@@ -667,3 +667,35 @@ def test_vulnerability_without_an_id_still_reports(tmp_path: Path, monkeypatch) 
         result.issues[0].description
         == "pkg 1.0 has known vulnerabilities (fix available: 1.1)"
     )
+
+
+def test_listing_two_names_for_one_advisory_marks_neither_stale(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A repo may list both the PYSEC and the GHSA it saw; both matched."""
+    report = json.dumps(
+        {
+            "dependencies": [
+                {
+                    "name": "nltk",
+                    "version": "3.10.3",
+                    "vulns": [
+                        {
+                            "id": "PYSEC-2026-3740",
+                            "aliases": ["GHSA-8mgp-746c-j5xp"],
+                            "fix_versions": [],
+                        }
+                    ],
+                }
+            ],
+            "fixes": [],
+        }
+    )
+    result = _run_with_config(
+        tmp_path,
+        monkeypatch,
+        '[tool.preen]\naudit_ignore = ["PYSEC-2026-3740", "GHSA-8mgp-746c-j5xp"]\n',
+        report,
+    )
+    assert result.passed
+    assert not [i for i in result.issues if "match no advisory" in i.description]
