@@ -652,7 +652,7 @@ def test_audit_ignore_reports_entries_that_match_nothing(
 
 
 def test_vulnerability_without_an_id_still_reports(tmp_path: Path, monkeypatch) -> None:
-    """A report entry with no id is neither dropped nor printed with a dangling colon."""
+    """An entry with no id is neither dropped nor printed with a dangling colon."""
     report = json.dumps(
         {
             "dependencies": [
