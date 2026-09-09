@@ -274,8 +274,9 @@ fails for the first person who copies it, and nothing else in the suite reads
 documentation.
 
 Permissive where it cannot be sure. A fragment that does not parse is skipped,
-a name the block binds itself (a fixture or loop variable that happens to
-share the package's name) is not the package, dunders are language protocol
+a name the enclosing scope binds itself (a fixture parameter or loop
+variable that happens to share the package's name) is not the package there,
+dunders are language protocol
 rather than API, and a star import that cannot be resolved statically or a
 module-level `__getattr__` makes the exports unknown rather than empty.
 

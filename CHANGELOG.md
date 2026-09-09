@@ -37,7 +37,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Seventy-nine defects found by twenty-four rounds of independent review
+- Eighty-three defects found by twenty-five rounds of independent review
   of this release, most in the two new checks, before they reached anyone.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
@@ -65,7 +65,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (but not an earlier one), an
   alias rebound to a submodule stays rebound in later blocks, and a
   star import brings in exactly what its target's `__all__` lists, nothing
-  for an empty one, unless
+  for an empty one, or every public name when the list is computed
+  (`['a', *extra]`) or
   that list is grown afterwards with `+=` or `extend`, when every public
   name counts. A
   block indented inside a Markdown list is read, a `_build` directory
@@ -95,10 +96,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   a 1,200-term expression no longer overflows the recursion limit. And `preen
   check` prints an informational notice on a check that passes, such as
   "doctest examples not executed", instead of hiding it behind "passed".
-  A fixture parameter or comprehension variable named like the package
-  shadows it inside that scope alone, not for the rest of the document,
-  and an import inside a helper function aliases nothing outside it,
-  while a `:=` inside a comprehension binds the block as Python says. `import mypkg.sub`
+  Aliases resolve per lexical scope, as Python does: a fixture parameter
+  or comprehension variable named like the package shadows it inside that
+  scope alone, an import inside a helper function aliases the package
+  there and nowhere else, and a `:=` inside a comprehension binds the
+  enclosing block. `import mypkg.sub`
   binds the package name too, and `from mypkg.missing import x` or
   `import mypkg.missing` reaches for `mypkg.missing`. Tilde fences are read
   like backtick ones, in both tiers. Finally, a

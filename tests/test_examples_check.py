@@ -892,3 +892,38 @@ def test_a_deeply_indented_fence_lookalike_is_content(tmp_path):
         '```python\nexample = """\n    ```\n"""\n```\n\n```python\n>>> 1 + 1\n2\n```\n',
     )
     assert ExamplesCheck(repo).run().passed
+
+
+def test_a_computed_all_is_not_exhaustive(tmp_path):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("from .core import *\n")
+    (pkg / "core.py").write_text(
+        "extra = ['second']\n__all__ = ['first', *extra]\n"
+        "def first(): ...\ndef second(): ...\n"
+    )
+    assert {"first", "second"} <= (exported_symbols(pkg / "__init__.py") or set())
+
+
+def test_a_function_local_alias_is_checked_inside_its_function():
+    text = (
+        "```python\ndef example():\n"
+        "    import mypkg as mp\n    return mp.removed()\n```"
+    )
+    assert referenced_symbols(text, "mypkg") == {"removed"}
+
+
+def test_a_parameter_shadows_only_inside_its_function():
+    # layoutlens documents a fixture named like the package: inside the test
+    # function it is the fixture; at the top of the block it is the package.
+    text = (
+        "```python\nimport mypkg\n"
+        "def test_it(mypkg):\n    mypkg.assert_ok()\n"
+        "mypkg.top_level()\n```"
+    )
+    assert referenced_symbols(text, "mypkg") == {"top_level"}
+
+
+def test_an_attribute_created_in_a_nested_suite_counts_in_source_order():
+    text = "```python\nimport mypkg\nif True:\n    mypkg.flag = 1\nmypkg.flag\n```"
+    assert referenced_symbols(text, "mypkg") == set()

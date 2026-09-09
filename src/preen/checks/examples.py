@@ -142,76 +142,87 @@ def _target_names(target: ast.expr) -> set[str]:
     return set()
 
 
-def _own_scope(tree: ast.AST) -> list[ast.AST]:
-    """Every node of a block that is not inside a nested scope.
+#: Nodes that open a scope of their own.
+_SCOPES = (
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.Lambda,
+    ast.ClassDef,
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+)
 
-    A def, class or lambda is yielded, so its name counts as bound, but its
-    body is not entered: a parameter named like the package shadows it
-    inside that function only. A comprehension is its own scope too.
+
+def _scope_nodes(root: ast.AST) -> list[ast.AST]:
+    """Every node inside one scope, in source order, nested scopes unentered.
+
+    A nested def, class, lambda or comprehension is listed, so its name counts
+    as bound here and it can be visited as a scope of its own, but nothing
+    inside it is: a parameter named like the package shadows it in that
+    function alone.
 
     Args:
-        tree: A parsed code block.
+        root: A module, or a node that opens a scope.
 
     Returns:
-        The nodes, in traversal order.
+        The nodes, root excluded.
     """
     out: list[ast.AST] = []
-    pending: list[ast.AST] = [tree]
+    pending = list(reversed(list(ast.iter_child_nodes(root))))
     while pending:
         node = pending.pop()
         out.append(node)
-        if not isinstance(
-            node,
-            (
-                ast.FunctionDef,
-                ast.AsyncFunctionDef,
-                ast.ClassDef,
-                ast.Lambda,
-                ast.ListComp,
-                ast.SetComp,
-                ast.DictComp,
-                ast.GeneratorExp,
-            ),
-        ):
-            pending.extend(ast.iter_child_nodes(node))
+        if not isinstance(node, _SCOPES):
+            pending.extend(reversed(list(ast.iter_child_nodes(node))))
     return out
 
 
-def _locally_bound(tree: ast.AST, package: str, *, whole: bool = True) -> set[str]:
-    """Names a block binds itself, which therefore are not the package.
-
-    layoutlens documents a pytest fixture called ``layoutlens``, so every
-    ``layoutlens.assert_*`` in its README is a fixture method rather than a
-    package attribute. Reading those as exports reported three bugs that were
-    not there.
+def _parameters(root: ast.AST) -> set[str]:
+    """The names a scope's own signature binds inside it.
 
     Args:
-        tree: A parsed code block.
-        package: The importable package name, so importing it does not count
-            as shadowing it.
-        whole: Look inside nested functions too, which is right within a
-            block; pass False for what the block leaves bound at its top level.
+        root: A node that opens a scope.
 
     Returns:
-        Every name bound as a parameter, assignment, loop, with or
-        comprehension target, or by importing something other than the package.
+        A function's or lambda's parameters. A comprehension's loop variables
+        are bound by its ``comprehension`` nodes instead, and a class or module
+        has none.
+    """
+    args = getattr(root, "args", None)
+    if not isinstance(args, ast.arguments):
+        return set()
+    names = {a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)}
+    if args.vararg:
+        names.add(args.vararg.arg)
+    if args.kwarg:
+        names.add(args.kwarg.arg)
+    return names
+
+
+def _locally_bound(nodes: Iterable[ast.AST], package: str) -> set[str]:
+    """Names a scope's own statements bind, which therefore are not the package.
+
+    layoutlens documents a pytest fixture called ``layoutlens``, so every
+    ``layoutlens.assert_*`` inside its test functions is a fixture method
+    rather than a package attribute. Reading those as exports reported three
+    bugs that were not there.
+
+    Args:
+        nodes: The scope's nodes, from :func:`_scope_nodes`.
+        package: The importable package name, so importing it does not count
+            as shadowing it.
+
+    Returns:
+        Every name bound by assignment, loop, with, except, match capture,
+        def, class, type alias, an import of something other than the
+        package, or a walrus inside a nested comprehension.
     """
     bound: set[str] = set()
-    for node in ast.walk(tree) if whole else _own_scope(tree):
-        if isinstance(node, ast.ClassDef):
+    for node in nodes:
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             bound.add(node.name)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            bound.add(node.name)
-            if not whole:
-                continue  # its parameters live inside it
-            args = node.args
-            bound.update(
-                a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)
-            )
-            if args.vararg:
-                bound.add(args.vararg.arg)
-            if args.kwarg:
-                bound.add(args.kwarg.arg)
         elif isinstance(node, ast.Assign):
             bound.update(*(_target_names(t) for t in node.targets))
         elif isinstance(
@@ -242,15 +253,6 @@ def _locally_bound(tree: ast.AST, package: str, *, whole: bool = True) -> set[st
             for item in node.items:
                 if item.optional_vars is not None:
                     bound.update(_target_names(item.optional_vars))
-        elif isinstance(node, ast.Lambda) and whole:
-            args = node.args
-            bound.update(
-                a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)
-            )
-            if args.vararg:
-                bound.add(args.vararg.arg)
-            if args.kwarg:
-                bound.add(args.kwarg.arg)
         elif (
             isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar))
             and node.name
@@ -273,6 +275,73 @@ def _locally_bound(tree: ast.AST, package: str, *, whole: bool = True) -> set[st
             # package, so an earlier `import mypkg as mp` no longer applies.
             bound.update(a.asname or a.name for a in node.names if a.name != "*")
     return bound
+
+
+def _scan_scope(
+    root: ast.AST,
+    inherited: set[str],
+    package: str,
+    found: set[str],
+    created: set[str],
+) -> set[str]:
+    """Check one scope's reaches for the package, then its nested scopes.
+
+    A scope sees the aliases live around it, plus what it imports itself,
+    minus what it binds itself and its own parameters. Reads and writes are
+    taken in source order, so ``mypkg.flag = 1`` inside an ``if`` is seen
+    before a ``mypkg.flag`` below it.
+
+    Args:
+        root: A module, or a node that opens a scope.
+        inherited: Names bound to the package around this scope.
+        package: The importable package name.
+        found: Collects every symbol reached for; extended in place.
+        created: Collects every attribute an example creates; extended in
+            place.
+
+    Returns:
+        The aliases live at the end of this scope. For a module, that is what
+        the next block of the document starts from.
+    """
+    nodes = _scope_nodes(root)
+    live = (
+        (inherited | _package_aliases(nodes, package))
+        - _locally_bound(nodes, package)
+        - _parameters(root)
+    )
+    for node in nodes:
+        if isinstance(node, ast.ImportFrom) and node.module:
+            if node.module == package:
+                found.update(
+                    a.name
+                    for a in node.names
+                    if a.name != "*" and not a.name.startswith("__")
+                )
+            elif node.module.startswith(package + "."):
+                # `from mypkg.sub import x` reaches for `mypkg.sub` at least.
+                found.add(node.module.split(".")[1])
+        elif isinstance(node, ast.Import):
+            # So does `import mypkg.sub`, with or without an alias.
+            found.update(
+                a.name.split(".")[1]
+                for a in node.names
+                if a.name.startswith(package + ".")
+            )
+        elif (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in live
+            and not node.attr.startswith("__")
+        ):
+            # `mypkg.callback = ...` creates the attribute rather than
+            # reaching for it, and a later `mypkg.callback()` finds it.
+            if isinstance(node.ctx, ast.Store):
+                created.add(node.attr)
+            elif node.attr not in created:
+                found.add(node.attr)
+        elif isinstance(node, _SCOPES):
+            _scan_scope(node, live, package, found, created)
+    return live
 
 
 def referenced_symbols(text: str, package: str) -> set[str]:
@@ -303,50 +372,7 @@ def referenced_symbols(text: str, package: str) -> set[str]:
     # `from mypkg import client as mp` retires `mp` until it is imported again.
     aliases = {package}
     for tree in trees:
-        # `import mypkg`, `import mypkg as mp` and `import mypkg.sub` all bind
-        # a name to the package. An import inside a helper function binds it
-        # there alone, so it neither aliases the rest of the block nor carries
-        # to later ones; a binding anywhere, by contrast, shadows the whole
-        # block, since a false negative is the cheaper mistake.
-        imported = _package_aliases(_own_scope(tree), package)
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom) or not node.module:
-                continue
-            if node.module == package:
-                found.update(
-                    a.name
-                    for a in node.names
-                    if a.name != "*" and not a.name.startswith("__")
-                )
-            elif node.module.startswith(package + "."):
-                # `from mypkg.sub import x` reaches for `mypkg.sub` at least.
-                found.add(node.module.split(".")[1])
-        # So does `import mypkg.sub`, with or without an alias.
-        found.update(
-            a.name.split(".")[1]
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Import)
-            for a in node.names
-            if a.name.startswith(package + ".")
-        )
-        live = (aliases | imported) - _locally_bound(tree, package)
-        # What carries to the next block is only what this one rebinds at
-        # top level. A fixture parameter shadows inside its function alone.
-        carried = (aliases | imported) - _locally_bound(tree, package, whole=False)
-        # `mypkg.callback = ...` creates the attribute rather than reaching
-        # for it, and a later `mypkg.callback()` then finds what it made.
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Attribute)
-                and isinstance(node.value, ast.Name)
-                and node.value.id in live
-                and not node.attr.startswith("__")
-            ):
-                if isinstance(node.ctx, ast.Store):
-                    created.add(node.attr)
-                elif node.attr not in created:
-                    found.add(node.attr)
-        aliases = carried
+        aliases = _scan_scope(tree, aliases, package, found, created)
     return found
 
 
@@ -439,20 +465,22 @@ def _relative_module(origin: Path, level: int, module: str | None) -> Path | Non
     return None
 
 
-def _string_elements(node: ast.List | ast.Tuple) -> set[str]:
+def _string_elements(node: ast.List | ast.Tuple) -> set[str] | None:
     """The string literals in a list or tuple display.
 
     Args:
         node: The display, such as the value of ``__all__``.
 
     Returns:
-        Its string constants.
+        Its strings, or None if anything else is in it: ``['a', *extra]``
+        cannot be read as a complete list.
     """
-    return {
-        e.value
-        for e in node.elts
-        if isinstance(e, ast.Constant) and isinstance(e.value, str)
-    }
+    strings: set[str] = set()
+    for e in node.elts:
+        if not (isinstance(e, ast.Constant) and isinstance(e.value, str)):
+            return None
+        strings.add(e.value)
+    return strings
 
 
 def _defined_names(
@@ -513,7 +541,7 @@ def _defined_names(
                 )
                 if declares_all and isinstance(node.value, (ast.List, ast.Tuple)):
                     declared = _string_elements(node.value)
-                    names.update(declared)
+                    names.update(declared or ())
             elif isinstance(node, ast.AugAssign):
                 names.update(_target_names(node.target))
                 if isinstance(node.target, ast.Name) and node.target.id == "__all__":
@@ -534,7 +562,7 @@ def _defined_names(
                     and isinstance(node.value, (ast.List, ast.Tuple))
                 ):
                     declared = _string_elements(node.value)
-                    names.update(declared)
+                    names.update(declared or ())
             elif isinstance(node, ast.TypeAlias):
                 names.update(_target_names(node.name))
             # Every compound statement's suites are still module level:
