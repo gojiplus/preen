@@ -28,7 +28,6 @@ binding that shadows the package name, and a name defined inside a try/except.
 """
 
 import ast
-import re
 import shutil
 import subprocess
 import tempfile
@@ -39,12 +38,69 @@ from pathlib import Path
 
 from .base import Check, CheckResult, Impact, Issue, Severity
 
-#: Fenced blocks worth reading, backtick or tilde. Bash and text blocks
+#: Info strings that mark a fenced block as Python. Bash and text blocks
 #: document something else.
-_PY_BLOCK = re.compile(
-    r"^[ \t]*(`{3,}|~{3,})(?:python|py|pycon)[ \t]*\n(.*?)^[ \t]*\1[ \t]*$",
-    re.DOTALL | re.MULTILINE,
-)
+_PYTHON_INFO = {"python", "py", "pycon"}
+
+
+def _fences(text: str) -> list[tuple[int, int | None, str]]:
+    """Find every fenced block in a Markdown document.
+
+    The rules are CommonMark's: a fence is three or more backticks or tildes,
+    a closing fence uses the same character, is at least as long, is indented
+    at most three spaces further, and has nothing after it. A fence-looking
+    line inside a block that breaks any of those is content, so a Python
+    block shown inside a Markdown block is not code.
+
+    Args:
+        text: The document.
+
+    Returns:
+        ``(opening line, closing line or None, info string)`` per block,
+        with 0-based line indexes.
+    """
+    lines = text.splitlines()
+    found: list[tuple[int, int | None, str]] = []
+    open_at = -1
+    open_marker = ""
+    open_indent = 0
+    for index, line in enumerate(lines):
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        marker = _fence_marker(stripped)
+        if marker is None:
+            continue
+        if open_at < 0:
+            open_at, open_marker, open_indent = index, marker, indent
+            found.append((index, None, stripped[len(marker) :].strip()))
+        elif (
+            marker[0] == open_marker[0]
+            and len(marker) >= len(open_marker)
+            and indent <= open_indent + 3
+            and not stripped[len(marker) :].strip()
+        ):
+            found[-1] = (open_at, index, found[-1][2])
+            open_at = -1
+    return found
+
+
+def _python_blocks(text: str) -> list[str]:
+    """The contents of every Python fenced block in a document.
+
+    Args:
+        text: The document.
+
+    Returns:
+        Each block's lines joined, in document order.
+    """
+    lines = text.splitlines()
+    blocks = []
+    for start, end, info in _fences(text):
+        language = info.split()[0].lower() if info else ""
+        if language in _PYTHON_INFO:
+            stop = end if end is not None else len(lines)
+            blocks.append("\n".join(lines[start + 1 : stop]) + "\n")
+    return blocks
 
 
 def _blank_fences(text: str) -> str:
@@ -52,8 +108,8 @@ def _blank_fences(text: str) -> str:
 
     doctest reads expected output up to a blank line or the next prompt, so
     a closing fence straight after the output would become part of what it
-    expected. Only a block's own two fences go; a line inside a tilde block
-    that merely looks like a backtick fence is content, and stays.
+    expected. Only a block's own two fences go; a fence-looking line that
+    does not close the block is content, and stays.
 
     Args:
         text: A Markdown document.
@@ -61,32 +117,12 @@ def _blank_fences(text: str) -> str:
     Returns:
         The document with fence lines emptied, line count unchanged.
     """
-    out = []
-    open_marker: str | None = None
-    open_indent = 0
-    for line in text.splitlines(keepends=True):
-        stripped = line.lstrip()
-        indent = len(line) - len(stripped)
-        marker = _fence_marker(stripped)
-        if open_marker is None and marker is not None:
-            open_marker, open_indent = marker, indent
-            line = "\n" if line.endswith("\n") else ""
-        elif (
-            open_marker is not None
-            and marker is not None
-            and marker[0] == open_marker[0]
-            and len(marker) >= len(open_marker)
-            # CommonMark closes a fence indented up to three spaces further,
-            # at least as long as the opening, and with nothing after it;
-            # anything else is content, such as a fence in a string, a
-            # shorter fence being shown, or output that starts with tildes.
-            and indent <= open_indent + 3
-            and not stripped[len(marker) :].strip()
-        ):
-            open_marker = None
-            line = "\n" if line.endswith("\n") else ""
-        out.append(line)
-    return "".join(out)
+    lines = text.splitlines(keepends=True)
+    for start, end, _info in _fences(text):
+        for index in (start, end):
+            if index is not None:
+                lines[index] = "\n" if lines[index].endswith("\n") else ""
+    return "".join(lines)
 
 
 def _fence_marker(stripped: str) -> str | None:
@@ -432,7 +468,9 @@ def _scan_scope(
         the next block of the document starts from.
     """
     nodes = _scope_nodes(root)
-    top_down = isinstance(root, ast.Module)
+    # A module and a class body run top-down; a function's locals are local
+    # throughout it.
+    top_down = isinstance(root, (ast.Module, ast.ClassDef))
     if top_down:
         live = set(inherited)
     else:
@@ -516,7 +554,7 @@ def referenced_symbols(text: str, package: str) -> set[str]:
     found: set[str] = set()
     created: set[str] = set()
     trees = []
-    for _fence, block in _PY_BLOCK.findall(text):
+    for block in _python_blocks(text):
         try:
             # Dedented so a block inside a Markdown list still parses.
             trees.append(ast.parse(_strip_prompts(textwrap.dedent(block))))

@@ -1108,3 +1108,34 @@ def test_an_appended_all_entry_counts(tmp_path):
         "__all__ = ['a']\n__all__.append('_b')\ndef a(): ...\ndef _b(): ...\n"
     )
     assert {"a", "_b"} <= (exported_symbols(pkg / "__init__.py") or set())
+
+
+@pytest.mark.parametrize(
+    "readme",
+    [
+        "``` python\nimport mypkg\nmypkg.gone()\n```\n",
+        "```python\nimport mypkg\nmypkg.gone()\n````\n",
+        "```   python   \nimport mypkg\nmypkg.gone()\n```\n",
+    ],
+)
+def test_markdown_fence_rules_are_followed_when_finding_blocks(tmp_path, readme):
+    # A space before the language, a longer closing fence: still a block.
+    repo = _repo(tmp_path, init="", readme=readme)
+    assert not ExamplesCheck(repo).run().passed
+
+
+def test_a_python_block_shown_inside_a_markdown_block_is_not_code(tmp_path):
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme="````markdown\n```python\nimport mypkg\nmypkg.gone()\n```\n````\n",
+    )
+    assert ExamplesCheck(repo).run().passed
+
+
+def test_a_class_body_runs_top_down():
+    text = (
+        "```python\nimport mypkg\n"
+        "class Demo:\n    a = mypkg.before\n    mypkg = 1\n    b = mypkg.after\n```"
+    )
+    assert referenced_symbols(text, "mypkg") == {"before"}
