@@ -266,12 +266,16 @@ class AuditCheck(Check):
             dependencies: The `"dependencies"` list from a pip-audit JSON
                 report. Non-dict entries are skipped rather than raising.
             ignored_ids: Advisory ids from ``[tool.preen] audit_ignore``.
-                A vulnerability with one of these ids does not produce an
-                Issue; it is reported back so the caller can note it.
+                A vulnerability whose primary id or any alias is listed does
+                not produce an Issue; it is reported back so the caller can
+                note it. pip-audit names one advisory several ways, PYSEC as
+                the id with the GHSA and CVE in ``aliases`` for the same
+                finding, and a repo will write down whichever it read.
 
         Returns:
             One Issue per vulnerable dependency, and the list of
-            ``"<package> <version>: <id>"`` strings that were ignored.
+            ``"<package> <version>: <id>"`` strings that were ignored, where
+            the id is the one the configuration matched.
         """
         issues = []
         ignored: list[str] = []
@@ -283,8 +287,10 @@ class AuditCheck(Check):
             version = dependency.get("version", "<unknown>")
             vulns = []
             for vuln in dependency.get("vulns", []):
-                if vuln.get("id") in ignored_ids:
-                    ignored.append(f"{name} {version}: {vuln['id']}")
+                names = [vuln.get("id"), *vuln.get("aliases", [])]
+                matched = next((n for n in names if n in ignored_ids), None)
+                if matched is not None:
+                    ignored.append(f"{name} {version}: {matched}")
                 else:
                     vulns.append(vuln)
             if not vulns:

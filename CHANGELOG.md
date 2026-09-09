@@ -11,7 +11,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - `[tool.preen] audit_ignore`: advisory ids the `audit` check reports as info
-  instead of failing on. For the case where the fix does not exist yet:
+  instead of failing on, matched against each advisory's id and its aliases,
+  since pip-audit names one advisory PYSEC in `id` and GHSA/CVE in `aliases`. For the case where the fix does not exist yet:
   themains/piedomains locks nltk 3.10.3, the current release, which
   GHSA-8mgp-746c-j5xp names with no patched version. Skipping the whole
   check to silence one advisory would stop every other dependency being
