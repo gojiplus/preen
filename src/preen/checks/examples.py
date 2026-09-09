@@ -76,10 +76,12 @@ def _blank_fences(text: str) -> str:
             and marker is not None
             and marker[0] == open_marker[0]
             and len(marker) >= len(open_marker)
-            # CommonMark closes a fence indented up to three spaces further
-            # and at least as long as the opening; anything else is content,
-            # such as a fence in a string or a shorter fence being shown.
+            # CommonMark closes a fence indented up to three spaces further,
+            # at least as long as the opening, and with nothing after it;
+            # anything else is content, such as a fence in a string, a
+            # shorter fence being shown, or output that starts with tildes.
             and indent <= open_indent + 3
+            and not stripped[len(marker) :].strip()
         ):
             open_marker = None
             line = "\n" if line.endswith("\n") else ""
@@ -282,8 +284,9 @@ def _scope_header(node: ast.AST) -> list[ast.AST]:
 def _children_in_evaluation_order(node: ast.AST) -> list[ast.AST]:
     """A node's children in the order Python evaluates them.
 
-    ``ast`` lists an assignment's targets before its value, but the value
-    runs first: in ``mypkg.f = mypkg.f()`` the read happens before the write.
+    ``ast`` lists an assignment's targets before its value and a loop's
+    target before its iterable, but the value or iterable runs first: in
+    ``mypkg.f = mypkg.f()`` the read happens before the write.
 
     Args:
         node: Any node.
@@ -292,9 +295,13 @@ def _children_in_evaluation_order(node: ast.AST) -> list[ast.AST]:
         Its direct children.
     """
     children = list(ast.iter_child_nodes(node))
-    value = getattr(node, "value", None)
-    if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and value:
-        children = [value, *(c for c in children if c is not value)]
+    first: ast.AST | None = None
+    if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+        first = node.value
+    elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+        first = node.iter
+    if first is not None:
+        children = [first, *(c for c in children if c is not first)]
     return children
 
 
@@ -612,22 +619,24 @@ def _relative_module(origin: Path, level: int, module: str | None) -> Path | Non
     return None
 
 
-def _string_elements(node: ast.List | ast.Tuple) -> set[str] | None:
+def _string_elements(node: ast.List | ast.Tuple) -> tuple[set[str], bool]:
     """The string literals in a list or tuple display.
 
     Args:
         node: The display, such as the value of ``__all__``.
 
     Returns:
-        Its strings, or None if anything else is in it: ``['a', *extra]``
-        cannot be read as a complete list.
+        Its strings, and whether they are all of it: ``['a', *extra]`` names
+        ``a`` for sure but cannot be read as a complete list.
     """
     strings: set[str] = set()
+    complete = True
     for e in node.elts:
-        if not (isinstance(e, ast.Constant) and isinstance(e.value, str)):
-            return None
-        strings.add(e.value)
-    return strings
+        if isinstance(e, ast.Constant) and isinstance(e.value, str):
+            strings.add(e.value)
+        else:
+            complete = False
+    return strings, complete
 
 
 def _defined_names(
@@ -672,20 +681,22 @@ def _defined_names(
             complete: Whether this is a fresh ``__all__ = [...]`` rather
                 than an addition to one.
         """
-        if isinstance(value, (ast.List, ast.Tuple)):
-            strings = _string_elements(value)
+        strings: set[str] = set()
+        literal = isinstance(value, (ast.List, ast.Tuple))
+        if literal:
+            strings, whole = _string_elements(value)
+            complete = complete and whole
         else:
             # Whatever list literals sit inside the expression, at least.
-            strings = None
             for sub in ast.walk(value):
                 if isinstance(sub, (ast.List, ast.Tuple)):
-                    listed.update(_string_elements(sub) or ())
-                    names.update(_string_elements(sub) or ())
+                    strings |= _string_elements(sub)[0]
+            complete = False
         state["seen"] = True
-        if strings is None or not complete:
+        if not complete:
             state["complete"] = False
-        listed.update(strings or ())
-        names.update(strings or ())
+        listed.update(strings)
+        names.update(strings)
 
     def collect(body: list[ast.stmt]) -> None:
         """Gather names from a statement list, descending into try and if.

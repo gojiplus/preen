@@ -1049,3 +1049,31 @@ def test_a_write_inside_an_uncalled_helper_does_not_create_the_attribute():
         "mypkg.removed()\n```"
     )
     assert referenced_symbols(text, "mypkg") == {"removed"}
+
+
+def test_a_computed_all_keeps_the_names_it_lists_literally(tmp_path):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("from .api import *\n")
+    (pkg / "api.py").write_text(
+        "extra = ['b']\n__all__ = ['_special', *extra]\n"
+        "def _special(): ...\ndef b(): ...\ndef _hidden(): ...\n"
+    )
+    names = exported_symbols(pkg / "__init__.py") or set()
+    assert {"_special", "b"} <= names
+    assert "_hidden" not in names
+
+
+def test_a_closing_fence_has_nothing_after_it(tmp_path):
+    repo = _doctest_repo(tmp_path, '~~~python\n>>> print("~~~text")\n~~~text\n~~~\n')
+    assert ExamplesCheck(repo).run().passed
+
+
+@pytest.mark.parametrize(
+    "block",
+    ["(mypkg := mypkg.gone())\n", "for mypkg in mypkg.gone():\n    pass\n"],
+)
+def test_a_value_or_iterable_is_read_before_its_target_is_bound(block):
+    assert referenced_symbols(f"```python\nimport mypkg\n{block}```", "mypkg") == {
+        "gone"
+    }

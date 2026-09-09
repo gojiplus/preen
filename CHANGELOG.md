@@ -37,8 +37,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Ninety-two defects found by thirty rounds of independent review of this
-  release, most in the two new checks, before they reached anyone.
+- One hundred defects found by thirty-two rounds of independent review
+  of this release, most in the two new checks, before they reached anyone.
+  `preen fix pytest-config` writes into pytest 9's native `[tool.pytest]`
+  table when a repo uses it, instead of adding an `ini_options` table
+  beside it that pytest refuses to run with.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
   of them), which matters now that its findings gate; precedence follows
@@ -66,15 +69,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (but not an earlier one), an
   alias rebound to a submodule stays rebound in later blocks, and a
   star import brings in exactly what its target's `__all__` lists, nothing
-  for an empty one, or every public name as well as the listed ones when
-  the list is computed (`['a', *extra]`, `__all__ + [...]`) or
+  for an empty one, or every public name as well as whatever the list
+  names literally when it is computed (`['a', *extra]`, `__all__ + [...]`) or
   that list is grown afterwards with `+=` or `extend`, when every public
   name counts. A
   block indented inside a Markdown list is read, a `_build` directory
   above the repo no longer hides its docs, and a README vendored under
   `docs/.venv` or `docs/node_modules` is not the repo's documentation. With doctests on, a closing fence right
   after expected output no longer counts as more output, indented or not,
-  while a line of output that merely looks like a fence is left alone, a
+  while a line of output that merely looks like a fence, or a shorter fence
+  shown inside a longer one, is left alone, a
   relative project path resolves before the subprocess changes directory, a
   `Scripts\python.exe` venv is found, a missing venv is informational rather
   than a failure, examples run even when there is no single package to
@@ -104,7 +108,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scope alone, an import inside a helper function aliases the package
   there and nowhere else, a class body's names are not visible to its
   methods while a def's decorators, defaults and annotations and a
-  comprehension's first iterable run where they sit, an assignment's value is read before its target is written, a write inside a helper that never runs creates nothing outside it, and
+  comprehension's first iterable run where they sit, an assignment's value, a walrus's value or a loop's iterable is read before its target is written, a write inside a helper that never runs creates nothing outside it, and
   a `:=` inside a comprehension binds the enclosing block. `import mypkg.sub`
   binds the package name too, and `from mypkg.missing import x` or
   `import mypkg.missing` reaches for `mypkg.missing`. Tilde fences are read
