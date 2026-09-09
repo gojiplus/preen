@@ -521,3 +521,15 @@ def test_fix_writes_into_the_native_pytest_9_table(tmp_path: Path) -> None:
     assert "ini_options" not in data["tool"]["pytest"]
     assert data["tool"]["pytest"]["xfail_strict"] is True
     assert PytestConfigCheck(tmp_path).run().issues == []
+
+
+def test_fix_for_a_missing_table_writes_the_whole_configuration(tmp_path: Path) -> None:
+    """One `preen fix` must not turn an informational finding into seven
+    gating ones."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "1.0.0"\n'
+    )
+    issue = PytestConfigCheck(tmp_path).run().issues[0]
+    assert issue.proposed_fix is not None
+    issue.proposed_fix.apply()
+    assert PytestConfigCheck(tmp_path).run().issues == []

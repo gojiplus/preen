@@ -379,7 +379,10 @@ class PytestConfigCheck(Check):
                 ),
                 gating=False,
             )
-            issue.proposed_fix = self._write_fix([], minversion=True, native=native)
+            # The whole configuration, not just minversion: now that the
+            # settings gate, a fix that wrote one key would turn an
+            # informational finding into seven blocking ones.
+            issue.proposed_fix = self._write_fix(list(SETTINGS), minversion=True)
             return CheckResult(check=self.name, passed=True, issues=[issue])
 
         missing = self._missing(options, native)

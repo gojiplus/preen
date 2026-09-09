@@ -37,8 +37,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- One hundred defects found by thirty-two rounds of independent review
-  of this release, most in the two new checks, before they reached anyone.
+- One hundred and four defects found by thirty-three rounds of
+  independent review of this release, most in the two new checks, before
+  they reached anyone. `preen fix pytest-config` on a repo with no pytest
+  table writes the whole configuration, not `minversion` alone, so one fix
+  does not turn an informational finding into seven blocking ones.
   `preen fix pytest-config` writes into pytest 9's native `[tool.pytest]`
   table when a repo uses it, instead of adding an `ini_options` table
   beside it that pytest refuses to run with.

@@ -1077,3 +1077,34 @@ def test_a_value_or_iterable_is_read_before_its_target_is_bound(block):
     assert referenced_symbols(f"```python\nimport mypkg\n{block}```", "mypkg") == {
         "gone"
     }
+
+
+def test_a_prompt_inside_a_docstring_does_not_make_the_block_a_session():
+    text = (
+        "```python\nimport mypkg\n"
+        'def foo():\n    """\n    >>> True\n    """\n'
+        "mypkg.gone()\n```"
+    )
+    assert referenced_symbols(text, "mypkg") == {"gone"}
+
+
+def test_an_annotated_computed_all_still_names_its_literals(tmp_path):
+    init = tmp_path / "__init__.py"
+    init.write_text('__all__: list[str] = ["a"] + ["b"]\na = 1\nb = 2\n_c = 3\n')
+    from preen.checks.examples import _defined_names
+
+    result = _defined_names(init)
+    assert result is not None
+    _names, listed, complete = result
+    assert {"a", "b"} <= listed
+    assert not complete
+
+
+def test_an_appended_all_entry_counts(tmp_path):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("from .api import *\n")
+    (pkg / "api.py").write_text(
+        "__all__ = ['a']\n__all__.append('_b')\ndef a(): ...\ndef _b(): ...\n"
+    )
+    assert {"a", "_b"} <= (exported_symbols(pkg / "__init__.py") or set())

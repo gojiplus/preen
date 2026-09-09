@@ -144,7 +144,10 @@ def _strip_prompts(block: str) -> str:
         Source with prompts removed and expected-output lines dropped.
     """
     lines = block.splitlines()
-    if not any(line.strip().startswith(">>>") for line in lines):
+    first = next((line.strip() for line in lines if line.strip()), "")
+    if not first.startswith(">>>"):
+        # A session starts with a prompt. A prompt further down is a
+        # docstring showing one, and the block is plain code.
         return block
     return "\n".join(
         line.strip()[4:] for line in lines if line.strip().startswith((">>> ", "... "))
@@ -687,10 +690,13 @@ def _defined_names(
             strings, whole = _string_elements(value)
             complete = complete and whole
         else:
-            # Whatever list literals sit inside the expression, at least.
+            # Whatever the expression names literally, at least: a string
+            # handed to append, or list literals inside a sum.
             for sub in ast.walk(value):
                 if isinstance(sub, (ast.List, ast.Tuple)):
                     strings |= _string_elements(sub)[0]
+                elif isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+                    strings.add(sub.value)
             complete = False
         state["seen"] = True
         if not complete:
@@ -742,9 +748,10 @@ def _defined_names(
                 if (
                     isinstance(node.target, ast.Name)
                     and node.target.id == "__all__"
-                    and isinstance(node.value, (ast.List, ast.Tuple))
+                    and node.value is not None
                 ):
-                    note_all(node.value, complete=True)
+                    literal = isinstance(node.value, (ast.List, ast.Tuple))
+                    note_all(node.value, complete=literal)
             elif isinstance(node, ast.TypeAlias):
                 names.update(_target_names(node.name))
             # Every compound statement's suites are still module level:
