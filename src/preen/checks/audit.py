@@ -299,17 +299,15 @@ class AuditCheck(Check):
             vulns = []
             for vuln in dependency.get("vulns", []):
                 names = [vuln.get("id"), *vuln.get("aliases", [])]
-                matched = next(
-                    (
-                        n
-                        for n in names
-                        if isinstance(n, str) and n.lower() in ignored_ids
-                    ),
-                    None,
-                )
-                if matched is not None:
-                    ignored.append(f"{name} {version}: {matched}")
-                    matched_ids.add(matched.lower())
+                hits = [
+                    n for n in names if isinstance(n, str) and n.lower() in ignored_ids
+                ]
+                if hits:
+                    # Report under the first configured name; credit every
+                    # configured name, or a repo that listed both the PYSEC
+                    # and the GHSA would be told one of them is stale.
+                    ignored.append(f"{name} {version}: {hits[0]}")
+                    matched_ids.update(h.lower() for h in hits)
                 else:
                     vulns.append(vuln)
             if not vulns:
