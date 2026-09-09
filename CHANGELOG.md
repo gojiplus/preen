@@ -37,8 +37,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Ninety-one defects found by twenty-nine rounds of independent review
-  of this release, most in the two new checks, before they reached anyone.
+- Ninety-two defects found by thirty rounds of independent review of this
+  release, most in the two new checks, before they reached anyone.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
   of them), which matters now that its findings gate; precedence follows
@@ -97,7 +97,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   a 1,200-term expression no longer overflows the recursion limit. And `preen
   check` prints an informational notice on a check that passes, such as
   "doctest examples not executed", instead of hiding it behind "passed".
-  Aliases resolve per lexical scope, as Python does: a fixture parameter
+  Aliases resolve per lexical scope, as Python does, and top-down at
+  module level, so `mypkg.run()` before `mypkg = 1` still counts: a fixture
+  parameter
   or comprehension variable named like the package shadows it inside that
   scope alone, an import inside a helper function aliases the package
   there and nowhere else, a class body's names are not visible to its

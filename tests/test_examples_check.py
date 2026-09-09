@@ -1001,3 +1001,23 @@ def test_a_comprehension_s_first_iterable_runs_in_the_enclosing_scope():
         "    later = [mypkg.inner for x in [1]]\n```"
     )
     assert referenced_symbols(text, "mypkg") == {"inner"}
+
+
+def test_a_longer_fence_is_closed_only_by_a_fence_at_least_as_long(tmp_path):
+    # CommonMark: four backticks may wrap a block that itself shows three.
+    repo = _doctest_repo(
+        tmp_path,
+        "````markdown\n```python\npass\n```\n````\n\n```python\n>>> 1 + 1\n2\n```\n",
+    )
+    assert ExamplesCheck(repo).run().passed
+
+
+def test_module_level_code_runs_top_down():
+    text = "```python\nimport mypkg\nmypkg.run()\nmypkg = 1\nmypkg.later\n```"
+    assert referenced_symbols(text, "mypkg") == {"run"}
+
+
+def test_a_function_scope_binding_applies_throughout_the_function():
+    # Inside a def, a name assigned anywhere is local everywhere in it.
+    text = "```python\nimport mypkg\ndef f():\n    mypkg.early\n    mypkg = 1\n```"
+    assert referenced_symbols(text, "mypkg") == set()

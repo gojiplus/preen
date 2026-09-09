@@ -363,9 +363,12 @@ def _scan_scope(
     """Check one scope's reaches for the package, then its nested scopes.
 
     A scope sees the aliases live around it, plus what it imports itself,
-    minus what it binds itself and its own parameters. Reads and writes are
-    taken in source order, so ``mypkg.flag = 1`` inside an ``if`` is seen
-    before a ``mypkg.flag`` below it.
+    minus what it binds itself and its own parameters. Inside a function a
+    name bound anywhere is local throughout, as Python has it; at module
+    level code runs top-down, so ``mypkg.run()`` before ``mypkg = 1`` still
+    reaches for the package and nothing after it does. Reads and writes are
+    taken in evaluation order, so ``mypkg.flag = 1`` inside an ``if`` is
+    seen before a ``mypkg.flag`` below it.
 
     Args:
         root: A module, or a node that opens a scope.
@@ -380,12 +383,18 @@ def _scan_scope(
         the next block of the document starts from.
     """
     nodes = _scope_nodes(root)
-    live = (
-        (inherited | _package_aliases(nodes, package))
-        - _locally_bound(nodes, package)
-        - _parameters(root)
-    )
+    top_down = isinstance(root, ast.Module)
+    if top_down:
+        live = set(inherited)
+    else:
+        live = (
+            (inherited | _package_aliases(nodes, package))
+            - _locally_bound(nodes, package)
+            - _parameters(root)
+        )
     for node in nodes:
+        if top_down:
+            live |= _package_aliases([node], package)
         if isinstance(node, ast.ImportFrom) and node.module:
             if node.module == package:
                 found.update(
@@ -420,6 +429,16 @@ def _scan_scope(
             # class saw. Anything else nested sees this scope.
             outer = inherited if isinstance(root, ast.ClassDef) else live
             _scan_scope(node, outer, package, found, created)
+        if top_down:
+            # A binding takes effect once it runs: a Name in Store context
+            # comes after the value it is assigned, a def or class after
+            # its header, and an import at once.
+            if isinstance(node, ast.Name) and isinstance(
+                node.ctx, (ast.Store, ast.Del)
+            ):
+                live.discard(node.id)
+            else:
+                live -= _locally_bound([node], package)
     return live
 
 
