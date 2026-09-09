@@ -241,6 +241,12 @@ skipped rather than scanned. Skips entirely (info, non-blocking) if there's
 no `uv.lock`, `uv export` fails, or `pip-audit` isn't installed. No
 auto-fix — bumping a vulnerable dependency needs manual review.
 
+When no fixed release exists yet, a repo lists the advisory ids in
+`[tool.preen] audit_ignore`. Those are reported as info rather than failing
+the check, naming the package, version and id, so the exception stays visible
+and the entry is removed once upstream ships a fix. Skipping the whole check
+to silence one advisory would stop every other dependency being scanned.
+
 ## Documentation
 
 ### `links`

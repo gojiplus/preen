@@ -37,6 +37,15 @@ class PreenConfig:
     # checked, which is where a broken link actually costs a reader something.
     link_ignore: list[str] = field(default_factory=list)
 
+    # Advisory ids the `audit` check should not fail on. For the case where
+    # the fix does not exist yet: themains/piedomains locks nltk 3.10.3, the
+    # current release, which GHSA-8mgp-746c-j5xp names with no patched
+    # version. Nothing to bump to, and skipping the whole `audit` check to
+    # silence one advisory would stop every other dependency being scanned.
+    # Ignored advisories are still reported, as info, so the exception stays
+    # visible; drop the entry once upstream ships a fix.
+    audit_ignore: list[str] = field(default_factory=list)
+
     @classmethod
     def from_pyproject(cls, project_dir: Path) -> "PreenConfig":
         """Load configuration from pyproject.toml.

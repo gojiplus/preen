@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from ..config import PreenConfig
 from .base import Check, CheckResult, Impact, Issue, Severity
 
 #: No existing subprocess check in this project sets an explicit timeout;
@@ -180,8 +181,19 @@ class AuditCheck(Check):
         if not isinstance(dependencies, list):
             return self._skip("pip-audit could not complete; skipping audit.")
 
-        vuln_issues = self._issues_from_dependencies(dependencies)
+        configured = PreenConfig.from_pyproject(self.project_dir).audit_ignore
+        vuln_issues, ignored, matched = self._issues_from_dependencies(
+            dependencies, {i.lower() for i in configured}
+        )
         issues = list(vuln_issues)
+        if ignored:
+            issues.append(self._ignored_issue(ignored))
+        # An entry that matched nothing is the signal the comment next to it
+        # promised: upstream shipped a fix, or the package left the lock, and
+        # the exception can go.
+        stale = sorted(i for i in configured if i.lower() not in matched)
+        if stale:
+            issues.append(self._stale_ignore_issue(stale))
         if dropped:
             issues.append(self._dropped_issue(dropped))
 
@@ -253,33 +265,68 @@ class AuditCheck(Check):
         except (subprocess.SubprocessError, OSError):
             return None
 
-    def _issues_from_dependencies(self, dependencies: list) -> list[Issue]:
+    def _issues_from_dependencies(
+        self, dependencies: list, ignored_ids: frozenset[str] | set[str] = frozenset()
+    ) -> tuple[list[Issue], list[str], set[str]]:
         """Build an Issue per vulnerable dependency from a pip-audit report.
 
         Args:
             dependencies: The `"dependencies"` list from a pip-audit JSON
                 report. Non-dict entries are skipped rather than raising.
+            ignored_ids: Advisory ids from ``[tool.preen] audit_ignore``,
+                lower-cased. A vulnerability whose primary id or any alias is
+                listed does not produce an Issue; it is reported back so the
+                caller can note it. pip-audit names one advisory several
+                ways, PYSEC as the id with the GHSA and CVE in ``aliases``
+                for the same finding, and a repo will write down whichever
+                it read, in whatever case it read it.
 
         Returns:
-            One Issue per vulnerability found across all dependencies.
+            One Issue per vulnerable dependency; the list of
+            ``"<package> <version>: <id>"`` strings that were ignored, where
+            the id is the one the configuration matched; and the lower-cased
+            configured ids that matched something.
         """
         issues = []
+        ignored: list[str] = []
+        matched_ids: set[str] = set()
         for dependency in dependencies:
             if not isinstance(dependency, dict):
                 continue
 
-            vulns = dependency.get("vulns", [])
+            name = dependency.get("name", "<unknown>")
+            version = dependency.get("version", "<unknown>")
+            vulns = []
+            for vuln in dependency.get("vulns", []):
+                # pip-audit emits aliases as a list, but a report is data from
+                # outside: null or a bare string must not crash the check.
+                aliases = vuln.get("aliases")
+                names = [
+                    vuln.get("id"),
+                    *(aliases if isinstance(aliases, list) else []),
+                ]
+                hits = [
+                    n for n in names if isinstance(n, str) and n.lower() in ignored_ids
+                ]
+                if hits:
+                    # Report under the first configured name; credit every
+                    # configured name, or a repo that listed both the PYSEC
+                    # and the GHSA would be told one of them is stale.
+                    ignored.append(f"{name} {version}: {hits[0]}")
+                    matched_ids.update(h.lower() for h in hits)
+                else:
+                    vulns.append(vuln)
             if not vulns:
                 continue
 
-            name = dependency.get("name", "<unknown>")
-            version = dependency.get("version", "<unknown>")
             vuln_ids = ", ".join(vuln.get("id", "") for vuln in vulns if vuln.get("id"))
             fix_versions = sorted(
                 {fv for vuln in vulns for fv in vuln.get("fix_versions", [])}
             )
 
-            description = f"{name} {version} has known vulnerabilities: {vuln_ids}"
+            description = f"{name} {version} has known vulnerabilities"
+            if vuln_ids:
+                description += f": {vuln_ids}"
             if fix_versions:
                 description += f" (fix available: {', '.join(fix_versions)})"
 
@@ -297,7 +344,40 @@ class AuditCheck(Check):
                     ),
                 )
             )
-        return issues
+        return issues, ignored, matched_ids
+
+    def _stale_ignore_issue(self, entries: list[str]) -> Issue:
+        """Build the info issue naming audit_ignore entries that matched nothing."""
+        return Issue(
+            check=self.name,
+            severity=Severity.INFO,
+            description=(
+                "audit_ignore entries that match no advisory in the lock: "
+                f"{', '.join(entries)}"
+            ),
+            impact=Impact.INFORMATIONAL,
+            explanation=(
+                "Usually upstream shipped a fix and the lock moved past the "
+                "advisory, or the package left the lock. Remove the entry so "
+                "the check gates on that advisory again if it returns."
+            ),
+        )
+
+    def _ignored_issue(self, entries: list[str]) -> Issue:
+        """Build the info issue naming advisories ignored by configuration."""
+        return Issue(
+            check=self.name,
+            severity=Severity.INFO,
+            description=(
+                f"ignored per [tool.preen] audit_ignore: {', '.join(entries)}"
+            ),
+            impact=Impact.INFORMATIONAL,
+            explanation=(
+                "These advisories are listed in audit_ignore, usually because "
+                "no fixed release exists yet. Remove the entry once upstream "
+                "ships a fix so the check gates on it again."
+            ),
+        )
 
     def _dropped_issue(self, names: list[str]) -> Issue:
         """Build the info issue naming packages dropped from the scan."""
