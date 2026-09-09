@@ -170,13 +170,32 @@ def _scope_nodes(root: ast.AST) -> list[ast.AST]:
         The nodes, root excluded.
     """
     out: list[ast.AST] = []
-    pending = list(reversed(list(ast.iter_child_nodes(root))))
+    pending = list(reversed(_children_in_evaluation_order(root)))
     while pending:
         node = pending.pop()
         out.append(node)
         if not isinstance(node, _SCOPES):
-            pending.extend(reversed(list(ast.iter_child_nodes(node))))
+            pending.extend(reversed(_children_in_evaluation_order(node)))
     return out
+
+
+def _children_in_evaluation_order(node: ast.AST) -> list[ast.AST]:
+    """A node's children in the order Python evaluates them.
+
+    ``ast`` lists an assignment's targets before its value, but the value
+    runs first: in ``mypkg.f = mypkg.f()`` the read happens before the write.
+
+    Args:
+        node: Any node.
+
+    Returns:
+        Its direct children.
+    """
+    children = list(ast.iter_child_nodes(node))
+    value = getattr(node, "value", None)
+    if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and value:
+        children = [value, *(c for c in children if c is not value)]
+    return children
 
 
 def _parameters(root: ast.AST) -> set[str]:
@@ -336,7 +355,10 @@ def _scan_scope(
             elif node.attr not in created:
                 found.add(node.attr)
         elif isinstance(node, _SCOPES):
-            _scan_scope(node, live, package, found, created)
+            # A method does not see its class's namespace; it sees what the
+            # class saw. Anything else nested sees this scope.
+            outer = inherited if isinstance(root, ast.ClassDef) else live
+            _scan_scope(node, outer, package, found, created)
     return live
 
 

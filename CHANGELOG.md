@@ -37,7 +37,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Eighty-five defects found by twenty-six rounds of independent review
+- Eighty-seven defects found by twenty-seven rounds of independent review
   of this release, most in the two new checks, before they reached anyone.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
@@ -99,8 +99,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Aliases resolve per lexical scope, as Python does: a fixture parameter
   or comprehension variable named like the package shadows it inside that
   scope alone, an import inside a helper function aliases the package
-  there and nowhere else, and a `:=` inside a comprehension binds the
-  enclosing block. `import mypkg.sub`
+  there and nowhere else, a class body's names are not visible to its
+  methods, an assignment's value is read before its target is written, and
+  a `:=` inside a comprehension binds the enclosing block. `import mypkg.sub`
   binds the package name too, and `from mypkg.missing import x` or
   `import mypkg.missing` reaches for `mypkg.missing`. Tilde fences are read
   like backtick ones, in both tiers. Finally, a

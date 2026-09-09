@@ -949,3 +949,18 @@ def test_a_walrus_inside_a_lambda_inside_a_comprehension_stays_there():
         "mypkg.does_not_exist\n```"
     )
     assert referenced_symbols(text, "mypkg") == {"does_not_exist"}
+
+
+def test_a_class_body_name_is_not_visible_to_its_methods():
+    # Python resolves a method's free names outside the class namespace.
+    text = (
+        "```python\nimport http_client as client\n"
+        "class Example:\n    import mypkg as client\n"
+        "    def run(self):\n        return client.get(42)\n```"
+    )
+    assert referenced_symbols(text, "mypkg") == set()
+
+
+def test_an_assignment_s_value_is_read_before_its_target_is_created():
+    text = "```python\nimport mypkg\nmypkg.removed = mypkg.removed()\n```"
+    assert referenced_symbols(text, "mypkg") == {"removed"}
