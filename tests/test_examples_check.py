@@ -927,3 +927,25 @@ def test_a_parameter_shadows_only_inside_its_function():
 def test_an_attribute_created_in_a_nested_suite_counts_in_source_order():
     text = "```python\nimport mypkg\nif True:\n    mypkg.flag = 1\nmypkg.flag\n```"
     assert referenced_symbols(text, "mypkg") == set()
+
+
+def test_a_grown_all_keeps_the_underscore_names_it_lists(tmp_path):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("from .api import *\n")
+    (pkg / "api.py").write_text(
+        "__all__ = ['public']\n__all__ += ['_extra']\n"
+        "def public(): ...\ndef _extra(): ...\ndef _hidden(): ...\n"
+    )
+    names = exported_symbols(pkg / "__init__.py") or set()
+    assert {"public", "_extra"} <= names
+    assert "_hidden" not in names
+
+
+def test_a_walrus_inside_a_lambda_inside_a_comprehension_stays_there():
+    text = (
+        "```python\nimport mypkg\n"
+        "[lambda: (mypkg := 1) for _ in range(1)]\n"
+        "mypkg.does_not_exist\n```"
+    )
+    assert referenced_symbols(text, "mypkg") == {"does_not_exist"}

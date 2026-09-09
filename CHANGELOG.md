@@ -37,7 +37,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Eighty-three defects found by twenty-five rounds of independent review
+- Eighty-five defects found by twenty-six rounds of independent review
   of this release, most in the two new checks, before they reached anyone.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
@@ -65,8 +65,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (but not an earlier one), an
   alias rebound to a submodule stays rebound in later blocks, and a
   star import brings in exactly what its target's `__all__` lists, nothing
-  for an empty one, or every public name when the list is computed
-  (`['a', *extra]`) or
+  for an empty one, or every public name as well as the listed ones when
+  the list is computed (`['a', *extra]`) or
   that list is grown afterwards with `+=` or `extend`, when every public
   name counts. A
   block indented inside a Markdown list is read, a `_build` directory

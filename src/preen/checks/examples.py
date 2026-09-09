@@ -228,13 +228,9 @@ def _locally_bound(nodes: Iterable[ast.AST], package: str) -> set[str]:
         elif isinstance(
             node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
         ):
-            # Its loop variable is its own, but a walrus inside binds here.
-            bound.update(
-                name
-                for sub in ast.walk(node)
-                if isinstance(sub, ast.NamedExpr)
-                for name in _target_names(sub.target)
-            )
+            # Its loop variable is its own, but a walrus inside binds here,
+            # unless a lambda inside it owns that walrus.
+            bound.update(_walrus_names(node))
         elif isinstance(
             node,
             (
@@ -417,11 +413,11 @@ def _pattern_names(pattern: ast.pattern) -> set[str]:
     return names
 
 
-def _walrus_names(stmt: ast.stmt) -> set[str]:
+def _walrus_names(stmt: ast.AST) -> set[str]:
     """Names a statement binds with ``:=`` in the enclosing scope.
 
     Args:
-        stmt: A module-level statement.
+        stmt: A statement, or a comprehension.
 
     Returns:
         The targets, not descending into a def, class or lambda, whose
@@ -485,7 +481,7 @@ def _string_elements(node: ast.List | ast.Tuple) -> set[str] | None:
 
 def _defined_names(
     path: Path, visiting: frozenset[Path] = frozenset()
-) -> tuple[set[str], set[str] | None] | None:
+) -> tuple[set[str], set[str], bool] | None:
     """Read every name a module defines at top level, without importing it.
 
     A relative star import is followed into the sibling module; any other star
@@ -497,10 +493,10 @@ def _defined_names(
         visiting: Modules already on the star-import path, to stop a cycle.
 
     Returns:
-        ``(names, declared)``: every name defined, and what a literal
-        ``__all__`` lists, or None for that when there is no usable one.
-        None altogether if the file cannot be parsed or its exports cannot
-        be resolved statically.
+        ``(names, listed, complete)``: every name defined; every string a
+        literal ``__all__`` names, including in ``+=`` and ``extend``; and
+        whether that listing is the whole of ``__all__``. None if the file
+        cannot be parsed or its exports cannot be resolved statically.
     """
     path = path.resolve()
     if path in visiting:
@@ -511,11 +507,30 @@ def _defined_names(
         return None
 
     names: set[str] = set()
-    declared: set[str] | None = None
+    listed: set[str] = set()
     stars: list[tuple[int, str | None]] = []
-    # `__all__ += [...]` or `__all__.extend(...)` means the literal list is
-    # not the whole story; then it is treated as if there were none.
-    grown: list[bool] = []
+    # `__all__ = [...]` makes the list complete; `+= [...]`, `.extend(...)`
+    # or a computed element such as `*extra` means it is only a lower bound.
+    state = {"seen": False, "complete": True}
+
+    def note_all(value: ast.expr, *, complete: bool) -> None:
+        """Record what an ``__all__`` assignment or extension contributes.
+
+        Args:
+            value: The right-hand side, or an ``extend`` argument.
+            complete: Whether this is a fresh ``__all__ = [...]`` rather
+                than an addition to one.
+        """
+        strings = (
+            _string_elements(value)
+            if isinstance(value, (ast.List, ast.Tuple))
+            else None
+        )
+        state["seen"] = True
+        if strings is None or not complete:
+            state["complete"] = False
+        listed.update(strings or ())
+        names.update(strings or ())
 
     def collect(body: list[ast.stmt]) -> None:
         """Gather names from a statement list, descending into try and if.
@@ -523,7 +538,6 @@ def _defined_names(
         Args:
             body: Statements to walk.
         """
-        nonlocal declared
         for node in body:
             names.update(_walrus_names(node))
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -540,12 +554,11 @@ def _defined_names(
                     isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
                 )
                 if declares_all and isinstance(node.value, (ast.List, ast.Tuple)):
-                    declared = _string_elements(node.value)
-                    names.update(declared or ())
+                    note_all(node.value, complete=True)
             elif isinstance(node, ast.AugAssign):
                 names.update(_target_names(node.target))
                 if isinstance(node.target, ast.Name) and node.target.id == "__all__":
-                    grown.append(True)
+                    note_all(node.value, complete=False)
             elif (
                 isinstance(node, ast.Expr)
                 and isinstance(node.value, ast.Call)
@@ -553,7 +566,8 @@ def _defined_names(
                 and isinstance(node.value.func.value, ast.Name)
                 and node.value.func.value.id == "__all__"
             ):
-                grown.append(True)
+                for arg in node.value.args:
+                    note_all(arg, complete=False)
             elif isinstance(node, ast.AnnAssign):
                 names.update(_target_names(node.target))
                 if (
@@ -561,8 +575,7 @@ def _defined_names(
                     and node.target.id == "__all__"
                     and isinstance(node.value, (ast.List, ast.Tuple))
                 ):
-                    declared = _string_elements(node.value)
-                    names.update(declared or ())
+                    note_all(node.value, complete=True)
             elif isinstance(node, ast.TypeAlias):
                 names.update(_target_names(node.name))
             # Every compound statement's suites are still module level:
@@ -592,8 +605,6 @@ def _defined_names(
                     collect(case.body)
 
     collect(tree.body)
-    if grown:
-        declared = None
     if "__getattr__" in names:
         # PEP 562: attributes are made on demand, so no static list is complete.
         return None
@@ -604,15 +615,14 @@ def _defined_names(
         )
         if pulled is None:
             return None
-        pulled_names, pulled_declared = pulled
+        pulled_names, pulled_listed, pulled_complete = pulled
         # A star import brings in exactly what the target's __all__ lists,
-        # underscores included and an empty list included, or every public
-        # name when it has none.
-        if pulled_declared is not None:
-            names.update(pulled_declared)
-        else:
+        # underscores included and an empty list included. When the list is
+        # only a lower bound, or there is none, every public name comes too.
+        names.update(pulled_listed)
+        if not pulled_complete:
             names.update(n for n in pulled_names if not n.startswith("_"))
-    return names, declared
+    return names, listed, state["seen"] and state["complete"]
 
 
 def exported_symbols(init: Path) -> set[str] | None:
