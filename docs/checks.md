@@ -269,9 +269,11 @@ imports reached for on the package are collected, and each is looked up in
 what the package exposes: the names its `__init__` defines, relative star
 imports followed, plus every child module and subpackage. Nothing is imported
 or executed, so this works against a repo whose dependencies are not
-installed. Important: an example naming something that no longer exists
-fails for the first person who copies it, and nothing else in the suite reads
-documentation.
+installed. Informational in 0.6.0: an example naming something that no
+longer exists fails for the first person who copies it, and nothing else in
+the suite reads documentation, but a static reading of examples has corners,
+and a false positive here fails someone else's CI. It gates once a release
+has gone through a fleet sweep without one.
 
 Permissive where it cannot be sure. A fragment that does not parse is skipped,
 a name the enclosing scope binds itself (a fixture parameter or loop

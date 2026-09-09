@@ -962,15 +962,20 @@ class ExamplesCheck(Check):
             for doc in _documented_files(self.project_dir, self.excluded_dirs()):
                 used = referenced_symbols(doc.read_text(encoding="utf-8"), package)
                 issues.extend(
+                    # Advisory in 0.6.0. Thirty-five rounds of independent
+                    # review kept finding corners of Python and Markdown this
+                    # static tier had not met, and a false positive here fails
+                    # someone else's CI. It gates once a fleet sweep shows a
+                    # release with none.
                     Issue(
                         check=self.name,
-                        severity=Severity.ERROR,
+                        severity=Severity.WARNING,
                         description=(
                             f"{doc.name} shows `{package}.{symbol}`, which the "
                             f"package does not define"
                         ),
                         file=doc,
-                        impact=Impact.IMPORTANT,
+                        impact=Impact.INFORMATIONAL,
                         explanation=(
                             "An example naming something that no longer exists "
                             "fails for the first person who copies it, and "

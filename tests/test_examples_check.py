@@ -21,8 +21,8 @@ def _repo(tmp_path, init: str, readme: str, pyproject: str = ""):
     return tmp_path
 
 
-def _errors(result):
-    return [i for i in result.issues if i.severity.value == "error"]
+def _findings(result):
+    return [i for i in result.issues if i.severity.value == "warning"]
 
 
 def test_a_readme_naming_a_missing_symbol_fails(tmp_path):
@@ -36,7 +36,7 @@ def test_a_readme_naming_a_missing_symbol_fails(tmp_path):
             ```
         """,
     )
-    issues = _errors(ExamplesCheck(repo).run())
+    issues = _findings(ExamplesCheck(repo).run())
     assert len(issues) == 1
     assert "mypkg.gone" in issues[0].description
 
@@ -73,7 +73,7 @@ def test_an_alias_imported_once_is_understood_in_later_blocks(tmp_path):
             ```
         """,
     )
-    assert "mypkg.gone" in _errors(ExamplesCheck(repo).run())[0].description
+    assert "mypkg.gone" in _findings(ExamplesCheck(repo).run())[0].description
 
 
 # --- the three false positives, each verified against a real fleet repo ---
@@ -605,7 +605,7 @@ def test_an_attribute_the_example_creates_may_be_used_later(tmp_path):
             ```
         """,
     )
-    issues = _errors(ExamplesCheck(repo).run())
+    issues = _findings(ExamplesCheck(repo).run())
     assert [i.description for i in issues] == [
         "README.md shows `mypkg.gone`, which the package does not define"
     ]
@@ -663,7 +663,7 @@ def test_a_parameter_in_one_block_does_not_retire_the_package_for_the_next(tmp_p
             ```
         """,
     )
-    issues = _errors(ExamplesCheck(repo).run())
+    issues = _findings(ExamplesCheck(repo).run())
     assert [i.description for i in issues] == [
         "README.md shows `mypkg.does_not_exist`, which the package does not define"
     ]
@@ -694,7 +694,7 @@ def test_a_comprehension_variable_does_not_retire_the_package(tmp_path):
             ```
         """,
     )
-    assert [i.description for i in _errors(ExamplesCheck(repo).run())] == [
+    assert [i.description for i in _findings(ExamplesCheck(repo).run())] == [
         "README.md shows `mypkg.gone`, which the package does not define"
     ]
 
@@ -744,7 +744,7 @@ def test_a_from_import_of_a_missing_submodule_is_reported(tmp_path):
         init="",
         readme="```python\nfrom mypkg.does_not_exist import anything\n```",
     )
-    assert [i.description for i in _errors(ExamplesCheck(repo).run())] == [
+    assert [i.description for i in _findings(ExamplesCheck(repo).run())] == [
         "README.md shows `mypkg.does_not_exist`, which the package does not define"
     ]
 
@@ -776,7 +776,7 @@ def test_a_function_local_import_does_not_leak_into_later_blocks(tmp_path):
 )
 def test_a_dotted_import_of_a_missing_submodule_is_reported(tmp_path, block):
     repo = _repo(tmp_path, init="", readme=f"```python\n{block}```")
-    assert [i.description for i in _errors(ExamplesCheck(repo).run())] == [
+    assert [i.description for i in _findings(ExamplesCheck(repo).run())] == [
         "README.md shows `mypkg.removed`, which the package does not define"
     ]
 
@@ -872,7 +872,7 @@ def test_an_attribute_used_before_it_is_created_is_missing(tmp_path):
             "```python\nmypkg.missing = 1\n```"
         ),
     )
-    assert [i.description for i in _errors(ExamplesCheck(repo).run())] == [
+    assert [i.description for i in _findings(ExamplesCheck(repo).run())] == [
         "README.md shows `mypkg.missing`, which the package does not define"
     ]
 
@@ -1169,3 +1169,12 @@ def test_a_fence_inside_a_deeply_nested_list_is_still_a_fence(tmp_path):
 def test_an_augmented_assignment_reads_its_target():
     text = "```python\nimport mypkg\nmypkg.gone += 1\nmypkg.gone\n```"
     assert referenced_symbols(text, "mypkg") == {"gone"}
+
+
+def test_a_static_finding_is_advisory_in_this_release(tmp_path):
+    from preen.checks.base import Impact
+
+    repo = _repo(tmp_path, init="", readme="```python\nimport mypkg\nmypkg.gone()\n```")
+    result = ExamplesCheck(repo).run()
+    assert not result.passed
+    assert [i.impact for i in result.issues] == [Impact.INFORMATIONAL]

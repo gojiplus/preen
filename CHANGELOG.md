@@ -17,7 +17,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   importing anything. Set `[tool.preen] run_doctests = true` to also execute
   `>>>` examples under the repo's own `.venv`. Off by default because, across
   the fleet, the only doctest failures were illustrative blocks that depend on
-  earlier state or a live API.
+  earlier state or a live API. The static tier is informational in this
+  release and gates once a fleet sweep shows a release with no false
+  positive; the opt-in doctest tier gates from the start, since the repo
+  asked for it.
 
 - A `python-floor` check: does `requires-python` meet the floor the fleet
   standard declares. STANDARD.md said `>=3.12` while 30 of 51 adopted repos
