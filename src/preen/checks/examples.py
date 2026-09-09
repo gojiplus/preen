@@ -184,6 +184,16 @@ def _locally_bound(tree: ast.AST, package: str, *, whole: bool = True) -> set[st
         elif isinstance(node, ast.Assign):
             bound.update(*(_target_names(t) for t in node.targets))
         elif isinstance(
+            node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+        ):
+            # Its loop variable is its own, but a walrus inside binds here.
+            bound.update(
+                name
+                for sub in ast.walk(node)
+                if isinstance(sub, ast.NamedExpr)
+                for name in _target_names(sub.target)
+            )
+        elif isinstance(
             node,
             (
                 ast.AnnAssign,
@@ -506,11 +516,10 @@ def _defined_names(
         if pulled is None:
             return None
         pulled_names, pulled_declared = pulled
-        # Permissive on purpose: a star import honors the target's __all__,
-        # but a name outside it is still reachable as an attribute. An
-        # underscore name arrives only when __all__ lists it.
+        # A star import brings in exactly what the target's __all__ lists,
+        # underscores included, or every public name when it has none.
         names.update(
-            n for n in pulled_names if not n.startswith("_") or n in pulled_declared
+            pulled_declared or {n for n in pulled_names if not n.startswith("_")}
         )
     return names, declared
 

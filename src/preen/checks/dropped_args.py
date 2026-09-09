@@ -190,14 +190,17 @@ def _calls_with_statement_lines(
             pending.extend(c for c in ast.iter_child_nodes(child) if not _owns_block(c))
         return end
 
-    def visit(node: ast.AST, lines: range | None) -> None:
-        """Descend, tracking the lines a marker may sit on for this node.
-
-        Args:
-            node: The node to visit.
-            lines: The enclosing simple statement's lines, or a block
-                owner's header lines.
-        """
+    # Children, not just the body: a default value or a decorator is part of
+    # the function too, and a call there drops arguments like any other. The
+    # function's own header lines cover them, so a marker above the def works.
+    # An explicit stack rather than recursion: a 1,200-term sum parses fine
+    # and must not overflow here.
+    header = range(_start_line(func), header_end(func) + 1)
+    pending: list[tuple[ast.AST, range | None]] = [
+        (child, header) for child in ast.iter_child_nodes(func)
+    ]
+    while pending:
+        node, lines = pending.pop()
         if _owns_block(node):
             lines = range(_start_line(node), header_end(node) + 1)
         elif isinstance(node, ast.stmt):
@@ -205,15 +208,8 @@ def _calls_with_statement_lines(
         if isinstance(node, ast.Call):
             own = range(node.lineno, (node.end_lineno or node.lineno) + 1)
             found.append((node, lines if lines is not None else own))
-        for child in ast.iter_child_nodes(node):
-            visit(child, lines)
-
-    # Children, not just the body: a default value or a decorator is part of
-    # the function too, and a call there drops arguments like any other. The
-    # function's own header lines cover them, so a marker above the def works.
-    header = range(_start_line(func), header_end(func) + 1)
-    for child in ast.iter_child_nodes(func):
-        visit(child, header)
+        pending.extend((child, lines) for child in ast.iter_child_nodes(node))
+    found.sort(key=lambda pair: (pair[0].lineno, pair[0].col_offset))
     return found
 
 
@@ -249,7 +245,7 @@ def find_dropped(
                     continue
                 if any(kw.arg is None for kw in call.keywords):
                     continue  # `**kwargs` forwards everything; nothing dropped
-                if skip & set(lines):
+                if any(lines.start <= line < lines.stop for line in skip):
                     continue
 
                 supplied = {kw.arg for kw in call.keywords if kw.arg}

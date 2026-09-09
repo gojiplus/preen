@@ -37,8 +37,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Seventy defects found by twenty-one rounds of independent review of
-  this release, most in the two new checks, before they reached anyone.
+- Seventy-four defects found by twenty-two rounds of independent review
+  of this release, most in the two new checks, before they reached anyone.
   `pytest-config` recognizes pytest 9's ini spellings of strictness
   (`strict_config`, `strict_markers`, `strict_xfail`, and `strict` for all
   of them), which matters now that its findings gate; precedence follows
@@ -63,7 +63,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the package and the example, exports a `type` alias, treats
   `mypkg.callback = ...` as creating an attribute a later block may use, an
   alias rebound to a submodule stays rebound in later blocks, and a
-  star import carries an underscore name its target's `__all__` lists. A
+  star import brings in exactly what its target's `__all__` lists. A
   block indented inside a Markdown list is read, a `_build` directory
   above the repo no longer hides its docs, and a README vendored under
   `docs/.venv` or `docs/node_modules` is not the repo's documentation. With doctests on, a closing fence right
@@ -86,12 +86,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   call in an `if`, `match` or `except` header is covered by the header's
   lines, wrapped or not, and never by the body's,
   while a call in a decorator or default value is still seen and a marker
-  on the decorator or above the `def` covers it. And `preen
+  on the decorator or above the `def` covers it. The walk is iterative, so
+  a 1,200-term expression no longer overflows the recursion limit. And `preen
   check` prints an informational notice on a check that passes, such as
   "doctest examples not executed", instead of hiding it behind "passed".
   A fixture parameter or comprehension variable named like the package
   shadows it inside that scope alone, not for the rest of the document,
-  and an import inside a helper function aliases nothing outside it. `import mypkg.sub`
+  and an import inside a helper function aliases nothing outside it,
+  while a `:=` inside a comprehension binds the block as Python says. `import mypkg.sub`
   binds the package name too, and `from mypkg.missing import x` or
   `import mypkg.missing` reaches for `mypkg.missing`. Tilde fences are read
   like backtick ones, in both tiers. Finally, a

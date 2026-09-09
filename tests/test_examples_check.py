@@ -812,3 +812,34 @@ def test_a_function_local_import_does_not_alias_the_rest_of_its_block(tmp_path):
     )
     (tmp_path / "src" / "mypkg" / "client.py").write_text("def request(): ...\n")
     assert ExamplesCheck(repo).run().passed
+
+
+def test_a_walrus_inside_a_comprehension_binds_the_block(tmp_path):
+    # The loop variable is the comprehension's own; a walrus target is not.
+    repo = _repo(
+        tmp_path,
+        init="",
+        readme="""
+            ```python
+            import mypkg as mp
+            ```
+            ```python
+            [(mp := value) for value in ["text"]]
+            ```
+            ```python
+            mp.upper()
+            ```
+        """,
+    )
+    assert ExamplesCheck(repo).run().passed
+
+
+def test_a_star_import_honors_the_target_s_all(tmp_path):
+    # Python brings in only what __all__ lists; so does the check.
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("from .sub import *\n")
+    (pkg / "sub.py").write_text("__all__ = ['foo']\nfoo = 1\nbar = 2\n")
+    names = exported_symbols(pkg / "__init__.py") or set()
+    assert "foo" in names
+    assert "bar" not in names

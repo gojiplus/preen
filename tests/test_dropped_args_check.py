@@ -453,3 +453,26 @@ def outer(x, level=0.95):
 """,
     )
     assert found == []
+
+
+def test_a_very_deep_expression_does_not_overflow(tmp_path: Path) -> None:
+    """ast.parse copes with a 1,200-term sum; so must the walk over it."""
+    terms = " + ".join(["inner(x)"] * 1200)
+    found = _run(
+        tmp_path,
+        mod=INNER + f"\n\ndef outer(x, level=0.95):\n    return {terms}\n",
+    )
+    assert len(found) == 1200
+
+
+def test_many_calls_in_one_statement_stay_fast(tmp_path: Path) -> None:
+    import time
+
+    entries = ",\n".join(["    inner(x)"] * 10000)
+    started = time.time()
+    found = _run(
+        tmp_path,
+        mod=INNER + f"\n\ndef outer(x, level=0.95):\n    return [\n{entries}\n]\n",
+    )
+    assert len(found) == 10000
+    assert time.time() - started < 5
