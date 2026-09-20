@@ -145,8 +145,11 @@ enforce_python_floor = true
 ### `metadata`
 
 Three independent pyproject.toml checks. `build-system`: important if an
-existing table does not use the fleet's current `uv_build` requirement and
-backend exactly; `preen adopt --release-migration` applies that standard.
+existing table does not use the `uv_build` backend with one requirement in
+the approved series. Newer minimums are accepted within `>=0.12.5,<0.13`;
+the exclusive upper bound must stay at `<0.13`. Package-name normalization
+and equivalent version spellings are accepted. Extras, markers, and direct
+URLs are not. `preen adopt --release-migration` applies the template default.
 `requires-python`: important if it has an upper bound (`<`, `<=`, `==`, `===`,
 `~=`), which caps installs on future Pythons for no benefit (sp-repo-review
 PP004); info if it's absent entirely. `py.typed`: important if `[tool.pyright]`
