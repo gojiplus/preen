@@ -183,7 +183,12 @@ def test_invalid_toml_is_named_as_such(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "requires",
-    ['["uv_build>=0.12.5,<0.13"]', '["uv_build>=0.12.5,<0.13.0"]'],
+    [
+        '["uv_build>=0.12.5,<0.13"]',
+        '["uv_build>=0.12.5,<0.13.0"]',
+        '["uv-build>=0.12.10,<0.13"]',
+        '["UV.Build<0.13.0,>=0.12.10.0"]',
+    ],
 )
 def test_equivalent_spellings_of_the_build_requirement_pass(
     tmp_path: Path, requires: str
@@ -226,3 +231,30 @@ def test_a_genuinely_different_requirement_is_still_flagged(
     result = MetadataCheck(tmp_path).run()
 
     assert [i for i in result.issues if "build-system" in i.description]
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "uv_build>=0.12.4,<0.13",
+        "uv_build>=0.13,<0.13",
+        "uv_build>=0.12.10",
+        "uv_build>=0.12.10,<0.14",
+        "uv_build>=0.12.10,<=0.13",
+        "uv_build==0.12.10",
+        "uv_build>=0.12.10,<0.13,!=0.12.11",
+        "uv_build[extra]>=0.12.10,<0.13",
+        "uv_build>=0.12.10,<0.13; python_version>='3.12'",
+        "uv_build @ https://example.com/backend.whl",
+        "other>=0.12.10,<0.13",
+    ],
+)
+def test_build_requirement_outside_policy_flagged(tmp_path, requirement):
+    _write_pyproject(tmp_path, ">=3.12")
+    with (tmp_path / "pyproject.toml").open("a") as pyproject:
+        pyproject.write(
+            f'\n[build-system]\nrequires = ["{requirement}"]\n'
+            'build-backend = "uv_build"\n'
+        )
+    result = MetadataCheck(tmp_path).run()
+    assert any("build-system" in issue.description for issue in result.issues)

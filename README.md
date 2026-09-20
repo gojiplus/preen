@@ -69,7 +69,8 @@ and `[tool.mypy]` sections.
 
 Pass `--release-migration` to also convert the build backend to the fleet's
 current `uv_build` series. The minimum is the latest tested release and the upper
-bound prevents an unreviewed backend-series upgrade. An existing `project.version`
+bound prevents an unreviewed backend-series upgrade. The metadata check accepts
+newer minimums within that series, including Dependabot patch updates. An existing `project.version`
 is preserved; a legacy dynamic-version project takes its current version from its
 latest `v*` tag.
 
