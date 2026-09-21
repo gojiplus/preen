@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-20
+
+### Fixed
+
+- Accept newer `uv_build` minimum versions within the approved compatibility
+  range, including normalized package names and equivalent version spellings.
+  Dependabot patch updates no longer fail the metadata check solely because
+  they raise the minimum. The exclusive upper bound remains required.
+
 ## [0.6.1] - 2026-09-09
 
 ### Added

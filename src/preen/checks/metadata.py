@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import canonicalize_name
+from packaging.version import Version
 from validate_pyproject import api as validate_api
 from validate_pyproject import errors as validate_errors
 
@@ -22,20 +24,15 @@ from .base import Check, CheckResult, Impact, Issue, Severity
 _CAP_PATTERN = re.compile(r"~=|===|<=|==|<")
 
 
-def _same_requirement(declared: Any, expected: str) -> bool:
-    """Report whether a `requires` list pins exactly the expected requirement.
-
-    Compared as a parsed specifier rather than as a string. ``<0.13`` and
-    ``<0.13.0`` admit precisely the same versions, and gojiplus/uijudge-bench
-    writes the second -- so a string comparison told a repo with a correct,
-    current build backend to migrate it.
+def _compatible_requirement(declared: Any, expected: str) -> bool:
+    """Accept a newer minimum within the standard's backend compatibility range.
 
     Args:
         declared: The ``build-system.requires`` value.
-        expected: The requirement the standard specifies.
+        expected: The standard's minimum and exclusive upper bound.
 
     Returns:
-        True when the list holds one requirement equivalent to `expected`.
+        Whether the single requirement preserves the approved range.
     """
     if not isinstance(declared, list) or len(declared) != 1:
         return False
@@ -44,13 +41,19 @@ def _same_requirement(declared: Any, expected: str) -> bool:
         wanted = Requirement(expected)
     except InvalidRequirement:
         return False
-    return (
-        found.name == wanted.name
-        and set(found.specifier) == set(wanted.specifier)
-        and found.extras == wanted.extras
-        and found.marker is None
-        and wanted.marker is None
-    )
+    if (
+        canonicalize_name(found.name) != canonicalize_name(wanted.name)
+        or found.extras
+        or found.marker is not None
+        or found.url is not None
+    ):
+        return False
+    bounds = {s.operator: s.version for s in found.specifier}
+    standard = {s.operator: Version(s.version) for s in wanted.specifier}
+    if len(found.specifier) != 2 or set(bounds) != {">=", "<"}:
+        return False
+    minimum, ceiling = Version(bounds[">="]), Version(bounds["<"])
+    return standard[">="] <= minimum < ceiling == standard["<"]
 
 
 class MetadataCheck(Check):
@@ -148,7 +151,7 @@ class MetadataCheck(Check):
             isinstance(build, dict)
             and set(build) == {"requires", "build-backend"}
             and build.get("build-backend") == "uv_build"
-            and _same_requirement(build.get("requires"), UV_BUILD_REQUIREMENT)
+            and _compatible_requirement(build.get("requires"), UV_BUILD_REQUIREMENT)
         ):
             return []
         return [
@@ -156,15 +159,15 @@ class MetadataCheck(Check):
                 check=self.name,
                 severity=Severity.WARNING,
                 description=(
-                    "build-system must use "
+                    "build-system must use a compatible requirement based on "
                     f'{UV_BUILD_REQUIREMENT!r} with backend "uv_build"'
                 ),
                 file=Path("pyproject.toml"),
                 impact=Impact.IMPORTANT,
                 explanation=(
-                    "The py-canon fleet uses one current uv_build requirement so "
-                    "backend upgrades are deliberate and stale build shims cannot "
-                    "linger unnoticed. Run preen adopt --release-migration to migrate."
+                    "The minimum may increase within the approved compatibility "
+                    "range; keep its exclusive upper bound. Run preen adopt "
+                    "--release-migration to migrate an older backend."
                 ),
             )
         ]
