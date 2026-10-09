@@ -146,6 +146,14 @@ def check(
     except ValueError as error:
         console.print(f"[bold red]{error}[/bold red]")
         raise typer.Exit(2) from error
+    if merged_skip:
+        console.print(f"Skipped checks: {escape(', '.join(sorted(set(merged_skip))))}")
+    if only:
+        console.print(f"Requested checks: {escape(', '.join(only))}")
+    if not results:
+        console.print("[bold red]No checks ran; conformance is unassessed.[/bold red]")
+        raise typer.Exit(2)
+    console.print(f"Executed {len(results)} check(s).")
     educator = EducationalPrompt(console)
 
     table = Table(show_header=True, header_style="bold cyan")
@@ -198,7 +206,7 @@ def check(
     console.print(table)
 
     if total_issues == 0:
-        console.print("\n[bold green]All checks passed.[/bold green]\n")
+        console.print("\n[bold green]All executed checks passed.[/bold green]\n")
     else:
         console.print(f"\n[bold]Found {total_issues} issue(s)[/bold]")
         if critical_count > 0:
