@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Reject empty check runs, disclose configured and command-line exclusions,
+  and scope successful summaries to the checks actually executed.
+- Clarify the boundary between py-canon requirements, preen implementation,
+  agent instructions, and conformance evidence.
+
 ## [0.6.2] - 2026-09-20
 
 ### Fixed

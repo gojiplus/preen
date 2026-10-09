@@ -29,7 +29,7 @@ def test_check_all_passed_exits_zero(monkeypatch) -> None:
     result = runner.invoke(app, ["check"])
     assert result.exit_code == 0
     assert "passed" in result.stdout
-    assert "All checks passed" in result.stdout
+    assert "All executed checks passed" in result.stdout
 
 
 def test_check_with_issues_shows_table_and_next_steps(monkeypatch) -> None:
@@ -304,3 +304,40 @@ def test_check_prints_informational_issues_on_a_passing_check(monkeypatch) -> No
     result = runner.invoke(app, ["check", "--strict"])
     assert result.exit_code == 0
     assert "not executed" in result.output
+
+
+def test_check_rejects_an_empty_run(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(cli_mod, "run_checks", lambda *a, **k: {})
+    result = runner.invoke(app, ["check", str(tmp_path), "--strict"])
+    assert result.exit_code == 2
+    assert "No checks ran" in result.stdout
+    assert "passed" not in result.stdout
+
+
+def test_check_skipping_every_registered_check_is_not_a_pass(tmp_path) -> None:
+    names = ",".join(check(tmp_path).name for check in cli_mod.ALL_CHECKS)
+    result = runner.invoke(app, ["check", str(tmp_path), "--skip", names])
+    assert result.exit_code == 2
+    assert "No checks ran" in result.stdout
+    assert "Skipped checks:" in result.stdout
+
+
+def test_check_reports_partial_scope(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        cli_mod, "run_checks", lambda *a, **k: {"files": _result("files", passed=True)}
+    )
+    result = runner.invoke(app, ["check", str(tmp_path), "--only", "files"])
+    assert result.exit_code == 0
+    assert "Requested checks: files" in result.stdout
+    assert "Executed 1 check(s)" in result.stdout
+    assert "All executed checks passed" in result.stdout
+
+
+def test_check_discloses_configured_skips(tmp_path, monkeypatch) -> None:
+    (tmp_path / "pyproject.toml").write_text('[tool.preen]\nskip_checks = ["links"]\n')
+    monkeypatch.setattr(
+        cli_mod, "run_checks", lambda *a, **k: {"files": _result("files", passed=True)}
+    )
+    result = runner.invoke(app, ["check", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "Skipped checks: links" in result.stdout

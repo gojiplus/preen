@@ -33,6 +33,31 @@ The bundled skill teaches Claude Code to reach for the preen CLI —
 scaffolding, adoption, checks, and releases — instead of reimplementing
 its logic.
 
+## Authority and assessment scope
+
+[py-canon STANDARD.md](https://github.com/gojiplus/py-canon/blob/main/STANDARD.md)
+defines fleet requirements. Preen implements checks and adoption for that
+standard; its version identifies the implementation, not a new standard
+revision. The bundled skill guides use of the CLI and does not duplicate its
+checks or establish conformance by itself. Appellation separately governs
+name-analysis results and empirical evidence.
+
+A check run reports the checks executed and explicit exclusions. `--only`
+is a partial assessment. Excluding every check exits with an error, and a
+successful subset reports only that the executed checks passed. Individual
+checks may also report unavailable subchecks; retain those notices in evidence.
+Record the consumer commit, preen version, resolved canon/template revision,
+configuration, and command alongside the output. A waiver or skip does not
+prove the underlying requirement is satisfied.
+
+Check implementations live in `src/preen/checks`; behavioral tests live in
+`tests/test_*_check.py` and `tests/test_cli.py`. Adoption/update fixtures test
+managed files and preservation of project-owned content. Changes to a fleet
+rule must coordinate the py-canon requirement and template with the preen
+implementation and regression tests. Synchronization tests detect copied
+policy drift; if their remote source cannot be checked, report that test as
+unverified rather than treating its skip as proof of synchronization.
+
 ## Commands
 
 | Command | What it does |

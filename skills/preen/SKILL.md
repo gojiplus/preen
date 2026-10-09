@@ -58,6 +58,14 @@ the CLI; do not reimplement its checks or fixes by hand.
 6. After `preen adopt`, read the printed ADOPTION REPORT, then run
    `uv lock && uv sync --all-groups` before running `preen check`.
 
+## Report the assessment
+
+Record the preen version, target repository commit, resolved py-canon/template
+revision, command and configuration, executed checks, and skipped or unavailable
+checks. A subset passing is not full conformance. Use py-canon's STANDARD.md for
+policy and preen for executable checks; do not invent additional fleet rules in
+this skill. Keep scientific validity assessments separate from package checks.
+
 ## Configuration
 
 Optional `[tool.preen]` table in `pyproject.toml`:
