@@ -1,5 +1,6 @@
 """Base classes for the check framework."""
 
+import subprocess
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -192,6 +193,41 @@ class Check(ABC):
                             names.add(entry)
             self._lint_excluded_dirs = frozenset(names)
         return self._lint_excluded_dirs
+
+    def project_files(self) -> list[Path]:
+        """List the project's files: what Git tracks or would track.
+
+        Untracked files count unless ignored, so a check sees new work before
+        it is committed. Outside a Git checkout, every file counts.
+
+        Returns:
+            Project-relative paths, in no particular order.
+        """
+        if (self.project_dir / ".git").exists():
+            try:
+                result = subprocess.run(
+                    [
+                        "git",
+                        "ls-files",
+                        "-z",
+                        "--cached",
+                        "--others",
+                        "--exclude-standard",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    cwd=self.project_dir,
+                )
+            except (subprocess.SubprocessError, FileNotFoundError):
+                pass
+            else:
+                return [Path(value) for value in result.stdout.split("\0") if value]
+        return [
+            path.relative_to(self.project_dir)
+            for path in self.project_dir.rglob("*")
+            if path.is_file()
+        ]
 
     def is_excluded(self, path: Path) -> bool:
         """Return True if a project-relative path lies under an excluded dir.

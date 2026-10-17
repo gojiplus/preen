@@ -114,7 +114,7 @@ def test_important_issue_declined_override_cancels(monkeypatch) -> None:
     workflow = InteractiveReleaseWorkflow(console)
     result = workflow.run_release_checks({"ruff": _make_result("ruff", [issue])})
     assert result is False
-    assert "cancelled by user" in console.file.getvalue()
+    assert "canceled by user" in console.file.getvalue()
 
 
 def test_important_issue_override_accepted_proceeds(monkeypatch) -> None:

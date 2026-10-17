@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `duplicate-code`: pylint's similarity checker (R0801) over package code,
+  failing on a block of 12+ lines copied across modules. ruff has no
+  duplicate detector, so copies passed every check; across 47 fleet repos
+  it finds 11 with real copies at this threshold. Deliberate copies take
+  `# pylint: disable=duplicate-code`.
+
+### Changed
+- `codespell` checks US English: it adds codespell's `en-GB_to_en-US`
+  dictionary to the defaults, and `preen fix` corrects British spellings in
+  prose and code. Data and fixture directories are still never read.
+- The Git file listing that `codespell` and `links` each carried is one
+  `Check.project_files()`, which the new duplicate check found.
+
 ### Fixed
 
 - Reject empty check runs, disclose configured and command-line exclusions,
@@ -230,7 +244,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   when a parameter is never read, whereas here the caller reads it and the call
   it makes has a valid signature. One package in the fleet shipped three of
   them, all of which passed their tests, CI, ruff and pyright: a confidence
-  level that left one interval at 95% while its neighbour honoured the request,
+  level that left one interval at 95% while its neighbor honored the request,
   a subsampling cap that never reached the routine that subsamples, and a
   coverage simulation whose bootstrap arm reported identical coverage at every
   nominal level. Mark a deliberate drop `# preen: allow-dropped-arg`.
@@ -372,7 +386,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   they ship. The same check also tested absolute paths, so a repo cloned under
   a directory named `build`, `dist` or `venv` skipped every asset it holds.
 
-- `ci-matrix` checks a canon shim instead of only recognising one. The reusable
+- `ci-matrix` checks a canon shim instead of only recognizing one. The reusable
   workflow's `python-versions` default is read from the ref on the `uses:` line,
   or the shim's own input where it passes one, and compared against
   `requires-python`. A repo whose floor sits above the lowest default version
@@ -387,11 +401,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `v1.0.1` and passed; `git describe` strings and bare SHAs were equally
   invisible. Version comparison now keeps every component.
 
-- `runtime-assets` honours `[tool.uv.build-backend]` excludes. A file that
+- `runtime-assets` honors `[tool.uv.build-backend]` excludes. A file that
   `source-exclude` or `wheel-exclude` keeps out of the wheel is reported at info
   — source-tree hygiene, not a packaging defect — rather than as a critical
   finding about an artifact nobody installs. An explicit `module-name` is also
-  honoured, so a flat-layout package whose import name differs from its
+  honored, so a flat-layout package whose import name differs from its
   distribution name is no longer skipped entirely.
 
 - `preen update` exits 1 when the merge leaves conflict markers, and names the

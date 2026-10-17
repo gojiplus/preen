@@ -275,3 +275,24 @@ def test_fix_per_file_and_data_needs_confirmation(tmp_path: Path) -> None:
     assert issues[0].proposed_fix.requires_confirmation is False
     assert issues[2].proposed_fix.requires_confirmation is True
     assert "2 spelling error(s)" in issues[0].proposed_fix.description
+
+
+# Assembled for the same reason as _TEH: preen's own codespell check reads
+# this file, and the standard it enforces is US English.
+_GB_WORD = "optimi" + "se"
+
+
+def test_british_spelling_is_flagged_in_prose_but_not_in_data(
+    tmp_path: Path,
+) -> None:
+    """US English is the standard; data directories keep their spellings."""
+    (tmp_path / "README.md").write_text(f"We {_GB_WORD} the objective.\n")
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "places.txt").write_text(f"{_GB_WORD} Road, Leicester\n")
+
+    issues = CodespellCheck(tmp_path).run().issues
+
+    flagged = {(str(i.file), i.description) for i in issues}
+    assert ("README.md", f"'{_GB_WORD}' should be 'optimize'") in flagged
+    assert not any(str(i.file).startswith("data") for i in issues)

@@ -39,7 +39,7 @@ def is_auto_fixable(file_path: Path) -> bool:
 
 
 class CodespellCheck(Check):
-    """Check for spelling errors in documentation and comments using codespell."""
+    """Check spelling, in US English, in documentation and code using codespell."""
 
     @property
     def name(self) -> str:
@@ -49,7 +49,7 @@ class CodespellCheck(Check):
     @property
     def description(self) -> str:
         """Return a description of what this check does."""
-        return "Check spelling in documentation and comments with codespell"
+        return "Check spelling, in US English, with codespell"
 
     def _parse_codespell_output(self, output: str) -> list[Issue]:
         """Parse codespell output and convert to Issue objects."""
@@ -147,6 +147,12 @@ class CodespellCheck(Check):
 
         # Focus on text files and code
         # Don't spell check binary files, images, etc.
+        # The standard is US English. codespell's default dictionaries are
+        # "clear,rare"; en-GB_to_en-US adds British spellings ("optimize",
+        # "behavior"). Data and fixture directories are never read, so place
+        # names like "Center" in a gazetteer are not touched.
+        cmd.extend(["--builtin", "clear,rare,en-GB_to_en-US"])
+
         cmd.extend(
             [
                 "--check-filenames",  # Also check file names
@@ -170,33 +176,7 @@ class CodespellCheck(Check):
         Returns:
             Sorted repo-relative paths suitable for passing to codespell.
         """
-        paths: list[Path] | None = None
-        if (self.project_dir / ".git").exists():
-            try:
-                result = subprocess.run(
-                    [
-                        "git",
-                        "ls-files",
-                        "-z",
-                        "--cached",
-                        "--others",
-                        "--exclude-standard",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    cwd=self.project_dir,
-                )
-            except (subprocess.SubprocessError, FileNotFoundError):
-                pass
-            else:
-                paths = [Path(value) for value in result.stdout.split("\0") if value]
-        if paths is None:
-            paths = [
-                path.relative_to(self.project_dir)
-                for path in self.project_dir.rglob("*")
-                if path.is_file()
-            ]
+        paths = self.project_files()
 
         return sorted(
             path

@@ -14,6 +14,7 @@ from .depgroups import DepgroupsCheck
 from .deps import DepsCheck
 from .deptree import DeptreeCheck
 from .dropped_args import DroppedArgsCheck
+from .duplicates import DuplicateCodeCheck
 from .examples import ExamplesCheck
 from .files import RequiredFilesCheck
 from .license import LicenseCheck
@@ -43,6 +44,7 @@ ALL_CHECKS: list[type[Check]] = [
     DeptreeCheck,
     DepgroupsCheck,
     DroppedArgsCheck,
+    DuplicateCodeCheck,
     AuditCheck,
     CIMatrixCheck,
     StructureCheck,

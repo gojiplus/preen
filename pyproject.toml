@@ -29,6 +29,8 @@ dependencies = [
     "pyright>=1.1.411",
     "pydoclint>=0.9.1",
     "codespell>=2.4.3",
+    # duplicate-code (R0801); ruff has no duplicate detector.
+    "pylint>=4.1",
     "deptry>=0.20",
     # The `metadata` check validates pyproject.toml against PyPA's own
     # schemas before reading it, so a malformed table is named as such

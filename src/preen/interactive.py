@@ -104,7 +104,7 @@ class InteractiveReleaseWorkflow:
             )
 
             if not Confirm.ask(question, default=False):
-                self.console.print("❌ [red]Release cancelled by user[/red]")
+                self.console.print("❌ [red]Release canceled by user[/red]")
                 return False
             self.console.print("  ⚠️  [yellow]Proceeding despite issue[/yellow]")
             self.overrides[f"{issue.check}:{issue.description}"] = True

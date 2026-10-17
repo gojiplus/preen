@@ -423,7 +423,7 @@ def release_package(
     # Dry runs are fully non-interactive: no confirmation gates, no prompts.
     if not dry_run:
         if not workflow.run_release_checks(results, "GitHub (tag push)"):
-            console.print("\n[red]Release cancelled[/red]")
+            console.print("\n[red]Release canceled[/red]")
             raise typer.Exit(1)
 
         dirty = _git(project_dir, "status", "--porcelain").stdout.strip()
@@ -544,7 +544,7 @@ def release_package(
         f"[{version}] - {today}?",
         default=True,
     ):
-        console.print("[red]Release cancelled[/red]")
+        console.print("[red]Release canceled[/red]")
         raise typer.Exit(1)
 
     bumps = [
@@ -557,7 +557,7 @@ def release_package(
     ]
 
     if not Confirm.ask(f"\nTag and push [bold]{tag}[/bold]?", default=False):
-        console.print("[red]Release cancelled[/red]")
+        console.print("[red]Release canceled[/red]")
         raise typer.Exit(1)
 
     release_paths: list[str] = []

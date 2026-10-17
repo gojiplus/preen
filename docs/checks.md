@@ -103,7 +103,7 @@ deprecated `{ text = ... }` / `{ file = ... }` table form; a string value
 that isn't a structurally valid SPDX expression; redundant `License ::`
 trove classifiers alongside `license`. Info: an SPDX identifier outside
 preen's allowlist (advisory — verify at spdx.org), or a missing
-`license-files` when a `LICENSE`/`LICENCE`/`COPYING` file exists at the repo
+`license-files` when a `LICENSE`/`LICENSE`/`COPYING` file exists at the repo
 root. `preen fix license` migrates unambiguous table-form values to an SPDX
 string, drops the redundant classifiers, and adds `license-files`.
 

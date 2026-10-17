@@ -106,14 +106,16 @@ py-canon tag), `workflows` (the four canon workflows are callers of the
 reusable workflows, not stale copies), `ruff`, `tests`, `citation`,
 `changelog` (Keep a Changelog structure), `deps` (deptry), `deptree`
 (circular imports), `depgroups` (PEP 735 dependency-groups usage),
-`dropped-args` (a parameter a caller accepts but never forwards), `audit`
+`dropped-args` (a parameter a caller accepts but never forwards),
+`duplicate-code` (12+ lines of package code copied across modules), `audit`
 (pip-audit over the locked dependencies), `ci-matrix` (canon shim, or a
 matrix covering the requires-python floor), `structure`, `runtime-assets`
 (schema-bearing data formats, pinned Hugging Face revisions), `files`
 (README and `.gitignore` exist), `precommit` (`.pre-commit-config.yaml`
 exists and parses), `pytest-config` (pytest settings the standard requires), `examples` (documented examples still name symbols the package defines), `python-floor` (requires-python meets the floor the standard declares; off until the fleet migration lands), `version` (hardcoded version strings), `license` (PEP
 639 license metadata), `links`, `metadata` (build backend, requires-python
-upper bound, PEP 561 `py.typed`), `pydoclint`, `pyright`, and `codespell`.
+upper bound, PEP 561 `py.typed`), `pydoclint`, `pyright`, and `codespell`
+(typos and British spellings; the standard is US English).
 
 Issues carry an impact level: **critical** blocks release, **important** can
 be overridden with informed consent, **info** is advisory. `preen release`
@@ -167,6 +169,9 @@ audit_ignore = ["GHSA-8mgp-746c-j5xp"]
   the codes), but they're still preview-only, so `pydoclint` stays until
   ruff stabilizes them.
 - `codespell` stays: ruff has no spelling-check rules.
+- `duplicate-code` runs pylint's similarity checker (R0801), the one pylint
+  rule kept: ruff has no duplicate detector. Mark a deliberate copy with
+  `# pylint: disable=duplicate-code`.
 
 ## License
 

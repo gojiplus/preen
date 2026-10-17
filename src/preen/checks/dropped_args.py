@@ -12,7 +12,7 @@ signatures gives it away.
 
 This is worth its own check because the failure is silent and the blast radius
 is whatever the parameter controlled. One package shipped three of them: a
-confidence level that left one interval at 95% while its neighbour honoured the
+confidence level that left one interval at 95% while its neighbor honored the
 request, a subsampling cap that never reached the routine that subsamples, and
 a coverage simulation whose bootstrap arm reported identical coverage at every
 nominal level because the level never arrived.
