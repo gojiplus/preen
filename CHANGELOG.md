@@ -6,20 +6,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-17
+
+Two standards the fleet did not enforce become checks: no copied blocks of
+package code, and US English. `preen check --strict` fails repos that passed
+0.6.2; see Added and Changed.
+
 ### Added
 - `duplicate-code`: pylint's similarity checker (R0801) over the import
-  package (not tests, scripts or Git-ignored files), failing on a block of 12+
-  lines copied across modules. ruff has no
-  duplicate detector, so copies passed every check; across 47 fleet repos
-  it finds 11 with real copies at this threshold. Deliberate copies take
-  `# pylint: disable=duplicate-code`.
+  package, failing on a block of 12 or more lines copied between modules.
+  In a `src/` layout it scans all of `src/`, namespace packages included; it
+  skips tests, Git-ignored files, and anything outside the package, such as
+  top-level scripts. ruff has no duplicate
+  detector, so these copies passed every check; at this threshold it flags
+  10 other fleet repos, and every hit sampled was a real copy. Mark a
+  deliberate copy `# pylint: disable=duplicate-code`. pylint runs as
+  `python -m pylint`, so it is found under `uv tool` and `pipx` installs, and
+  a pylint run that does not complete fails the check rather than passing it.
 
 ### Changed
 - `codespell` checks US English: it adds codespell's `en-GB_to_en-US`
   dictionary to the defaults, and `preen fix` corrects British spellings in
-  prose and code. Data and fixture directories are still never read.
-- The Git file listing that `codespell` and `links` each carried is one
-  `Check.project_files()`, which the new duplicate check found.
+  prose and code. Data and fixture directories are still never read. Review
+  what a fix changes in code: a spelling pass rewrote the British-spelled
+  license filename the license check matches on, which is now marked to be
+  left alone.
+- Copies the new check found are shared: `Check.project_files()` (the Git
+  file listing in `codespell` and `links`), `Check.missing_tool()` (the tool
+  probe in six checks) and `Check.package_dirs()` (package detection, from
+  `examples`).
 
 ### Fixed
 
@@ -27,6 +42,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and scope successful summaries to the checks actually executed.
 - Clarify the boundary between py-canon requirements, preen implementation,
   agent instructions, and conformance evidence.
+- The Git file listing no longer includes tracked files deleted from the
+  working tree, which `codespell` and `links` were handed.
 
 ## [0.6.2] - 2026-09-20
 

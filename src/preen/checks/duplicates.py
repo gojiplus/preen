@@ -7,7 +7,8 @@ copies of one isotonic regression diverged until one mishandled weights.
 
 pylint's similarity checker (R0801) is the established tool for this, so this
 check runs it rather than reimplementing it, on the import package only:
-tests, docs, examples, scripts and notebooks repeat setup by design. The threshold is 12
+tests, docs, examples, and scripts or notebooks outside the package
+repeat setup by design. The threshold is 12
 matching lines, ignoring imports, docstrings, comments and signatures; at 6,
 half the fleet flagged boilerplate, and at 12 every hit sampled was a real
 copy.
