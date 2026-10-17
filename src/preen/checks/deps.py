@@ -23,27 +23,9 @@ class DepsCheck(Check):
         issues = []
 
         # Check if deptry is available
-        try:
-            subprocess.run(
-                ["deptry", "--version"],
-                capture_output=True,
-                check=True,
-                cwd=self.project_dir,
-            )
-        except (subprocess.SubprocessError, FileNotFoundError):
-            return CheckResult(
-                check=self.name,
-                passed=False,
-                issues=[
-                    Issue(
-                        check=self.name,
-                        severity=Severity.ERROR,
-                        description=(
-                            "deptry is not installed. Install with: pip install deptry"
-                        ),
-                    )
-                ],
-            )
+        missing = self.missing_tool(["deptry", "--version"], "deptry")
+        if missing is not None:
+            return missing
 
         # Run deptry
         result = subprocess.run(

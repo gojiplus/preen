@@ -158,33 +158,7 @@ class LinkCheck(Check):
         Returns:
             Sorted list of absolute paths.
         """
-        paths: list[Path] | None = None
-        if (self.project_dir / ".git").exists():
-            try:
-                result = subprocess.run(
-                    [
-                        "git",
-                        "ls-files",
-                        "-z",
-                        "--cached",
-                        "--others",
-                        "--exclude-standard",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    cwd=self.project_dir,
-                )
-            except (subprocess.SubprocessError, FileNotFoundError):
-                pass
-            else:
-                paths = [Path(value) for value in result.stdout.split("\0") if value]
-        if paths is None:
-            paths = [
-                path.relative_to(self.project_dir)
-                for path in self.project_dir.rglob("*")
-                if path.is_file()
-            ]
+        paths = self.project_files()
 
         return sorted(
             self.project_dir / path

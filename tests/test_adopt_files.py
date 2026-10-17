@@ -420,7 +420,7 @@ def test_an_overwritten_workflow_is_backed_up_and_flagged(
     piedomains' docs.yml carried a `cancel-in-progress` guard with a comment
     explaining it must never cancel a main-branch build midway through a Pages
     deploy. The overwrite replaced it with a bare `true`, reintroducing exactly
-    the cancelled deploys the comment was added to stop, and nothing said so.
+    the canceled deploys the comment was added to stop, and nothing said so.
     """
     _write(
         repo / ".github" / "workflows" / "docs.yml",

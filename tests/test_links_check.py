@@ -359,7 +359,7 @@ def test_reserved_domains_are_never_a_finding(tmp_path: Path) -> None:
     """RFC 2606 / 6761 reserve these names so they never resolve.
 
     Putting one in a fixture, a docstring example or a placeholder config is
-    the correct thing to do, so a DNS failure from it is documented behaviour
+    the correct thing to do, so a DNS failure from it is documented behavior
     rather than a defect. naampy had zero critical and zero important findings
     and still exited 1 under --strict on four `example.invalid` hits alone
     (issue #34).

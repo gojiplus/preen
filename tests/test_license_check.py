@@ -151,6 +151,16 @@ def test_missing_license_files_with_license_file_present_is_info(
     assert issue.proposed_fix is not None
 
 
+def test_british_spelled_license_file_is_found(tmp_path: Path) -> None:
+    # A spelling pass once "corrected" the stem the matcher looks for, and a
+    # license file under its British name stopped counting.
+    _write(tmp_path, '[project]\nname = "mypkg"\nlicense = "MIT"\n')
+    (tmp_path / ("LICEN" + "CE")).write_text("MIT License\n")
+    result = LicenseCheck(tmp_path).run()
+    assert len(result.issues) == 1
+    assert result.issues[0].proposed_fix is not None
+
+
 def test_missing_license_files_without_license_file_is_silent(
     tmp_path: Path,
 ) -> None:

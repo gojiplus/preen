@@ -28,27 +28,9 @@ class TestsCheck(Check):
         else:
             pytest_cmd = ["python3", "-m", "pytest"]
 
-        try:
-            subprocess.run(
-                [*pytest_cmd, "--version"],
-                capture_output=True,
-                check=True,
-                cwd=self.project_dir,
-            )
-        except (subprocess.SubprocessError, FileNotFoundError):
-            return CheckResult(
-                check=self.name,
-                passed=False,
-                issues=[
-                    Issue(
-                        check=self.name,
-                        severity=Severity.ERROR,
-                        description=(
-                            "pytest is not installed. Install with: pip install pytest"
-                        ),
-                    )
-                ],
-            )
+        missing = self.missing_tool([*pytest_cmd, "--version"], "pytest")
+        if missing is not None:
+            return missing
 
         # Run pytest
         result = subprocess.run(

@@ -65,7 +65,7 @@ def test_ci_matrix_shim_covering_the_floor_passes(tmp_path, monkeypatch) -> None
 def test_ci_matrix_shim_with_an_unresolvable_leg_fails(tmp_path, monkeypatch) -> None:
     """A default below the floor gives CI a job that cannot install (issue #57).
 
-    Recognising the shim was the whole check, so preen reported green on a repo
+    Recognizing the shim was the whole check, so preen reported green on a repo
     whose 'uv sync' exits 2 on every push.
     """
     _write_pyproject(tmp_path, floor="3.13")

@@ -28,27 +28,9 @@ class RuffCheck(Check):
         issues = []
 
         # Check if ruff is available
-        try:
-            subprocess.run(
-                [*ruff_cmd, "--version"],
-                capture_output=True,
-                check=True,
-                cwd=self.project_dir,
-            )
-        except (subprocess.SubprocessError, FileNotFoundError):
-            return CheckResult(
-                check=self.name,
-                passed=False,
-                issues=[
-                    Issue(
-                        check=self.name,
-                        severity=Severity.ERROR,
-                        description=(
-                            "ruff is not installed. Install with: pip install ruff"
-                        ),
-                    )
-                ],
-            )
+        missing = self.missing_tool([*ruff_cmd, "--version"], "ruff")
+        if missing is not None:
+            return missing
 
         # Run ruff check
         lint_result = subprocess.run(

@@ -334,7 +334,7 @@ def test_critical_check_failure_cancels_release(tmp_path: Path, monkeypatch) -> 
     with pytest.raises(typer.Exit):
         release_package(tmp_path, version="1.2.3", skip_checks=False, console=console)
 
-    assert "Release cancelled" in console.file.getvalue()
+    assert "Release canceled" in console.file.getvalue()
 
 
 def test_dirty_tree_prompt_declined_aborts(tmp_path: Path, monkeypatch) -> None:

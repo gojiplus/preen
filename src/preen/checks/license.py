@@ -52,7 +52,8 @@ LEGACY_TEXT_ALIASES = {
     "Apache License, Version 2.0": "Apache-2.0",
 }
 
-LICENSE_FILE_STEMS = ("license", "licence", "copying")
+# British spelling on purpose: it is a filename this check must recognize.
+LICENSE_FILE_STEMS = ("license", "licence", "copying")  # codespell:ignore licence
 
 # The operator alternatives need a trailing word-boundary guard, or an
 # identifier that merely starts with one (a hypothetical "ANDover-1.0") would
@@ -366,7 +367,7 @@ class LicenseCheck(Check):
         )
 
     def _find_license_file(self) -> Path | None:
-        """Return a LICENSE/LICENCE/COPYING file at the repo root, if any."""
+        """Return the repo-root license file, by any stem above, if there is one."""
         for entry in sorted(self.project_dir.iterdir()):
             if entry.is_file() and entry.stem.lower() in LICENSE_FILE_STEMS:
                 return entry

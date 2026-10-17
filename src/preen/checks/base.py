@@ -1,5 +1,6 @@
 """Base classes for the check framework."""
 
+import subprocess
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -192,6 +193,111 @@ class Check(ABC):
                             names.add(entry)
             self._lint_excluded_dirs = frozenset(names)
         return self._lint_excluded_dirs
+
+    def missing_tool(
+        self,
+        version_cmd: list[str],
+        tool: str,
+        *,
+        explanation: str = "",
+        impact: Impact = Impact.IMPORTANT,
+    ) -> "CheckResult | None":
+        """Return a failed result if a tool this check runs is not installed.
+
+        Args:
+            version_cmd: The tool's ``--version`` command line.
+            tool: The tool's name, as installed with pip.
+            explanation: Why the check needs it.
+            impact: How seriously a missing tool counts.
+
+        Returns:
+            None when ``version_cmd`` runs, otherwise a failed CheckResult.
+        """
+        try:
+            subprocess.run(
+                version_cmd, capture_output=True, check=True, cwd=self.project_dir
+            )
+        except (subprocess.SubprocessError, FileNotFoundError):
+            return CheckResult(
+                check=self.name,
+                passed=False,
+                issues=[
+                    Issue(
+                        check=self.name,
+                        severity=Severity.ERROR,
+                        description=(
+                            f"{tool} is not installed. Install with: pip install {tool}"
+                        ),
+                        impact=impact,
+                        explanation=explanation,
+                    )
+                ],
+            )
+        return None
+
+    def package_dirs(self) -> list[Path]:
+        """Locate the project's import packages.
+
+        A directory under ``src/`` holding an ``__init__.py``, or, without
+        ``src/``, such a directory at the project root outside the excluded
+        ones. Scripts, notebooks and loose modules beside the package are not
+        package code.
+
+        Returns:
+            The package directories, absolute, sorted by name.
+        """
+        # Under src/ every child is a package, even one named like an
+        # artifact directory ("build"); at the root those names are artifacts.
+        src = self.project_dir / "src"
+        if src.is_dir():
+            return sorted(d for d in src.iterdir() if (d / "__init__.py").exists())
+        return sorted(
+            d
+            for d in self.project_dir.iterdir()
+            if d.is_dir()
+            and d.name not in self.excluded_dirs()
+            and (d / "__init__.py").exists()
+        )
+
+    def project_files(self) -> list[Path]:
+        """List the project's files: what Git tracks or would track.
+
+        Untracked files count unless ignored, so a check sees new work before
+        it is committed; a tracked file deleted from the working tree does not.
+        Outside a Git checkout, every file counts.
+
+        Returns:
+            Project-relative paths, in no particular order.
+        """
+        if (self.project_dir / ".git").exists():
+            try:
+                result = subprocess.run(
+                    [
+                        "git",
+                        "ls-files",
+                        "-z",
+                        "--cached",
+                        "--others",
+                        "--exclude-standard",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    cwd=self.project_dir,
+                )
+            except (subprocess.SubprocessError, FileNotFoundError):
+                pass
+            else:
+                return [
+                    Path(value)
+                    for value in result.stdout.split("\0")
+                    if value and (self.project_dir / value).is_file()
+                ]
+        return [
+            path.relative_to(self.project_dir)
+            for path in self.project_dir.rglob("*")
+            if path.is_file()
+        ]
 
     def is_excluded(self, path: Path) -> bool:
         """Return True if a project-relative path lies under an excluded dir.
