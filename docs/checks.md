@@ -189,7 +189,9 @@ The `template` check reports non-adoption once, which is the right number.
 
 ### `codespell`
 
-Common misspellings in code and docs.
+Common misspellings in code and docs. `preen adopt` enables American spelling
+with codespell's `en-GB_to_en-US` dictionary, alongside `clear` and `rare`.
+Existing dictionaries, ignored words, patterns, and skipped files are preserved.
 
 ## Tests and dependencies
 

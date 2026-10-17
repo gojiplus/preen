@@ -60,6 +60,9 @@ check-yield-types = false
 check-class-attributes = false
 allow-init-docstring = true
 exclude = '\\.venv|tests|docs'
+
+[tool.codespell]
+builtin = "clear,rare,en-GB_to_en-US"
 """
 
 LEGACY_TOOL_SECTIONS = ("black", "isort", "flake8", "mypy")
@@ -800,7 +803,7 @@ def _merge_canon(
     """Merge a repo's table onto the canon table for the same path, in place.
 
     Canon wins on every key it defines, except array settings on the union
-    allowlist, where the repo's extra entries are appended. Keys and
+    allowlist and codespell dictionaries, where extra entries are appended. Keys and
     subtables canon says nothing about — a repo's ``exclude`` list, its
     ``flake8-bugbear`` settings, its extra per-file-ignore patterns — are
     preserved verbatim, so adoption never silently drops deliberate config.
@@ -820,6 +823,19 @@ def _merge_canon(
             preserved.append(_describe(sub_path, repo_value))
             continue
         canon_value = canon[key]
+        if sub_path == ("codespell", "builtin"):
+            entries = str(canon_value).split(",")
+            selected = (
+                repo_value.split(",") if isinstance(repo_value, str) else repo_value
+            )
+            extra = sorted({str(entry).strip() for entry in selected} - set(entries))
+            extra = [entry for entry in extra if entry]
+            if extra:
+                canon[key] = ",".join([*entries, *extra])
+                preserved.append(
+                    f"{_describe(sub_path, repo_value)} entries: " + ", ".join(extra)
+                )
+            continue
         if isinstance(canon_value, dict) and isinstance(repo_value, dict):
             _merge_canon(canon_value, repo_value, sub_path, preserved)
         elif (
@@ -866,7 +882,7 @@ def rewrite_pyproject(
     preserved: list[str] = []
 
     tool = _ensure_table(doc, "tool")
-    for section in ("ruff", "pyright", "pydoclint"):
+    for section in ("ruff", "pyright", "pydoclint", "codespell"):
         canon_section = canon["tool"][section]  # type: ignore[index]
         if section in tool:
             changes.append(f"merged canon into [tool.{section}]")

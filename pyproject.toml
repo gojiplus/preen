@@ -114,6 +114,9 @@ allow-init-docstring = true
 exclude = '\.venv|tests|docs'
 
 [tool.codespell]
+builtin = "clear,rare,en-GB_to_en-US"
+# Preserve supported license filenames.
+ignore-regex = '''\bLICENCE\b|["']licence["']'''  # codespell:ignore licence
 # "Leary" is a surname in the worked example of why auto-fixing spelling in
 # data files is unsafe; "sav" is a serialized-model filename extension checked
 # by runtime-assets.

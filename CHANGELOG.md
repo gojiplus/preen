@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Enable American spelling when adopting a package, preserving its existing
+  codespell dictionaries and exceptions.
+
 ## [0.7.0] - 2026-10-17
 
 Two standards the fleet did not enforce become checks: no copied blocks of

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from preen.adopt import CANON_TOOL_TOML, rewrite_pyproject
+from preen.checks.codespell import CodespellCheck
 
 # Derived rather than duplicated, so extending the standard's rule set does
 # not mean restating it in every assertion here.
@@ -262,6 +263,41 @@ def _write_pyproject(tmp_path: Path, body: str, package: str = "pkg") -> Path:
     pkg.mkdir()
     (pkg / "__init__.py").write_text("")
     return tmp_path
+
+
+def test_adopted_repo_checks_american_spelling(tmp_path: Path) -> None:
+    repo = _write_pyproject(tmp_path, "")
+    rewrite_pyproject(repo)
+    # codespell:ignore-next-line behaviour,normalised
+    (repo / "module.py").write_text("# Behaviour is normalised.\n")
+
+    result = CodespellCheck(repo).run()
+
+    # codespell:ignore-next-line behaviour
+    assert any("Behaviour" in issue.description for issue in result.issues)
+    # codespell:ignore-next-line normalised
+    assert any("normalised" in issue.description for issue in result.issues)
+
+
+@pytest.mark.parametrize("builtin", ['"rare,code"', '["rare", "code"]', '"all"'])
+def test_codespell_adoption_preserves_settings(tmp_path: Path, builtin: str) -> None:
+    repo = _write_pyproject(
+        tmp_path,
+        f"[tool.codespell]\nbuiltin = {builtin}\n"
+        'ignore-words-list = "customword"\nskip = "data/*"\n'
+        'ignore-regex = "accepted-token"\n',
+    )
+    rewrite_pyproject(repo)
+    first = _load(repo)
+    rewrite_pyproject(repo)
+
+    assert _load(repo) == first
+    config = _load(repo)["tool"]["codespell"]
+    assert "en-GB_to_en-US" in config["builtin"].split(",")
+    assert ("all" if builtin == '"all"' else "code") in config["builtin"].split(",")
+    assert config["ignore-words-list"] == "customword"
+    assert config["skip"] == "data/*"
+    assert config["ignore-regex"] == "accepted-token"
 
 
 def test_ruff_extra_ignores_preserved(tmp_path: Path) -> None:
