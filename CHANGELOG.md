@@ -7,8 +7,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- `duplicate-code`: pylint's similarity checker (R0801) over package code,
-  failing on a block of 12+ lines copied across modules. ruff has no
+- `duplicate-code`: pylint's similarity checker (R0801) over the import
+  package (not tests, scripts or Git-ignored files), failing on a block of 12+
+  lines copied across modules. ruff has no
   duplicate detector, so copies passed every check; across 47 fleet repos
   it finds 11 with real copies at this threshold. Deliberate copies take
   `# pylint: disable=duplicate-code`.

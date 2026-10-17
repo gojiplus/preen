@@ -194,6 +194,27 @@ class Check(ABC):
             self._lint_excluded_dirs = frozenset(names)
         return self._lint_excluded_dirs
 
+    def package_dirs(self) -> list[Path]:
+        """Locate the project's import packages.
+
+        A directory under ``src/`` holding an ``__init__.py``, or, without
+        ``src/``, such a directory at the project root outside the excluded
+        ones. Scripts, notebooks and loose modules beside the package are not
+        package code.
+
+        Returns:
+            The package directories, absolute, sorted by name.
+        """
+        src = self.project_dir / "src"
+        parent = src if src.is_dir() else self.project_dir
+        return sorted(
+            d
+            for d in parent.iterdir()
+            if d.is_dir()
+            and d.name not in self.excluded_dirs()
+            and (d / "__init__.py").exists()
+        )
+
     def project_files(self) -> list[Path]:
         """List the project's files: what Git tracks or would track.
 

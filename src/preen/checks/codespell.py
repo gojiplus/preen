@@ -148,9 +148,9 @@ class CodespellCheck(Check):
         # Focus on text files and code
         # Don't spell check binary files, images, etc.
         # The standard is US English. codespell's default dictionaries are
-        # "clear,rare"; en-GB_to_en-US adds British spellings ("optimize",
-        # "behavior"). Data and fixture directories are never read, so place
-        # names like "Center" in a gazetteer are not touched.
+        # "clear,rare", and en-GB_to_en-US adds British spellings. Data and
+        # fixture directories are never read, so a place name in a gazetteer
+        # keeps its spelling.
         cmd.extend(["--builtin", "clear,rare,en-GB_to_en-US"])
 
         cmd.extend(

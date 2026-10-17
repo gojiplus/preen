@@ -6,8 +6,8 @@ lands in one and not the other. In rank-preserving-calibration, three
 copies of one isotonic regression diverged until one mishandled weights.
 
 pylint's similarity checker (R0801) is the established tool for this, so this
-check runs it rather than reimplementing it, on package code only: tests,
-docs, examples and benchmarks repeat setup by design. The threshold is 12
+check runs it rather than reimplementing it, on the import package only:
+tests, docs, examples, scripts and notebooks repeat setup by design. The threshold is 12
 matching lines, ignoring imports, docstrings, comments and signatures; at 6,
 half the fleet flagged boilerplate, and at 12 every hit sampled was a real
 copy.
@@ -19,6 +19,7 @@ Suppress a deliberate duplicate with pylint's own marker,
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 from .base import Check, CheckResult, Impact, Issue, Severity
@@ -44,14 +45,21 @@ class DuplicateCodeCheck(Check):
         return "Find copied blocks of package code (pylint duplicate-code)"
 
     def _package_files(self) -> list[Path]:
-        """Return the project's non-test Python files, project-relative.
+        """Return the Python files of the project's import packages.
 
         Returns:
-            Sorted paths outside excluded, test, docs and example directories.
+            Sorted project-relative paths inside the package directories,
+            skipping lint-excluded and test directories within them.
         """
+        packages = [p.relative_to(self.project_dir) for p in self.package_dirs()]
         files = []
-        for path in self.project_dir.rglob("*.py"):
-            rel = path.relative_to(self.project_dir)
+        # project_files() respects .gitignore, so ignored files inside a
+        # package are not package code either.
+        for rel in self.project_files():
+            if rel.suffix != ".py" or not any(
+                rel.is_relative_to(package) for package in packages
+            ):
+                continue
             if self.is_lint_excluded(rel):
                 continue
             if any(part in NOT_PACKAGE_DIRS for part in rel.parts[:-1]):
@@ -71,11 +79,16 @@ class DuplicateCodeCheck(Check):
         if len(files) < 2:
             return CheckResult(check=self.name, passed=True, issues=[])
 
+        # Through this interpreter, not a bare `pylint`: `uv tool install` and
+        # pipx put only preen's own entry point on PATH, not its dependencies'.
         cmd = [
+            sys.executable,
+            "-m",
             "pylint",
             "--disable=all",
             "--enable=duplicate-code",
-            f"--min-similarity-lines={MIN_SIMILARITY_LINES}",
+            # pylint flags runs strictly longer than this, so 12+ needs 11.
+            f"--min-similarity-lines={MIN_SIMILARITY_LINES - 1}",
             "--ignore-imports=y",
             "--ignore-docstrings=y",
             "--ignore-comments=y",
@@ -84,11 +97,17 @@ class DuplicateCodeCheck(Check):
             "--score=n",
             *(str(f) for f in files),
         ]
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, cwd=self.project_dir
-            )
-        except FileNotFoundError:
+        # A missing pylint module is exit status 1 with "No module named
+        # pylint", which the exit-status check below reports.
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, cwd=self.project_dir
+        )
+
+        # pylint's exit status is a bitmask: 8 means refactor messages were
+        # found, while 1 (fatal) and 32 (usage error, e.g. a bad .pylintrc)
+        # mean it never ran. Treating empty output as "no findings" there
+        # would pass a check that did not happen.
+        if result.returncode & (1 | 32):
             return CheckResult(
                 check=self.name,
                 passed=False,
@@ -96,9 +115,9 @@ class DuplicateCodeCheck(Check):
                     Issue(
                         check=self.name,
                         severity=Severity.ERROR,
-                        description="pylint is not installed",
+                        description=f"pylint failed to run (exit {result.returncode})",
                         impact=Impact.CRITICAL,
-                        explanation="The duplicate-code check runs pylint.",
+                        explanation=(result.stderr or result.stdout)[:500],
                     )
                 ],
             )

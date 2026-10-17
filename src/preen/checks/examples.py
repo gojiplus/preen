@@ -953,18 +953,7 @@ class ExamplesCheck(Check):
             An ``(import name, path)`` pair, or None where there is no single
             obvious package to check against.
         """
-        src = self.project_dir / "src"
-        candidates = (
-            [d for d in src.iterdir() if (d / "__init__.py").exists()]
-            if src.is_dir()
-            else [
-                d
-                for d in self.project_dir.iterdir()
-                if d.is_dir()
-                and d.name not in self.excluded_dirs()
-                and (d / "__init__.py").exists()
-            ]
-        )
+        candidates = self.package_dirs()
         if len(candidates) != 1:
             return None
         return candidates[0].name, candidates[0] / "__init__.py"
