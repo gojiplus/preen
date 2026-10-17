@@ -153,7 +153,7 @@ def test_missing_license_files_with_license_file_present_is_info(
 
 def test_british_spelled_license_file_is_found(tmp_path: Path) -> None:
     # A spelling pass once "corrected" the stem the matcher looks for, and a
-    # LICENCE file stopped counting. The British name is the point here.
+    # license file under its British name stopped counting.
     _write(tmp_path, '[project]\nname = "mypkg"\nlicense = "MIT"\n')
     (tmp_path / ("LICEN" + "CE")).write_text("MIT License\n")
     result = LicenseCheck(tmp_path).run()

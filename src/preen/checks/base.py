@@ -194,6 +194,47 @@ class Check(ABC):
             self._lint_excluded_dirs = frozenset(names)
         return self._lint_excluded_dirs
 
+    def missing_tool(
+        self,
+        version_cmd: list[str],
+        tool: str,
+        *,
+        explanation: str = "",
+        impact: Impact = Impact.IMPORTANT,
+    ) -> "CheckResult | None":
+        """Return a failed result if a tool this check runs is not installed.
+
+        Args:
+            version_cmd: The tool's ``--version`` command line.
+            tool: The tool's name, as installed with pip.
+            explanation: Why the check needs it.
+            impact: How seriously a missing tool counts.
+
+        Returns:
+            None when ``version_cmd`` runs, otherwise a failed CheckResult.
+        """
+        try:
+            subprocess.run(
+                version_cmd, capture_output=True, check=True, cwd=self.project_dir
+            )
+        except (subprocess.SubprocessError, FileNotFoundError):
+            return CheckResult(
+                check=self.name,
+                passed=False,
+                issues=[
+                    Issue(
+                        check=self.name,
+                        severity=Severity.ERROR,
+                        description=(
+                            f"{tool} is not installed. Install with: pip install {tool}"
+                        ),
+                        impact=impact,
+                        explanation=explanation,
+                    )
+                ],
+            )
+        return None
+
     def package_dirs(self) -> list[Path]:
         """Locate the project's import packages.
 

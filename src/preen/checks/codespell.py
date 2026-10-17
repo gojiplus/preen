@@ -191,33 +191,16 @@ class CodespellCheck(Check):
         issues: list[Issue] = []
 
         # Check if codespell is available
-        try:
-            subprocess.run(
-                ["codespell", "--version"],
-                capture_output=True,
-                check=True,
-                cwd=self.project_dir,
-            )
-        except (subprocess.SubprocessError, FileNotFoundError):
-            return CheckResult(
-                check=self.name,
-                passed=False,
-                issues=[
-                    Issue(
-                        check=self.name,
-                        severity=Severity.ERROR,
-                        description=(
-                            "codespell is not installed. "
-                            "Install with: pip install codespell"
-                        ),
-                        impact=Impact.CRITICAL,
-                        explanation=(
-                            "codespell is required for spell checking "
-                            "documentation and comments"
-                        ),
-                    )
-                ],
-            )
+        missing = self.missing_tool(
+            ["codespell", "--version"],
+            "codespell",
+            explanation=(
+                "codespell is required for spell checking documentation and comments"
+            ),
+            impact=Impact.CRITICAL,
+        )
+        if missing is not None:
+            return missing
 
         candidates = self._candidate_files()
         for start in range(0, len(candidates), COMMAND_BATCH_SIZE):

@@ -253,32 +253,14 @@ class PydoclintCheck(Check):
         issues = []
 
         # Check if pydoclint is available
-        try:
-            subprocess.run(
-                ["pydoclint", "--version"],
-                capture_output=True,
-                check=True,
-                cwd=self.project_dir,
-            )
-        except (subprocess.SubprocessError, FileNotFoundError):
-            return CheckResult(
-                check=self.name,
-                passed=False,
-                issues=[
-                    Issue(
-                        check=self.name,
-                        severity=Severity.ERROR,
-                        description=(
-                            "pydoclint is not installed. "
-                            "Install with: pip install pydoclint"
-                        ),
-                        impact=Impact.CRITICAL,
-                        explanation=(
-                            "pydoclint is required for docstring quality checking"
-                        ),
-                    )
-                ],
-            )
+        missing = self.missing_tool(
+            ["pydoclint", "--version"],
+            "pydoclint",
+            explanation="pydoclint is required for docstring quality checking",
+            impact=Impact.CRITICAL,
+        )
+        if missing is not None:
+            return missing
 
         # Run pydoclint on the project directory
         # Use --quiet to suppress file scanning output, only show violations

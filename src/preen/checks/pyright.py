@@ -153,30 +153,14 @@ class PyrightCheck(Check):
         else:
             pyright_cmd = ["pyright"]
 
-        try:
-            subprocess.run(
-                [*pyright_cmd, "--version"],
-                capture_output=True,
-                check=True,
-                cwd=self.project_dir,
-            )
-        except (subprocess.SubprocessError, FileNotFoundError):
-            return CheckResult(
-                check=self.name,
-                passed=False,
-                issues=[
-                    Issue(
-                        check=self.name,
-                        severity=Severity.ERROR,
-                        description=(
-                            "pyright is not installed. "
-                            "Install with: pip install pyright"
-                        ),
-                        impact=Impact.CRITICAL,
-                        explanation="pyright is required for static type checking",
-                    )
-                ],
-            )
+        missing = self.missing_tool(
+            [*pyright_cmd, "--version"],
+            "pyright",
+            explanation="pyright is required for static type checking",
+            impact=Impact.CRITICAL,
+        )
+        if missing is not None:
+            return missing
 
         # Run pyright with JSON output for easier parsing
         # No explicit path: let pyright use the repo's own include/exclude
