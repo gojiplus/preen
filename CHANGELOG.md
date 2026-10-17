@@ -16,7 +16,8 @@ package code, and US English. `preen check --strict` fails repos that passed
 - `duplicate-code`: pylint's similarity checker (R0801) over the import
   package, failing on a block of 12 or more lines copied between modules.
   In a `src/` layout it scans all of `src/`, namespace packages included; it
-  skips tests, scripts, and Git-ignored files. ruff has no duplicate
+  skips tests, Git-ignored files, and anything outside the package, such as
+  top-level scripts. ruff has no duplicate
   detector, so these copies passed every check; at this threshold it flags
   10 other fleet repos, and every hit sampled was a real copy. Mark a
   deliberate copy `# pylint: disable=duplicate-code`. pylint runs as
