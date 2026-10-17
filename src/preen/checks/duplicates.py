@@ -51,7 +51,11 @@ class DuplicateCodeCheck(Check):
             Sorted project-relative paths inside the package directories,
             skipping lint-excluded and test directories within them.
         """
-        packages = [p.relative_to(self.project_dir) for p in self.package_dirs()]
+        # In a src/ layout everything under src/ is package code, including a
+        # namespace package with no top-level __init__.py.
+        src = self.project_dir / "src"
+        roots = [src] if src.is_dir() else self.package_dirs()
+        packages = [p.relative_to(self.project_dir) for p in roots]
         files = []
         # project_files() respects .gitignore, so ignored files inside a
         # package are not package code either.
@@ -104,10 +108,11 @@ class DuplicateCodeCheck(Check):
         )
 
         # pylint's exit status is a bitmask: 8 means refactor messages were
-        # found, while 1 (fatal) and 32 (usage error, e.g. a bad .pylintrc)
-        # mean it never ran. Treating empty output as "no findings" there
-        # would pass a check that did not happen.
-        if result.returncode & (1 | 32):
+        # found. 1 (fatal), 32 (usage error, e.g. a bad .pylintrc) and, with
+        # every other message disabled, 2 (a file that failed to parse) mean
+        # the analysis did not complete; reading that as "no findings" would
+        # pass a check that did not happen.
+        if result.returncode & (1 | 2 | 32):
             return CheckResult(
                 check=self.name,
                 passed=False,

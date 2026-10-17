@@ -110,3 +110,38 @@ def test_git_ignored_files_in_the_package_are_skipped(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
 
     assert DuplicateCodeCheck(tmp_path).run().passed
+
+
+def test_a_file_pylint_cannot_parse_fails_the_check(tmp_path: Path) -> None:
+    body = _block(COPIED)
+    _write(tmp_path / "pkg", "first.py", body)
+    _write(tmp_path / "pkg", "second.py", body)
+    (tmp_path / "pkg" / "broken.py").write_text("def broken(:\n    pass\n")
+
+    result = DuplicateCodeCheck(tmp_path).run()
+
+    assert not result.passed
+    assert "failed to run" in result.issues[0].description
+
+
+def test_namespace_packages_under_src_are_scanned(tmp_path: Path) -> None:
+    body = _block(COPIED)
+    widgets = tmp_path / "src" / "acme" / "widgets"  # no src/acme/__init__.py
+    _write(widgets, "first.py", body)
+    _write(widgets, "second.py", body)
+    (widgets / "__init__.py").touch()
+
+    assert len(DuplicateCodeCheck(tmp_path).run().issues) == 1
+
+
+def test_a_tracked_file_deleted_from_the_tree_is_skipped(tmp_path: Path) -> None:
+    import subprocess
+
+    body = _block(COPIED)
+    _write(tmp_path / "pkg", "first.py", body)
+    _write(tmp_path / "pkg", "second.py", body)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    (tmp_path / "pkg" / "second.py").unlink()
+
+    assert DuplicateCodeCheck(tmp_path).run().passed

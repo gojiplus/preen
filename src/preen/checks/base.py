@@ -246,11 +246,14 @@ class Check(ABC):
         Returns:
             The package directories, absolute, sorted by name.
         """
+        # Under src/ every child is a package, even one named like an
+        # artifact directory ("build"); at the root those names are artifacts.
         src = self.project_dir / "src"
-        parent = src if src.is_dir() else self.project_dir
+        if src.is_dir():
+            return sorted(d for d in src.iterdir() if (d / "__init__.py").exists())
         return sorted(
             d
-            for d in parent.iterdir()
+            for d in self.project_dir.iterdir()
             if d.is_dir()
             and d.name not in self.excluded_dirs()
             and (d / "__init__.py").exists()
@@ -260,7 +263,8 @@ class Check(ABC):
         """List the project's files: what Git tracks or would track.
 
         Untracked files count unless ignored, so a check sees new work before
-        it is committed. Outside a Git checkout, every file counts.
+        it is committed; a tracked file deleted from the working tree does not.
+        Outside a Git checkout, every file counts.
 
         Returns:
             Project-relative paths, in no particular order.
@@ -284,7 +288,11 @@ class Check(ABC):
             except (subprocess.SubprocessError, FileNotFoundError):
                 pass
             else:
-                return [Path(value) for value in result.stdout.split("\0") if value]
+                return [
+                    Path(value)
+                    for value in result.stdout.split("\0")
+                    if value and (self.project_dir / value).is_file()
+                ]
         return [
             path.relative_to(self.project_dir)
             for path in self.project_dir.rglob("*")

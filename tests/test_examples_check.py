@@ -1186,3 +1186,20 @@ def test_a_type_parameter_bound_reaches_for_the_package():
         "def func[T: mypkg.Bound](x: T) -> T:\n    return x\n```"
     )
     assert referenced_symbols(text, "mypkg") == {"Bound"}
+
+
+def test_a_src_package_named_like_an_artifact_dir_is_still_found(tmp_path):
+    # Under src/ every child is a package, even one called "build"; only at
+    # the project root is that name an artifact directory to skip.
+    pkg = tmp_path / "src" / "build"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("def available(): ...\n")
+    (tmp_path / "README.md").write_text(
+        "```python\nimport build\nbuild.missing()\n```\n"
+    )
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "build"\n')
+
+    issues = _findings(ExamplesCheck(tmp_path).run())
+
+    assert len(issues) == 1
+    assert "build.missing" in issues[0].description
