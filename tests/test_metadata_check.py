@@ -185,6 +185,8 @@ def test_invalid_toml_is_named_as_such(tmp_path: Path) -> None:
     "requires",
     [
         '["uv_build>=0.12.5,<0.13"]',
+        '["uv_build>=0.12.5,<0.14"]',
+        '["uv-build>=0.13.0,<0.14"]',
         '["uv_build>=0.12.5,<0.13.0"]',
         '["uv-build>=0.12.10,<0.13"]',
         '["UV.Build<0.13.0,>=0.12.10.0"]',
@@ -239,7 +241,7 @@ def test_a_genuinely_different_requirement_is_still_flagged(
         "uv_build>=0.12.4,<0.13",
         "uv_build>=0.13,<0.13",
         "uv_build>=0.12.10",
-        "uv_build>=0.12.10,<0.14",
+        "uv_build>=0.12.10,<0.15",
         "uv_build>=0.12.10,<=0.13",
         "uv_build==0.12.10",
         "uv_build>=0.12.10,<0.13,!=0.12.11",

@@ -135,7 +135,7 @@ def test_comments_and_untouched_sections_survive(legacy_repo: Path) -> None:
 def test_release_migration_converts_build_system(legacy_repo: Path) -> None:
     rewrite_pyproject(legacy_repo, release_migration=True)
     data = _load(legacy_repo)
-    assert data["build-system"]["requires"] == ["uv_build>=0.12.5,<0.13"]
+    assert data["build-system"]["requires"] == ["uv_build>=0.12.5,<0.14"]
     assert data["build-system"]["build-backend"] == "uv_build"
     assert data["project"]["version"] == "1.2.3"
     assert "dynamic" not in data["project"]
@@ -172,7 +172,7 @@ def test_release_migration_replaces_malformed_build_system(tmp_path: Path) -> No
 
     data = _load(tmp_path)
     assert data["build-system"] == {
-        "requires": ["uv_build>=0.12.5,<0.13"],
+        "requires": ["uv_build>=0.12.5,<0.14"],
         "build-backend": "uv_build",
     }
 
