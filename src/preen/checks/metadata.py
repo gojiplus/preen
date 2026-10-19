@@ -53,7 +53,7 @@ def _compatible_requirement(declared: Any, expected: str) -> bool:
     if len(found.specifier) != 2 or set(bounds) != {">=", "<"}:
         return False
     minimum, ceiling = Version(bounds[">="]), Version(bounds["<"])
-    return standard[">="] <= minimum < ceiling == standard["<"]
+    return standard[">="] <= minimum < ceiling <= standard["<"]
 
 
 class MetadataCheck(Check):
@@ -166,7 +166,8 @@ class MetadataCheck(Check):
                 impact=Impact.IMPORTANT,
                 explanation=(
                     "The minimum may increase within the approved compatibility "
-                    "range; keep its exclusive upper bound. Run preen adopt "
+                    "range; the exclusive upper bound must not exceed the approved "
+                    "ceiling. Run preen adopt "
                     "--release-migration to migrate an older backend."
                 ),
             )

@@ -6,7 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-19
+
 ### Fixed
+
+- Accept bounded uv_build requirements through the tested 0.13 series,
+  including dependency updates that retain the existing minimum.
 
 - Enable American spelling when adopting a package, preserving its existing
   codespell dictionaries and exceptions.

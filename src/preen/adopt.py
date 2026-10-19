@@ -21,7 +21,7 @@ from packaging.version import InvalidVersion, Version
 from tomlkit.items import Table
 
 CANON_TEMPLATE = "gh:gojiplus/py-canon"
-UV_BUILD_REQUIREMENT = "uv_build>=0.12.5,<0.13"
+UV_BUILD_REQUIREMENT = "uv_build>=0.12.5,<0.14"
 
 # [tool.*] sections merged onto the repo's own (see `_merge_canon`).
 CANON_TOOL_TOML = """
