@@ -6,7 +6,7 @@ publishing, GitHub Release). This command runs the checks, verifies that the tag
 and project metadata agree, asks for informed consent, then tags and pushes.
 """
 
-import datetime
+import datetime as dt
 import json
 import re
 import subprocess
@@ -498,7 +498,7 @@ def release_package(
     )
     # Local date, explicitly zoned: a changelog heading should carry the date
     # the releaser sees, not UTC's.
-    today = datetime.datetime.now().astimezone().date().isoformat()
+    today = dt.datetime.now().astimezone().date().isoformat()
     rename_unreleased = False
     if not has_version_entry(changelog_text, version):
         unreleased = unreleased_section_text(changelog_text)
