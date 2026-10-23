@@ -1,9 +1,39 @@
 """Circular dependency check using a simple Python implementation."""
 
 import ast
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 from .base import Check, CheckResult, Impact, Issue, Severity
+
+
+def _is_type_checking(test: ast.expr) -> bool:
+    """Return whether ``test`` is ``TYPE_CHECKING`` or ``<module>.TYPE_CHECKING``."""
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    return isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+
+
+def _load_time_nodes(node: ast.AST) -> Iterator[ast.AST]:
+    """Yield the nodes under ``node`` that execute when the module is imported.
+
+    A circular import only fails through imports that run while a module loads.
+    Deferring an import into a function body, or guarding it with
+    ``if TYPE_CHECKING:``, is the standard way to break a cycle, so neither is
+    an edge. Class bodies and the ``else`` branch of a TYPE_CHECKING test do run.
+    """
+    yield from _scan(ast.iter_child_nodes(node))
+
+
+def _scan(nodes: Iterable[ast.AST]) -> Iterator[ast.AST]:
+    for node in nodes:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue
+        if isinstance(node, ast.If) and _is_type_checking(node.test):
+            yield from _scan(node.orelse)
+            continue
+        yield node
+        yield from _scan(ast.iter_child_nodes(node))
 
 
 class DeptreeCheck(Check):
@@ -36,7 +66,7 @@ class DeptreeCheck(Check):
 
             tree = ast.parse(content, filename=str(file_path))
 
-            for node in ast.walk(tree):
+            for node in _load_time_nodes(tree):
                 if isinstance(node, ast.Import):
                     for alias in node.names:
                         imports.add(alias.name)
