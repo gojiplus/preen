@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-23
+
 ### Fixed
 
 - `deptree` no longer reports a circular import that cannot fail at import
