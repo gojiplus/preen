@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `deptree` no longer reports a circular import that cannot fail at import
+  time. It counted every import in a file, including ones inside functions and
+  under `if TYPE_CHECKING:`, which are the standard ways to break a cycle.
+  Class bodies and the `else` branch of a TYPE_CHECKING test still count.
+
 ## [0.7.1] - 2026-10-19
 
 ### Fixed
