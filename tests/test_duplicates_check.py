@@ -1,4 +1,4 @@
-"""Tests for the duplicate-code check, which runs pylint's R0801 detector."""
+"""Tests for the duplicate-code check, which runs jscpd."""
 
 from pathlib import Path
 
@@ -6,7 +6,7 @@ from preen.checks.duplicates import DuplicateCodeCheck
 
 # Literal sizes at the boundary, not offsets from the module's threshold: a
 # test sized from the constant follows any change to it and cannot catch one.
-# pylint compares strictly, so exactly 12 is the case that once slipped.
+# Exactly 12 is the case that once slipped.
 COPIED = 12
 SHORT = 11
 
@@ -58,9 +58,12 @@ def test_tests_and_examples_may_repeat_themselves(tmp_path: Path) -> None:
 
 def test_a_deliberate_copy_can_be_marked(tmp_path: Path) -> None:
     body = _block(COPIED)
-    marker = "    # pylint: disable=duplicate-code\n"
-    _write(tmp_path / "pkg", "first.py", body, marker)
-    _write(tmp_path / "pkg", "second.py", body, marker)
+    _write(tmp_path / "pkg", "first.py", body)
+    (tmp_path / "pkg" / "second.py").write_text(
+        "# jscpd:ignore-start\n"
+        f"def second(a, b):\n{body}\n    return 'second'\n"
+        "# jscpd:ignore-end\n"
+    )
 
     assert DuplicateCodeCheck(tmp_path).run().passed
 
@@ -76,13 +79,14 @@ def test_scripts_beside_the_package_are_not_package_code(tmp_path: Path) -> None
     assert DuplicateCodeCheck(tmp_path).run().passed
 
 
-def test_a_pylint_that_cannot_run_fails_the_check(tmp_path: Path) -> None:
-    # pylint exits 32 on a bad configuration with nothing on stdout, which
-    # once read as "no duplicates".
+def test_a_jscpd_that_cannot_run_fails_the_check(tmp_path: Path, monkeypatch) -> None:
+    # A missing detector must not read as "no duplicates".
+    from preen.checks import duplicates
+
     body = _block(COPIED)
     _write(tmp_path / "pkg", "first.py", body)
     _write(tmp_path / "pkg", "second.py", body)
-    (tmp_path / ".pylintrc").write_text("[MAIN]\njobs=auto\n")
+    monkeypatch.setattr(duplicates, "_jscpd", lambda: tmp_path / "no-jscpd")
 
     result = DuplicateCodeCheck(tmp_path).run()
 
@@ -90,7 +94,7 @@ def test_a_pylint_that_cannot_run_fails_the_check(tmp_path: Path) -> None:
     assert "failed to run" in result.issues[0].description
 
 
-def test_runs_without_pylint_on_path(tmp_path: Path, monkeypatch) -> None:
+def test_runs_without_jscpd_on_path(tmp_path: Path, monkeypatch) -> None:
     # uv tool and pipx expose only preen's own entry point.
     body = _block(COPIED)
     _write(tmp_path / "pkg", "first.py", body)
@@ -112,7 +116,7 @@ def test_git_ignored_files_in_the_package_are_skipped(tmp_path: Path) -> None:
     assert DuplicateCodeCheck(tmp_path).run().passed
 
 
-def test_a_file_pylint_cannot_parse_fails_the_check(tmp_path: Path) -> None:
+def test_a_file_that_cannot_parse_fails_the_check(tmp_path: Path) -> None:
     body = _block(COPIED)
     _write(tmp_path / "pkg", "first.py", body)
     _write(tmp_path / "pkg", "second.py", body)
@@ -121,7 +125,7 @@ def test_a_file_pylint_cannot_parse_fails_the_check(tmp_path: Path) -> None:
     result = DuplicateCodeCheck(tmp_path).run()
 
     assert not result.passed
-    assert "failed to run" in result.issues[0].description
+    assert "cannot parse" in result.issues[0].description
 
 
 def test_namespace_packages_under_src_are_scanned(tmp_path: Path) -> None:
@@ -145,3 +149,85 @@ def test_a_tracked_file_deleted_from_the_tree_is_skipped(tmp_path: Path) -> None
     (tmp_path / "pkg" / "second.py").unlink()
 
     assert DuplicateCodeCheck(tmp_path).run().passed
+
+
+def test_a_copy_within_one_module_is_reported(tmp_path: Path) -> None:
+    # pylint compared files pairwise and never a file with itself.
+    body = _block(COPIED)
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").touch()
+    (pkg / "only.py").write_text(
+        f"def first(a, b):\n{body}\n    return 1\n\n\n"
+        f"def second(a, b):\n{body}\n    return 2\n"
+    )
+
+    issues = DuplicateCodeCheck(tmp_path).run().issues
+
+    assert len(issues) == 1
+    assert issues[0].description.count("pkg/only.py") == 2
+
+
+def test_a_consistently_renamed_copy_is_reported(tmp_path: Path) -> None:
+    body = _block(COPIED)
+    _write(tmp_path / "pkg", "first.py", body)
+    _write(tmp_path / "pkg", "second.py", body.replace("v", "w").replace("a *", "x *"))
+    (tmp_path / "pkg" / "second.py").write_text(
+        (tmp_path / "pkg" / "second.py").read_text().replace("(a, b)", "(x, b)")
+    )
+
+    assert len(DuplicateCodeCheck(tmp_path).run().issues) == 1
+
+
+def test_docstrings_and_signatures_do_not_count_toward_the_threshold(
+    tmp_path: Path,
+) -> None:
+    # Parallel public wrappers share long signatures and docstrings by design.
+    params = ",\n".join(f"    p{i}: int = {i}" for i in range(14))
+    doc = "\n".join(f"    line {i} of the docstring" for i in range(14))
+    for name in ("first", "second"):
+        _write(tmp_path / "pkg", f"{name}.py", "")
+        (tmp_path / "pkg" / f"{name}.py").write_text(
+            f'def {name}(\n{params},\n) -> int:\n    """Doc.\n\n{doc}\n    """\n'
+            f"{_block(SHORT)}\n    return {name!r}\n"
+        )
+
+    assert DuplicateCodeCheck(tmp_path).run().passed
+
+
+def test_three_copies_are_one_finding(tmp_path: Path) -> None:
+    body = _block(COPIED)
+    for name in ("first.py", "second.py", "third.py"):
+        _write(tmp_path / "pkg", name, body)
+
+    issues = DuplicateCodeCheck(tmp_path).run().issues
+
+    assert len(issues) == 1
+    assert all(n in issues[0].description for n in ("first", "second", "third"))
+
+
+def test_repetitive_code_matching_itself_is_not_a_copy(tmp_path: Path) -> None:
+    # A run of near-identical lines matches a shifted copy of itself.
+    lines = "\n".join(f"    total = total + values[{i % 2}]" for i in range(30))
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").touch()
+    (tmp_path / "pkg" / "sums.py").write_text(
+        f"def accumulate(values):\n    total = 0\n{lines}\n    return total\n"
+    )
+
+    assert DuplicateCodeCheck(tmp_path).run().passed
+
+
+def test_copied_decorator_arguments_count(tmp_path: Path) -> None:
+    # Tool schemas and click options live in decorator arguments.
+    schema = "\n".join(
+        f'        "field{i}": {{"type": "number", "min": {i}}},' for i in range(14)
+    )
+    for name in ("first", "second"):
+        _write(tmp_path / "pkg", f"{name}.py", "")
+        (tmp_path / "pkg" / f"{name}.py").write_text(
+            f"@tool(\n    schema={{\n{schema}\n    }},\n)\n"
+            f"def {name}(a, b):\n    return {name!r}\n"
+        )
+
+    assert len(DuplicateCodeCheck(tmp_path).run().issues) == 1

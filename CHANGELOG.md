@@ -6,6 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- `duplicate-code` runs jscpd instead of pylint's similarity checker. pylint
+  compares text and only across files, so it missed copies inside one module
+  and copies whose local names differ. Across the 56 fleet repos it reported
+  nothing; this check reports 20 groups of copies in 9 repos, 17 of them
+  within one module. The threshold is unchanged: 12 lines of code in
+  every copy, not counting imports, docstrings, comments, blank lines and
+  signatures. Decorator arguments count, since copied tool schemas and click
+  options live there, and a line counts only if the match covers all of its
+  code. Renamed names match only when renamed consistently. A copy that
+  overlaps itself is not reported, and copies of one block are reported
+  together. Mark a deliberate copy with `# jscpd:ignore-start` and
+  `# jscpd:ignore-end`; `# pylint: disable=duplicate-code` no longer applies.
+  `preen check --strict` fails repos that passed 0.7.2.
+
 ## [0.7.2] - 2026-10-23
 
 ### Fixed

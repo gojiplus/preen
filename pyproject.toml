@@ -29,8 +29,9 @@ dependencies = [
     "pyright>=1.1.411",
     "pydoclint>=0.9.1",
     "codespell>=2.4.3",
-    # duplicate-code (R0801); ruff has no duplicate detector.
-    "pylint>=4.1",
+    # duplicate-code; ruff has no duplicate detector. The check parses its JSON
+    # report, so a major release that changes the format waits for a test run.
+    "jscpd>=5.4.2,<6",
     "deptry>=0.20",
     # The `metadata` check validates pyproject.toml against PyPA's own
     # schemas before reading it, so a malformed table is named as such
