@@ -6,6 +6,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- `audit` now scans optional-dependency extras. The export ran
+  `uv export --all-groups` without `--all-extras`, so a package that arrives
+  only through an extra, which `pip install pkg[web]` ships to users, was
+  never audited. When `[tool.uv] conflicts` declares conflicting extras, uv
+  cannot export them together, so each extra is exported and scanned on its
+  own and the findings are merged; an extra that fails to export fails the
+  check (important) instead of being skipped at info level, which `--strict`
+  would have let through.
+
+  Measured on the 57 FLEET repos on 2026-10-23, six gain findings: three
+  whose extras-only advisory has no fix upstream allows (appeler/naamkaran and
+  appeler/parsernaam: pillow 12.3.0 via `[web]`, fixed only in 13.0.0, which
+  gradio's `pillow<13` excludes; gojiplus/understudy: opentelemetry-api
+  1.42.1, CVE-2026-114603, fixed in 1.45.1, which google-adk's `<=1.44`
+  excludes) and three with a fix a re-lock reaches (gojiplus/layoutlens:
+  fastmcp 3.4.7, GHSA-7xgj-8392-5q4r, fixed in 3.4.10 via `[mcp]`;
+  in-rolls/savitr and in-rolls/upnaam: setuptools 84.0.0,
+  GHSA-xmj3-9gf7-h52w, fixed in 84.1.0). naamkaran and understudy go from
+  passing to failing; the other four already fail on other advisories.
+
 ## [0.7.2] - 2026-10-23
 
 ### Fixed

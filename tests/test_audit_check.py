@@ -731,3 +731,149 @@ def test_null_or_string_aliases_do_not_crash(tmp_path: Path, monkeypatch) -> Non
     )
     # Neither crashes; the bare-string alias is not treated as a match either.
     assert errors == ["a", "b"]
+
+
+EXTRAS_PYPROJECT = """\
+[project]
+name = "fixture"
+version = "0.1.0"
+dependencies = ["requests"]
+
+[project.optional-dependencies]
+web = ["pillow"]
+"""
+
+CONFLICTING_EXTRAS_PYPROJECT = """\
+[project]
+name = "fixture"
+version = "0.1.0"
+dependencies = ["requests"]
+
+[project.optional-dependencies]
+cpu = ["pillow"]
+gpu = ["accelerate"]
+
+[tool.uv]
+conflicts = [[{extra = "cpu"}, {extra = "gpu"}]]
+"""
+
+#: Pins each extra contributes to an export, standing in for a uv.lock.
+EXTRA_PINS = {"web": ["pillow==12.3.0"], "cpu": ["pillow==12.3.0"], "gpu": []}
+
+#: What the fake pip-audit knows about: one advisory per vulnerable pin.
+ADVISORIES = {
+    ("pillow", "12.3.0"): {"id": "GHSA-pill-0000", "fix_versions": ["13.0.0"]},
+    ("requests", "2.31.0"): {"id": "GHSA-reqs-0000", "fix_versions": ["2.32.0"]},
+}
+
+
+def _fake_uv_and_pip_audit(exports: list[list[str]], fail_extra: str | None = None):
+    """Fake `uv export` honouring extras flags, and a pip-audit that reads it.
+
+    The export carries an extra's pins only when the command selects that
+    extra, which is what makes a missing `--all-extras` observable.
+    """
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:2] == ["uv", "export"]:
+            exports.append(cmd)
+            if "--all-extras" in cmd:
+                selected = list(EXTRA_PINS)
+            else:
+                selected = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--extra"]
+            if fail_extra in selected:
+                return _completed(
+                    cmd, returncode=2, stderr="error: Extra `gpu` is broken"
+                )
+            pins = ["requests==2.31.0"]
+            for extra in selected:
+                pins.extend(p for p in EXTRA_PINS[extra] if p not in pins)
+            return _completed(cmd, stdout="\n".join(pins) + "\n")
+        if cmd == ["pip-audit", "--version"]:
+            return _completed(cmd, stdout="pip-audit 2.7\n")
+        if cmd[0] == "pip-audit":
+            text = Path(cmd[cmd.index("-r") + 1]).read_text()
+            dependencies = []
+            for line in text.split():
+                name, version = line.split("==")
+                vulns = (
+                    [ADVISORIES[(name, version)]]
+                    if (name, version) in ADVISORIES
+                    else []
+                )
+                dependencies.append({"name": name, "version": version, "vulns": vulns})
+            report = {"dependencies": dependencies, "fixes": []}
+            returncode = 1 if any(d["vulns"] for d in dependencies) else 0
+            return _completed(cmd, returncode=returncode, stdout=json.dumps(report))
+        raise AssertionError(f"unexpected call: {cmd}")
+
+    return fake_run
+
+
+def test_package_reachable_only_through_an_extra_is_audited(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _write_lock(tmp_path)
+    # The core pin's advisory is ignored so the only failure is the extra's.
+    (tmp_path / "pyproject.toml").write_text(
+        EXTRAS_PYPROJECT + '\n[tool.preen]\naudit_ignore = ["GHSA-reqs-0000"]\n'
+    )
+    exports: list[list[str]] = []
+    monkeypatch.setattr(
+        "preen.checks.audit.subprocess.run", _fake_uv_and_pip_audit(exports)
+    )
+
+    result = AuditCheck(tmp_path).run()
+
+    assert not result.passed
+    errors = [i for i in result.issues if i.severity == Severity.ERROR]
+    assert len(errors) == 1
+    assert "pillow 12.3.0" in errors[0].description
+    assert "GHSA-pill-0000" in errors[0].description
+    assert len(exports) == 1
+    assert "--all-extras" in exports[0]
+
+
+def test_conflicting_extras_are_exported_one_at_a_time(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _write_lock(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(CONFLICTING_EXTRAS_PYPROJECT)
+    exports: list[list[str]] = []
+    monkeypatch.setattr(
+        "preen.checks.audit.subprocess.run", _fake_uv_and_pip_audit(exports)
+    )
+
+    result = AuditCheck(tmp_path).run()
+
+    assert [c[-2:] for c in exports] == [["--extra", "cpu"], ["--extra", "gpu"]]
+    assert not any("--all-extras" in c for c in exports)
+    errors = [i for i in result.issues if i.severity == Severity.ERROR]
+    # requests is in both exports but is reported once.
+    assert sorted(e.description.split(" has ")[0] for e in errors) == [
+        "pillow 12.3.0",
+        "requests 2.31.0",
+    ]
+
+
+def test_an_extra_that_will_not_export_fails_the_check(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _write_lock(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(CONFLICTING_EXTRAS_PYPROJECT)
+    exports: list[list[str]] = []
+    monkeypatch.setattr(
+        "preen.checks.audit.subprocess.run",
+        _fake_uv_and_pip_audit(exports, fail_extra="gpu"),
+    )
+
+    result = AuditCheck(tmp_path).run()
+
+    assert not result.passed
+    assert len(result.issues) == 1
+    issue = result.issues[0]
+    # ERROR/IMPORTANT, not the info-level skip, so `--strict` gates on it.
+    assert issue.severity == Severity.ERROR
+    assert issue.impact == Impact.IMPORTANT
+    assert "--extra gpu" in issue.description
+    assert "Extra `gpu` is broken" in issue.description

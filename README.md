@@ -108,7 +108,7 @@ reusable workflows, not stale copies), `ruff`, `tests`, `citation`,
 (circular imports), `depgroups` (PEP 735 dependency-groups usage),
 `dropped-args` (a parameter a caller accepts but never forwards),
 `duplicate-code` (12+ lines of package code copied across modules), `audit`
-(pip-audit over the locked dependencies), `ci-matrix` (canon shim, or a
+(pip-audit over the locked dependencies, extras included), `ci-matrix` (canon shim, or a
 matrix covering the requires-python floor), `structure`, `runtime-assets`
 (schema-bearing data formats, pinned Hugging Face revisions), `files`
 (README and `.gitignore` exist), `precommit` (`.pre-commit-config.yaml`
