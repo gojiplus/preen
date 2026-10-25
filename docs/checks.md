@@ -238,7 +238,12 @@ marker may open a rationale that runs to several lines.
 ### `audit`
 
 Known vulnerabilities in locked dependencies, via `pip-audit` over a `uv
-export --all-groups` of the project. Important: a locked package has a
+export --all-groups --all-extras` of the project. Extras are scanned because
+they ship to users: `pip install pkg[web]` installs whatever `[web]` pulls in.
+When `[tool.uv] conflicts` declares conflicting extras, uv cannot export them
+together, so each extra is exported and scanned on its own and the findings
+merged; an extra that fails to export fails the check rather than going
+unscanned. Important: a locked package has a
 known vulnerability (reports the CVE/GHSA ids and a fix version when
 pip-audit has one). Info: a dependency pinned via a direct git/file/URL
 reference, which `pip-audit --disable-pip` can't hash-verify and so is
