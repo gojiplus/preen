@@ -374,3 +374,39 @@ def test_lines_inside_an_ignored_region_do_not_count(tmp_path: Path) -> None:
         _write(tmp_path / "pkg", f"{name}.py", f"{body}\n{ignored}")
 
     assert DuplicateCodeCheck(tmp_path).run().passed
+
+
+def test_a_symlink_to_a_module_is_not_a_copy_of_it(tmp_path: Path) -> None:
+    _write(tmp_path / "pkg", "first.py", _block(COPIED))
+    (tmp_path / "pkg" / "alias.py").symlink_to(tmp_path / "pkg" / "first.py")
+
+    assert DuplicateCodeCheck(tmp_path).run().passed
+
+
+def test_start_and_end_markers_in_one_comment_close_the_region(
+    tmp_path: Path,
+) -> None:
+    body = _block(COPIED)
+    for name in ("first", "second"):
+        _write(
+            tmp_path / "pkg",
+            f"{name}.py",
+            "    # jscpd:ignore-start jscpd:ignore-end\n"
+            f"{body}\n    # jscpd:ignore-end",
+        )
+
+    assert len(DuplicateCodeCheck(tmp_path).run().issues) == 1
+
+
+def test_a_nested_start_marker_keeps_the_region_open_from_the_first(
+    tmp_path: Path,
+) -> None:
+    body = _block(SHORT)
+    ignored = (
+        "    # jscpd:ignore-start\n    w = a + b\n"
+        "    # jscpd:ignore-start\n    x = a - b\n    # jscpd:ignore-end"
+    )
+    for name in ("first", "second"):
+        _write(tmp_path / "pkg", f"{name}.py", f"{body}\n{ignored}")
+
+    assert DuplicateCodeCheck(tmp_path).run().passed

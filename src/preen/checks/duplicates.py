@@ -27,6 +27,7 @@ around one of the blocks.
 import ast
 import io
 import json
+import re
 import shutil
 import subprocess
 import sysconfig
@@ -58,8 +59,7 @@ Block = tuple[Path, int, int]
 # the unit jscpd reports columns in.
 CodeLines = dict[int, tuple[int, int]]
 
-_IGNORE_START = "jscpd:ignore-start"
-_IGNORE_END = "jscpd:ignore-end"
+_IGNORE_MARKER = re.compile(r"jscpd:ignore-(start|end)")
 
 _LINE_END = 1 << 30
 
@@ -87,12 +87,16 @@ def _code_lines(text: str) -> CodeLines:
     ignore_from: int | None = None
     for token in tokenize.generate_tokens(io.StringIO(text).readline):
         # Lines jscpd is told to ignore cannot count toward a copy either.
+        # Markers are read in order, so one comment can open and close a
+        # region, and a second start inside an open region does not move it.
         if token.type == tokenize.COMMENT:
-            if _IGNORE_START in token.string:
-                ignore_from = token.start[0]
-            elif _IGNORE_END in token.string and ignore_from is not None:
-                dropped.update(range(ignore_from, token.start[0] + 1))
-                ignore_from = None
+            for marker in _IGNORE_MARKER.finditer(token.string):
+                if marker.group(1) == "start":
+                    if ignore_from is None:
+                        ignore_from = token.start[0]
+                elif ignore_from is not None:
+                    dropped.update(range(ignore_from, token.start[0] + 1))
+                    ignore_from = None
         if token.type in _NOT_CODE:
             continue
         (first, start), (last, end) = token.start, token.end
@@ -281,6 +285,16 @@ class DuplicateCodeCheck(Check):
 
         # A file that does not parse cannot be measured; passing it would pass
         # a check that did not happen.
+        # A symlink to another package module is the same code, not a copy.
+        seen: set[Path] = set()
+        unique = []
+        for rel in files:
+            real = (self.project_dir / rel).resolve()
+            if real not in seen:
+                seen.add(real)
+                unique.append(rel)
+        files = unique
+
         code: dict[Path, CodeLines] = {}
         texts: dict[Path, str] = {}
         for rel in files:
