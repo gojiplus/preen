@@ -231,3 +231,109 @@ def test_copied_decorator_arguments_count(tmp_path: Path) -> None:
         )
 
     assert len(DuplicateCodeCheck(tmp_path).run().issues) == 1
+
+
+def test_decorators_on_a_class_first_method_count(tmp_path: Path) -> None:
+    # The class's signature ends where its body starts; the first method's
+    # decorators are body, not signature.
+    schema = "\n".join(
+        f'        "field{i}": {{"type": "number", "min": {i}}},' for i in range(14)
+    )
+    for name in ("First", "Second"):
+        _write(tmp_path / "pkg", f"{name.lower()}.py", "")
+        (tmp_path / "pkg" / f"{name.lower()}.py").write_text(
+            f"class {name}:\n    @tool(\n        schema={{\n{schema}\n        }},\n"
+            f"    )\n    def run(self, a, b):\n        return {name!r}\n"
+        )
+
+    assert len(DuplicateCodeCheck(tmp_path).run().issues) == 1
+
+
+def test_copies_that_differ_only_in_comments_are_reported(tmp_path: Path) -> None:
+    lines = [f"    v{i} = a * {i} + b - {i * i}" for i in range(COPIED)]
+    _write(
+        tmp_path / "pkg",
+        "first.py",
+        "\n".join(f"{line}  # first {i}" for i, line in enumerate(lines)),
+    )
+    _write(
+        tmp_path / "pkg",
+        "second.py",
+        "\n".join(f"{line}  # second note {i}" for i, line in enumerate(lines)),
+    )
+
+    assert len(DuplicateCodeCheck(tmp_path).run().issues) == 1
+
+
+def test_non_ascii_text_does_not_stretch_a_short_copy(tmp_path: Path) -> None:
+    # jscpd reports byte columns; a partly matched last line with multibyte
+    # text before the difference must still not count.
+    body = _block(SHORT)
+    for name, tail in (("first", "one"), ("second", "two")):
+        _write(
+            tmp_path / "pkg",
+            f"{name}.py",
+            f'{body}\n    r = "你好世界你好世界" + "{tail}"',
+        )
+
+    assert DuplicateCodeCheck(tmp_path).run().passed
+
+
+def test_non_ascii_text_on_full_lines_still_counts(tmp_path: Path) -> None:
+    body = "\n".join(f'    v{i} = "名前{i}" * {i} + b' for i in range(COPIED))
+    _write(tmp_path / "pkg", "first.py", body)
+    _write(tmp_path / "pkg", "second.py", body)
+
+    assert len(DuplicateCodeCheck(tmp_path).run().issues) == 1
+
+
+def test_files_python_can_read_are_measured(tmp_path: Path) -> None:
+    # A BOM and a coding declaration are valid source, not parse failures.
+    pkg = tmp_path / "pkg"
+    _write(pkg, "plain.py", _block(SHORT))
+    (pkg / "bom.py").write_bytes(b"\xef\xbb\xbfdef f(a, b):\n    return a\n")
+    (pkg / "latin.py").write_bytes(
+        b"# coding: latin-1\ndef g(a, b):\n    return 'caf\xe9'\n"
+    )
+
+    assert DuplicateCodeCheck(tmp_path).run().passed
+
+
+def test_a_repository_jscpd_config_does_not_change_the_check(tmp_path: Path) -> None:
+    body = _block(COPIED)
+    _write(tmp_path / "pkg", "first.py", body)
+    _write(tmp_path / "pkg", "second.py", body)
+    (tmp_path / ".jscpd.json").write_text(
+        '{"threshold": 0, "reportName": "clones", "minLines": 100}'
+    )
+
+    issues = DuplicateCodeCheck(tmp_path).run().issues
+
+    assert len(issues) == 1
+    assert "duplicated lines" in issues[0].description
+
+
+def test_finds_a_jscpd_installed_outside_the_interpreter_scripts_dir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # pip --user puts scripts in the user base, not beside the interpreter.
+    import sysconfig
+
+    from preen.checks import duplicates
+
+    real = duplicates._jscpd()
+    monkeypatch.setattr(sysconfig, "get_path", lambda *a, **k: str(tmp_path / "x"))
+    monkeypatch.setenv("PATH", "")
+
+    assert duplicates._jscpd() == real
+
+
+def test_a_bom_does_not_shift_the_first_line_out_of_a_copy(tmp_path: Path) -> None:
+    # jscpd counts the BOM's three bytes in line 1's columns.
+    pkg = tmp_path / "pkg"
+    _write(pkg, "unused.py", "    return None")
+    body = "".join(f"v{i} = {i} * 7 + {i * i}\n" for i in range(COPIED))
+    (pkg / "first.py").write_bytes(b"\xef\xbb\xbf" + body.encode() + b"w = 1\n")
+    (pkg / "second.py").write_text(body + "w = 2\n")
+
+    assert len(DuplicateCodeCheck(tmp_path).run().issues) == 1

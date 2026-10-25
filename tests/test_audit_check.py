@@ -846,7 +846,12 @@ def test_conflicting_extras_are_exported_one_at_a_time(
 
     result = AuditCheck(tmp_path).run()
 
-    assert [c[-2:] for c in exports] == [["--extra", "cpu"], ["--extra", "gpu"]]
+    # The groups once, then each extra without the groups.
+    assert [c[5:] for c in exports] == [
+        ["--all-groups"],
+        ["--no-default-groups", "--extra", "cpu"],
+        ["--no-default-groups", "--extra", "gpu"],
+    ]
     assert not any("--all-extras" in c for c in exports)
     errors = [i for i in result.issues if i.severity == Severity.ERROR]
     # requests is in both exports but is reported once.
@@ -877,3 +882,121 @@ def test_an_extra_that_will_not_export_fails_the_check(
     assert issue.impact == Impact.IMPORTANT
     assert "--extra gpu" in issue.description
     assert "Extra `gpu` is broken" in issue.description
+
+
+EXTRA_GROUP_CONFLICT_PYPROJECT = """\
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = ["requests"]
+
+[project.optional-dependencies]
+legacy = ["six==1.16.0"]
+
+[dependency-groups]
+dev = ["six==1.17.0"]
+
+[tool.uv]
+conflicts = [[{extra = "legacy"}, {group = "dev"}]]
+"""
+
+
+def _fake_uv_with_groups(exports: list[list[str]]):
+    """Fake `uv export` that, like uv, rejects a conflicting extra and group.
+
+    Groups follow uv's selection rules: the default group (dev) unless
+    `--no-default-groups`, every group with `--all-groups`, plus `--group`.
+    pip-audit flags six 1.16.0 and 1.17.0 so both sides must be scanned.
+    """
+    advisories = {
+        ("six", "1.16.0"): {"id": "GHSA-six-0016", "fix_versions": ["9"]},
+        ("six", "1.17.0"): {"id": "GHSA-six-0017", "fix_versions": ["9"]},
+        ("requests", "2.31.0"): None,
+    }
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:2] == ["uv", "export"]:
+            exports.append(cmd)
+            extras = ["legacy"] if "--all-extras" in cmd else []
+            extras += [cmd[i + 1] for i, a in enumerate(cmd) if a == "--extra"]
+            groups = [] if "--no-default-groups" in cmd else ["dev"]
+            if "--all-groups" in cmd:
+                groups = ["dev"]
+            groups += [cmd[i + 1] for i, a in enumerate(cmd) if a == "--group"]
+            if "legacy" in extras and "dev" in groups:
+                return _completed(
+                    cmd,
+                    returncode=2,
+                    stderr="error: Extra `legacy` and group `dev` are incompatible",
+                )
+            pins = ["requests==2.31.0"]
+            if "legacy" in extras:
+                pins.append("six==1.16.0")
+            if "dev" in groups:
+                pins.append("six==1.17.0")
+            return _completed(cmd, stdout="\n".join(pins) + "\n")
+        if cmd == ["pip-audit", "--version"]:
+            return _completed(cmd, stdout="pip-audit 2.7\n")
+        if cmd[0] == "pip-audit":
+            text = Path(cmd[cmd.index("-r") + 1]).read_text()
+            dependencies = []
+            for line in text.split():
+                name, version = line.split("==")
+                vuln = advisories.get((name, version))
+                dependencies.append(
+                    {"name": name, "version": version, "vulns": [vuln] if vuln else []}
+                )
+            report = {"dependencies": dependencies, "fixes": []}
+            returncode = 1 if any(d["vulns"] for d in dependencies) else 0
+            return _completed(cmd, returncode=returncode, stdout=json.dumps(report))
+        raise AssertionError(f"unexpected call: {cmd}")
+
+    return fake_run
+
+
+def test_an_extra_conflicting_with_a_group_is_audited_apart_from_it(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _write_lock(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(EXTRA_GROUP_CONFLICT_PYPROJECT)
+    exports: list[list[str]] = []
+    monkeypatch.setattr(
+        "preen.checks.audit.subprocess.run", _fake_uv_with_groups(exports)
+    )
+
+    result = AuditCheck(tmp_path).run()
+
+    errors = [i for i in result.issues if i.severity == Severity.ERROR]
+    # Both sides were exported and scanned, so both advisories surface.
+    assert sorted(e.description.split(" has ")[0] for e in errors) == [
+        "six 1.16.0",
+        "six 1.17.0",
+    ]
+
+
+def test_an_advisory_listed_twice_is_named_once(tmp_path: Path, monkeypatch) -> None:
+    # pip-audit can return one advisory as two records (one per source).
+    _write_lock(tmp_path)
+    vuln = {"id": "PYSEC-2026-215", "fix_versions": ["3.15"], "aliases": []}
+    report = json.dumps(
+        {
+            "dependencies": [
+                {"name": "idna", "version": "3.11", "vulns": [vuln, dict(vuln)]}
+            ],
+            "fixes": [],
+        }
+    )
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:2] == ["uv", "export"]:
+            return _completed(cmd, stdout="idna==3.11\n")
+        if cmd == ["pip-audit", "--version"]:
+            return _completed(cmd, stdout="pip-audit 2.7\n")
+        if cmd[0] == "pip-audit":
+            return _completed(cmd, returncode=1, stdout=report)
+        raise AssertionError(f"unexpected call: {cmd}")
+
+    monkeypatch.setattr("preen.checks.audit.subprocess.run", fake_run)
+    (issue,) = AuditCheck(tmp_path).run().issues
+
+    assert issue.description.count("PYSEC-2026-215") == 1

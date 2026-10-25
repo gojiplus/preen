@@ -27,10 +27,12 @@ around one of the blocks.
 import ast
 import io
 import json
+import shutil
 import subprocess
 import sysconfig
 import tempfile
 import tokenize
+from importlib import metadata
 from pathlib import Path
 
 from .base import Check, CheckResult, Impact, Issue, Severity
@@ -52,30 +54,39 @@ _NOT_CODE = frozenset(
 
 Block = tuple[Path, int, int]
 
-# Line -> (column where its code starts, column where it ends), 0-based.
+# Line -> (byte column where its code starts, where it ends), 0-based UTF-8,
+# the unit jscpd reports columns in.
 CodeLines = dict[int, tuple[int, int]]
 
 _LINE_END = 1 << 30
 
 
-def _code_lines(text: str) -> CodeLines:
+def _code_lines(text: str, *, bom: bool = False) -> CodeLines:
     """Return the lines that hold code, not imports, docstrings or signatures.
 
     Args:
-        text: Source of a module that parses.
+        text: Source of a module that parses, decoded.
+        bom: Whether the file starts with a UTF-8 BOM, which jscpd counts in
+            line 1's byte columns.
 
     Returns:
         1-based line numbers that count toward the threshold, with the extent
         of their code, so a match ending partway through a line can skip it.
     """
+    lines = text.splitlines(keepends=True)
+
+    def byte(line: int, column: int) -> int:
+        offset = 3 if bom and line == 1 else 0
+        return offset + len(lines[line - 1][:column].encode("utf-8"))
+
     code: CodeLines = {}
     for token in tokenize.generate_tokens(io.StringIO(text).readline):
         if token.type in _NOT_CODE:
             continue
         (first, start), (last, end) = token.start, token.end
         for line in range(first, last + 1):
-            begin = start if line == first else 0
-            finish = end if line == last else _LINE_END
+            begin = byte(line, start) if line == first else 0
+            finish = byte(line, end) if line == last else _LINE_END
             low, high = code.get(line, (begin, finish))
             code[line] = (min(low, begin), max(high, finish))
     dropped: set[int] = set()
@@ -87,7 +98,11 @@ def _code_lines(text: str) -> CodeLines:
         # arguments can carry real duplication, such as copied tool schemas
         # or click options.
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
-            dropped.update(range(node.lineno, node.body[0].lineno))
+            # The body starts at its first statement's decorators, if any.
+            first = node.body[0]
+            decorators = getattr(first, "decorator_list", [])
+            body_start = min([first.lineno, *(d.lineno for d in decorators)])
+            dropped.update(range(node.lineno, body_start))
         body = getattr(node, "body", None)
         if isinstance(body, list) and body:
             doc = body[0]
@@ -128,18 +143,35 @@ def _covered(code: CodeLines, side: dict) -> int:
 
 
 def _jscpd() -> Path:
-    """Return the jscpd binary installed beside this interpreter.
+    """Return the jscpd binary installed with this environment's jscpd package.
 
-    The wheel ships a binary in the environment's scripts directory, not a
-    Python module, and ``uv tool`` and pipx put only preen's own entry point on
-    PATH.
+    The wheel ships a binary, not a Python module, and where installers put it
+    varies: the environment's scripts directory, the user base for
+    ``pip --user``. ``uv tool`` and pipx put only preen's own entry point on
+    PATH. The package's own file list records where the binary went.
 
     Returns:
-        Path to the jscpd executable.
+        Path to the jscpd executable (which may not exist, so running it fails
+        loudly rather than passing).
     """
+    try:
+        files = metadata.distribution("jscpd").files or []
+    except metadata.PackageNotFoundError:
+        files = []
+    for file in files:
+        if file.name in ("jscpd", "jscpd.exe") and file.parent.name in (
+            "bin",
+            "Scripts",
+        ):
+            path = Path(str(file.locate())).resolve()
+            if path.exists():
+                return path
     scripts = Path(sysconfig.get_path("scripts"))
-    exe = scripts / "jscpd.exe"
-    return exe if exe.exists() else scripts / "jscpd"
+    for candidate in (scripts / "jscpd.exe", scripts / "jscpd"):
+        if candidate.exists():
+            return candidate
+    found = shutil.which("jscpd")
+    return Path(found) if found else scripts / "jscpd"
 
 
 def _groups(pairs: list[tuple[Block, Block]]) -> list[list[Block]]:
@@ -241,16 +273,33 @@ class DuplicateCodeCheck(Check):
         code: dict[Path, CodeLines] = {}
         for rel in files:
             try:
-                code[rel] = _code_lines((self.project_dir / rel).read_text("utf-8"))
+                # tokenize.open decodes as Python does: BOM, coding cookie.
+                path = self.project_dir / rel
+                with tokenize.open(path) as handle:
+                    text = handle.read()
+                with path.open("rb") as raw:
+                    bom = raw.read(3) == b"\xef\xbb\xbf"
+                code[rel] = _code_lines(text, bom=bom)
             except (SyntaxError, tokenize.TokenError, UnicodeDecodeError) as exc:
                 return _error(self.name, f"cannot parse {rel}", str(exc))
 
         with tempfile.TemporaryDirectory() as out:
+            # An explicit config keeps a repository's .jscpd.json (threshold,
+            # reportName, minLines) from changing what this check runs.
+            config = Path(out, "config.json")
+            config.write_text("{}")
+            report_dir = Path(out, "report")
             cmd = [
                 str(_jscpd()),
                 *(str(f) for f in files),
+                "--config",
+                str(config),
                 "--format",
                 "python",
+                # Weak mode skips comment tokens, so copies whose comments
+                # differ still match; ignore markers are still honored.
+                "--mode",
+                "weak",
                 "--ignore-identifiers=consistent",
                 # jscpd counts raw lines; this is only a prefilter below the
                 # code-line threshold applied afterwards.
@@ -263,7 +312,7 @@ class DuplicateCodeCheck(Check):
                 "--reporters",
                 "json",
                 "--output",
-                out,
+                str(report_dir),
                 "--silent",
             ]
             try:
@@ -272,7 +321,7 @@ class DuplicateCodeCheck(Check):
                 )
             except OSError as exc:
                 return _error(self.name, "jscpd failed to run", str(exc))
-            report = Path(out, "jscpd-report.json")
+            report = report_dir / "jscpd-report.json"
             if result.returncode != 0 or not report.exists():
                 return _error(
                     self.name,
