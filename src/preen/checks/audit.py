@@ -3,13 +3,16 @@
 Complements the `deps` check (unused/missing dependencies via deptry):
 deptry doesn't look at known CVEs, pip-audit does. This check exports the
 project's locked, pinned dependency set with `uv export` and scans it with
-pip-audit.
+pip-audit. The export covers every dependency group and every optional extra:
+an extra ships to users (`pip install pkg[web]`), so a package that arrives
+only through one is as much the project's exposure as a core dependency.
 """
 
 import json
 import re
 import subprocess
 import tempfile
+import tomllib
 from pathlib import Path
 
 from ..config import PreenConfig
@@ -100,6 +103,56 @@ def _filter_pypi_requirements(text: str) -> tuple[str, list[str]]:
     return "\n".join(kept_lines) + "\n", dropped
 
 
+def _extras_selections(project_dir: Path) -> tuple[list[list[str]], bool]:
+    """Choose the `uv export` extras flags that cover every extra.
+
+    uv refuses ``--all-extras`` when ``[tool.uv] conflicts`` declares two
+    extras as conflicting, since no single environment can hold both. Such
+    a project is exported one extra at a time.
+
+    Args:
+        project_dir: The project whose pyproject.toml declares the extras.
+
+    Returns:
+        The extras flags for each export, and whether they are per-extra.
+    """
+    try:
+        with (project_dir / "pyproject.toml").open("rb") as f:
+            data = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
+        data = {}
+    extras = data.get("project", {}).get("optional-dependencies", {})
+    conflicts = data.get("tool", {}).get("uv", {}).get("conflicts", [])
+    conflicting = isinstance(conflicts, list) and any(
+        isinstance(item, dict) and "extra" in item
+        for conflict in conflicts
+        if isinstance(conflict, list)
+        for item in conflict
+    )
+    if conflicting and isinstance(extras, dict) and extras:
+        return [["--extra", name] for name in sorted(extras)], True
+    return [["--all-extras"]], False
+
+
+def _merge_dependencies(reports: list[list]) -> list:
+    """Concatenate pip-audit dependency lists, keeping one entry per pin.
+
+    Exports taken one extra at a time repeat the core dependencies; without
+    this a vulnerable core pin would be reported once per extra.
+    """
+    seen: set[tuple[str, str]] = set()
+    merged = []
+    for dependencies in reports:
+        for dependency in dependencies:
+            if isinstance(dependency, dict):
+                key = (str(dependency.get("name")), str(dependency.get("version")))
+                if key in seen:
+                    continue
+                seen.add(key)
+            merged.append(dependency)
+    return merged
+
+
 class AuditCheck(Check):
     """Check locked dependencies for known vulnerabilities using pip-audit."""
 
@@ -121,11 +174,21 @@ class AuditCheck(Check):
                 "dependency set to scan. Skipping audit."
             )
 
-        requirements = self._export_requirements()
-        if requirements is None:
-            return self._skip(
-                "Could not export requirements with `uv export`; skipping audit."
-            )
+        selections, per_extra = _extras_selections(self.project_dir)
+
+        exports: list[str] = []
+        for selection in selections:
+            requirements, stderr = self._export_requirements(selection)
+            if requirements is not None:
+                exports.append(requirements)
+            elif per_extra:
+                # An extra that won't export is an extra left unscanned, and
+                # an info-level skip would let `--strict` pass it unseen.
+                return self._export_failed(selection, stderr)
+            else:
+                return self._skip(
+                    "Could not export requirements with `uv export`; skipping audit."
+                )
 
         pip_audit_cmd = self._find_pip_audit()
         if pip_audit_cmd is None:
@@ -133,53 +196,18 @@ class AuditCheck(Check):
                 "pip-audit is not installed. Install with: pip install pip-audit"
             )
 
-        filtered_requirements, dropped = _filter_pypi_requirements(requirements)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            requirements_path = Path(tmpdir) / "requirements.txt"
-            requirements_path.write_text(filtered_requirements)
-
-            try:
-                result = subprocess.run(
-                    [
-                        *pip_audit_cmd,
-                        "-r",
-                        str(requirements_path),
-                        "--disable-pip",
-                        "--format",
-                        "json",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    cwd=self.project_dir,
-                    timeout=TIMEOUT_SECONDS,
-                )
-            except (subprocess.SubprocessError, OSError):
+        reports: list[list] = []
+        dropped: list[str] = []
+        for requirements in exports:
+            filtered_requirements, export_dropped = _filter_pypi_requirements(
+                requirements
+            )
+            dropped.extend(n for n in export_dropped if n not in dropped)
+            dependencies = self._run_pip_audit(pip_audit_cmd, filtered_requirements)
+            if dependencies is None:
                 return self._skip("pip-audit could not complete; skipping audit.")
-
-        # 0: no vulnerabilities. 1: vulnerabilities found (with valid JSON on
-        # stdout). Anything else is a genuine failure (network, bad
-        # invocation) -- degrade gracefully rather than crash.
-        if result.returncode not in (0, 1):
-            return self._skip("pip-audit could not complete; skipping audit.")
-
-        # A real report is always non-empty JSON (pip-audit prints
-        # `{"dependencies": [...], "fixes": []}` even when there's nothing to
-        # flag). Empty or unparsable stdout means pip-audit errored before
-        # producing a report (e.g. a requirement it couldn't resolve).
-        if not result.stdout.strip():
-            return self._skip("pip-audit could not complete; skipping audit.")
-        try:
-            report = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            return self._skip("pip-audit could not complete; skipping audit.")
-
-        if not isinstance(report, dict):
-            return self._skip("pip-audit could not complete; skipping audit.")
-
-        dependencies = report.get("dependencies")
-        if not isinstance(dependencies, list):
-            return self._skip("pip-audit could not complete; skipping audit.")
+            reports.append(dependencies)
+        dependencies = _merge_dependencies(reports)
 
         configured = PreenConfig.from_pyproject(self.project_dir).audit_ignore
         vuln_issues, ignored, matched = self._issues_from_dependencies(
@@ -205,12 +233,16 @@ class AuditCheck(Check):
         """Return True if this check can automatically fix issues."""
         return False  # Bumping a vulnerable dependency requires manual review
 
-    def _export_requirements(self) -> str | None:
+    def _export_requirements(self, selection: list[str]) -> tuple[str | None, str]:
         """Export the project's locked dependencies as pinned requirements.
+
+        Args:
+            selection: The extras flags to pass, ``["--all-extras"]`` or
+                ``["--extra", name]``.
 
         Returns:
             The exported requirements-txt content, or None if `uv` is
-            unavailable or the export fails.
+            unavailable or the export fails; and uv's stderr.
         """
         try:
             result = subprocess.run(
@@ -221,18 +253,79 @@ class AuditCheck(Check):
                     "requirements-txt",
                     "--no-emit-project",
                     "--all-groups",
+                    *selection,
                 ],
                 capture_output=True,
                 text=True,
                 cwd=self.project_dir,
                 timeout=TIMEOUT_SECONDS,
             )
-        except (subprocess.SubprocessError, OSError):
-            return None
+        except (subprocess.SubprocessError, OSError) as error:
+            return None, str(error)
 
         if result.returncode != 0:
+            return None, result.stderr or ""
+        return result.stdout, result.stderr or ""
+
+    def _run_pip_audit(
+        self, pip_audit_cmd: list[str], requirements: str
+    ) -> list | None:
+        """Scan one requirements export with pip-audit.
+
+        Args:
+            pip_audit_cmd: The command prefix from `_find_pip_audit`.
+            requirements: Filtered requirements-txt content.
+
+        Returns:
+            The report's ``"dependencies"`` list, or None if pip-audit did not
+            produce a usable report.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            requirements_path = Path(tmpdir) / "requirements.txt"
+            requirements_path.write_text(requirements)
+
+            try:
+                result = subprocess.run(
+                    [
+                        *pip_audit_cmd,
+                        "-r",
+                        str(requirements_path),
+                        "--disable-pip",
+                        "--format",
+                        "json",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    cwd=self.project_dir,
+                    timeout=TIMEOUT_SECONDS,
+                )
+            except (subprocess.SubprocessError, OSError):
+                return None
+
+        # 0: no vulnerabilities. 1: vulnerabilities found (with valid JSON on
+        # stdout). Anything else is a genuine failure (network, bad
+        # invocation) -- degrade gracefully rather than crash.
+        if result.returncode not in (0, 1):
             return None
-        return result.stdout
+
+        # A real report is always non-empty JSON (pip-audit prints
+        # `{"dependencies": [...], "fixes": []}` even when there's nothing to
+        # flag). Empty or unparsable stdout means pip-audit errored before
+        # producing a report (e.g. a requirement it couldn't resolve).
+        if not result.stdout.strip():
+            return None
+        try:
+            report = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return None
+
+        if not isinstance(report, dict):
+            return None
+
+        dependencies = report.get("dependencies")
+        if not isinstance(dependencies, list):
+            return None
+        return dependencies
 
     def _find_pip_audit(self) -> list[str] | None:
         """Locate a runnable pip-audit command, trying `uvx` as a fallback.
@@ -394,6 +487,31 @@ class AuditCheck(Check):
                 "references can't provide. These dependencies were excluded "
                 "from the scan; audit them manually if needed."
             ),
+        )
+
+    def _export_failed(self, selection: list[str], stderr: str) -> CheckResult:
+        """Build the failing result for an extra that would not export."""
+        detail = stderr.strip().splitlines()[-1] if stderr.strip() else ""
+        description = f"`uv export {' '.join(selection)}` failed"
+        if detail:
+            description += f": {detail}"
+        return CheckResult(
+            check=self.name,
+            passed=False,
+            issues=[
+                Issue(
+                    check=self.name,
+                    severity=Severity.ERROR,
+                    description=description,
+                    impact=Impact.IMPORTANT,
+                    explanation=(
+                        "[tool.uv] conflicts declares conflicting extras, so "
+                        "each extra is exported and audited on its own. This "
+                        "one could not be exported, so its dependencies went "
+                        "unscanned."
+                    ),
+                )
+            ],
         )
 
     def _skip(self, message: str) -> CheckResult:
