@@ -107,7 +107,7 @@ reusable workflows, not stale copies), `ruff`, `tests`, `citation`,
 `changelog` (Keep a Changelog structure), `deps` (deptry), `deptree`
 (circular imports), `depgroups` (PEP 735 dependency-groups usage),
 `dropped-args` (a parameter a caller accepts but never forwards),
-`duplicate-code` (12+ lines of package code copied across modules), `audit`
+`duplicate-code` (12+ lines of package code copied within or across modules), `audit`
 (pip-audit over the locked dependencies, extras included), `ci-matrix` (canon shim, or a
 matrix covering the requires-python floor), `structure`, `runtime-assets`
 (schema-bearing data formats, pinned Hugging Face revisions), `files`
@@ -169,9 +169,10 @@ audit_ignore = ["GHSA-8mgp-746c-j5xp"]
   the codes), but they're still preview-only, so `pydoclint` stays until
   ruff stabilizes them.
 - `codespell` stays: ruff has no spelling-check rules.
-- `duplicate-code` runs pylint's similarity checker (R0801), the one pylint
-  rule kept: ruff has no duplicate detector. Mark a deliberate copy with
-  `# pylint: disable=duplicate-code`.
+- `duplicate-code` runs jscpd: ruff has no duplicate detector. It finds
+  copies within a module and copies with consistently renamed variables.
+  Mark a deliberate copy with `# jscpd:ignore-start` and
+  `# jscpd:ignore-end`.
 
 ## License
 
