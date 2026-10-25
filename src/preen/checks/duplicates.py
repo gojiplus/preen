@@ -11,7 +11,7 @@ and scripts or notebooks outside the package repeat setup by design. It
 replaces pylint's similarity checker (R0801), which compares text and only
 across files, so it missed copies inside one module and copies whose local
 names differ; across the fleet pylint reported nothing and this check finds
-20 groups of copies, 17 of them within one module. jscpd matches renamed
+22 groups of copies, 19 of them within one module. jscpd matches renamed
 names only when they are renamed consistently
 (``--ignore-identifiers=consistent``).
 

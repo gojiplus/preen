@@ -12,25 +12,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `duplicate-code` runs jscpd instead of pylint's similarity checker. pylint
   compares text and only across files, so it missed copies inside one module
-  and copies whose local names differ. Across the 56 fleet repos it reported
-  nothing; this check reports 20 groups of copies in 9 repos, 17 of them
-  within one module. The threshold is unchanged: 12 lines of code in
-  every copy, not counting imports, docstrings, comments, blank lines and
-  signatures. Decorator arguments count, since copied tool schemas and click
-  options live there, and a line counts only if the match covers all of its
-  code. Renamed names match only when renamed consistently. A copy that
-  overlaps itself is not reported, and copies of one block are reported
-  together. Mark a deliberate copy with `# jscpd:ignore-start` and
+  and copies whose local names differ. Across the 57 fleet repos it reported
+  nothing; this check reported 22 groups of copies in 11 repos, most of them
+  within one module, all since fixed. The threshold is unchanged: 12 lines of
+  code in every copy, not counting imports, docstrings, comments, blank lines,
+  signatures or lines inside an ignore region. Decorator arguments count,
+  since copied tool schemas and click options live there, and a line counts
+  only if the match covers all of its code. Comments do not break a match,
+  and renamed names match only when renamed consistently. A copy that
+  overlaps itself, or a symlink to another module, is not reported, and
+  copies of one block are reported together. Files are read as Python reads
+  them (BOM, coding declaration), and a repository's `.jscpd.json` does not
+  change the check. Mark a deliberate copy with `# jscpd:ignore-start` and
   `# jscpd:ignore-end`; `# pylint: disable=duplicate-code` no longer applies.
-  `preen check --strict` fails repos that passed 0.7.2.
+  `preen check --strict` fails repos that passed 0.7.2. jscpd ships as a
+  dependency and is found wherever pip, uv or pipx installed it, including
+  `pip install --user`.
 - `audit` now scans optional-dependency extras. The export ran
   `uv export --all-groups` without `--all-extras`, so a package that arrives
   only through an extra, which `pip install pkg[web]` ships to users, was
-  never audited. When `[tool.uv] conflicts` declares conflicting extras, uv
-  cannot export them together, so each extra is exported and scanned on its
-  own and the findings are merged; an extra that fails to export fails the
-  check (important) instead of being skipped at info level, which `--strict`
-  would have let through.
+  never audited. When `[tool.uv] conflicts` is declared, uv cannot export
+  the conflicting members together, so the groups are exported apart from
+  the extras (one group at a time if groups conflict) and each extra on its
+  own without groups, and the findings are merged. A legacy
+  `tool.uv.dev-dependencies` list counts as the `dev` group. A selection that
+  fails to export fails the check (important) instead of being skipped at
+  info level, which `--strict` would have let through. An advisory pip-audit
+  returns twice is named once.
 
   Measured on the 57 FLEET repos on 2026-10-23, six gain findings: three
   whose extras-only advisory has no fix upstream allows (appeler/naamkaran and
