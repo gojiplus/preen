@@ -58,29 +58,41 @@ Block = tuple[Path, int, int]
 # the unit jscpd reports columns in.
 CodeLines = dict[int, tuple[int, int]]
 
+_IGNORE_START = "jscpd:ignore-start"
+_IGNORE_END = "jscpd:ignore-end"
+
 _LINE_END = 1 << 30
 
 
-def _code_lines(text: str, *, bom: bool = False) -> CodeLines:
+def _code_lines(text: str) -> CodeLines:
     """Return the lines that hold code, not imports, docstrings or signatures.
 
     Args:
-        text: Source of a module that parses, decoded.
-        bom: Whether the file starts with a UTF-8 BOM, which jscpd counts in
-            line 1's byte columns.
+        text: Source of a module that parses, decoded, with LF newlines.
+            jscpd is given this same text, so its lines and columns agree.
 
     Returns:
         1-based line numbers that count toward the threshold, with the extent
         of their code, so a match ending partway through a line can skip it.
     """
-    lines = text.splitlines(keepends=True)
+    # The tokenizer's own line split: str.splitlines also breaks at form
+    # feeds and U+2028 inside strings, and the line numbers would disagree.
+    lines = io.StringIO(text).readlines()
 
     def byte(line: int, column: int) -> int:
-        offset = 3 if bom and line == 1 else 0
-        return offset + len(lines[line - 1][:column].encode("utf-8"))
+        return len(lines[line - 1][:column].encode("utf-8"))
 
     code: CodeLines = {}
+    dropped: set[int] = set()
+    ignore_from: int | None = None
     for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        # Lines jscpd is told to ignore cannot count toward a copy either.
+        if token.type == tokenize.COMMENT:
+            if _IGNORE_START in token.string:
+                ignore_from = token.start[0]
+            elif _IGNORE_END in token.string and ignore_from is not None:
+                dropped.update(range(ignore_from, token.start[0] + 1))
+                ignore_from = None
         if token.type in _NOT_CODE:
             continue
         (first, start), (last, end) = token.start, token.end
@@ -89,7 +101,6 @@ def _code_lines(text: str, *, bom: bool = False) -> CodeLines:
             finish = byte(line, end) if line == last else _LINE_END
             low, high = code.get(line, (begin, finish))
             code[line] = (min(low, begin), max(high, finish))
-    dropped: set[int] = set()
     for node in ast.walk(ast.parse(text)):
         if isinstance(node, ast.Import | ast.ImportFrom):
             dropped.update(range(node.lineno, (node.end_lineno or 0) + 1))
@@ -271,19 +282,24 @@ class DuplicateCodeCheck(Check):
         # A file that does not parse cannot be measured; passing it would pass
         # a check that did not happen.
         code: dict[Path, CodeLines] = {}
+        texts: dict[Path, str] = {}
         for rel in files:
             try:
-                # tokenize.open decodes as Python does: BOM, coding cookie.
-                path = self.project_dir / rel
-                with tokenize.open(path) as handle:
-                    text = handle.read()
-                with path.open("rb") as raw:
-                    bom = raw.read(3) == b"\xef\xbb\xbf"
-                code[rel] = _code_lines(text, bom=bom)
+                # tokenize.open decodes as Python does (BOM, coding cookie)
+                # and translates newlines to \n.
+                with tokenize.open(self.project_dir / rel) as handle:
+                    texts[rel] = handle.read()
+                code[rel] = _code_lines(texts[rel])
             except (SyntaxError, tokenize.TokenError, UnicodeDecodeError) as exc:
                 return _error(self.name, f"cannot parse {rel}", str(exc))
 
         with tempfile.TemporaryDirectory() as out:
+            # jscpd reads UTF-8 only and skips anything else in silence, so it
+            # scans UTF-8, \n-only copies of exactly the text measured above.
+            sources = Path(out, "src").resolve()
+            for rel, text in texts.items():
+                (sources / rel).parent.mkdir(parents=True, exist_ok=True)
+                (sources / rel).write_text(text, encoding="utf-8", newline="\n")
             # An explicit config keeps a repository's .jscpd.json (threshold,
             # reportName, minLines) from changing what this check runs.
             config = Path(out, "config.json")
@@ -291,7 +307,7 @@ class DuplicateCodeCheck(Check):
             report_dir = Path(out, "report")
             cmd = [
                 str(_jscpd()),
-                *(str(f) for f in files),
+                *(str(sources / f) for f in files),
                 "--config",
                 str(config),
                 "--format",
@@ -317,7 +333,7 @@ class DuplicateCodeCheck(Check):
             ]
             try:
                 result = subprocess.run(
-                    cmd, capture_output=True, text=True, cwd=self.project_dir
+                    cmd, capture_output=True, text=True, cwd=sources
                 )
             except OSError as exc:
                 return _error(self.name, "jscpd failed to run", str(exc))
@@ -333,13 +349,12 @@ class DuplicateCodeCheck(Check):
             except (json.JSONDecodeError, KeyError) as exc:
                 return _error(self.name, "jscpd wrote an unreadable report", str(exc))
 
-        root = self.project_dir.resolve()
         pairs: list[tuple[Block, Block]] = []
         sizes: dict[Block, int] = {}
         for dup in duplicates:
             first, second = (
                 (
-                    Path(dup[side]["name"]).resolve().relative_to(root),
+                    Path(dup[side]["name"]).resolve().relative_to(sources),
                     int(dup[side]["start"]),
                     int(dup[side]["end"]),
                 )

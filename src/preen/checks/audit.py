@@ -127,7 +127,12 @@ def _extras_selections(project_dir: Path) -> tuple[list[list[str]], bool]:
         data = {}
     extras = data.get("project", {}).get("optional-dependencies", {})
     groups = data.get("dependency-groups", {})
-    conflicts = data.get("tool", {}).get("uv", {}).get("conflicts", [])
+    uv = data.get("tool", {}).get("uv", {})
+    group_names = set(groups) if isinstance(groups, dict) else set()
+    # uv still reads the legacy tool.uv.dev-dependencies as the `dev` group.
+    if uv.get("dev-dependencies"):
+        group_names.add("dev")
+    conflicts = uv.get("conflicts", [])
     members = [
         item
         for conflict in (conflicts if isinstance(conflicts, list) else [])
@@ -137,9 +142,9 @@ def _extras_selections(project_dir: Path) -> tuple[list[list[str]], bool]:
     ]
     if not members:
         return [["--all-groups", "--all-extras"]], False
-    if any("group" in item for item in members) and isinstance(groups, dict):
+    if any("group" in item for item in members):
         selections = [
-            ["--no-default-groups", "--group", name] for name in sorted(groups)
+            ["--no-default-groups", "--group", name] for name in sorted(group_names)
         ]
     else:
         selections = [["--all-groups"]]

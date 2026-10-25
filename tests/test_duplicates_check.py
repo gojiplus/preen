@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from preen.checks.duplicates import DuplicateCodeCheck
 
 # Literal sizes at the boundary, not offsets from the module's threshold: a
@@ -337,3 +339,38 @@ def test_a_bom_does_not_shift_the_first_line_out_of_a_copy(tmp_path: Path) -> No
     (pkg / "second.py").write_text(body + "w = 2\n")
 
     assert len(DuplicateCodeCheck(tmp_path).run().issues) == 1
+
+
+def test_copies_in_non_utf8_files_are_found(tmp_path: Path) -> None:
+    # jscpd reads UTF-8 only; a Latin-1 module is still package code.
+    body = "\n".join(f"    v{i} = 'caf\xe9' * {i} + b" for i in range(COPIED))
+    pkg = tmp_path / "pkg"
+    _write(pkg, "unused.py", "    return None")
+    for name in ("first", "second"):
+        source = f"# coding: latin-1\ndef {name}(a, b):\n{body}\n    return {name!r}\n"
+        (pkg / f"{name}.py").write_bytes(source.encode("latin-1"))
+
+    assert len(DuplicateCodeCheck(tmp_path).run().issues) == 1
+
+
+@pytest.mark.parametrize("separator", ["\f", "\u2028", "\x85"])
+def test_a_line_separator_inside_a_string_does_not_shift_columns(
+    tmp_path: Path, separator: str
+) -> None:
+    # str.splitlines breaks at these; Python's tokenizer does not. Split
+    # there, a partly matched last line would read as fully covered.
+    body = _block(SHORT)
+    for name in ("first", "second"):
+        last = f'    r = "{separator}\u4f60\u597d\u4e16\u754c" + {name!r}'
+        _write(tmp_path / "pkg", f"{name}.py", f"{body}\n{last}")
+
+    assert DuplicateCodeCheck(tmp_path).run().passed
+
+
+def test_lines_inside_an_ignored_region_do_not_count(tmp_path: Path) -> None:
+    body = _block(SHORT)
+    ignored = "    # jscpd:ignore-start\n    w = a + b\n    # jscpd:ignore-end"
+    for name in ("first", "second"):
+        _write(tmp_path / "pkg", f"{name}.py", f"{body}\n{ignored}")
+
+    assert DuplicateCodeCheck(tmp_path).run().passed

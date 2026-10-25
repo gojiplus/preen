@@ -1000,3 +1000,27 @@ def test_an_advisory_listed_twice_is_named_once(tmp_path: Path, monkeypatch) -> 
     (issue,) = AuditCheck(tmp_path).run().issues
 
     assert issue.description.count("PYSEC-2026-215") == 1
+
+
+def test_a_legacy_dev_dependencies_group_is_still_audited(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # uv still reads tool.uv.dev-dependencies as the `dev` group.
+    _write_lock(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        EXTRA_GROUP_CONFLICT_PYPROJECT.replace(
+            '[dependency-groups]\ndev = ["six==1.17.0"]\n', ""
+        ).replace("[tool.uv]\n", '[tool.uv]\ndev-dependencies = ["six==1.17.0"]\n')
+    )
+    exports: list[list[str]] = []
+    monkeypatch.setattr(
+        "preen.checks.audit.subprocess.run", _fake_uv_with_groups(exports)
+    )
+
+    result = AuditCheck(tmp_path).run()
+
+    errors = [i for i in result.issues if i.severity == Severity.ERROR]
+    assert sorted(e.description.split(" has ")[0] for e in errors) == [
+        "six 1.16.0",
+        "six 1.17.0",
+    ]
