@@ -11,7 +11,7 @@ and scripts or notebooks outside the package repeat setup by design. It
 replaces pylint's similarity checker (R0801), which compares text and only
 across files, so it missed copies inside one module and copies whose local
 names differ; across the fleet pylint reported nothing and this check finds
-20 groups of copies, 17 of them within one module. jscpd matches renamed
+22 groups of copies, 19 of them within one module. jscpd matches renamed
 names only when they are renamed consistently
 (``--ignore-identifiers=consistent``).
 
@@ -27,10 +27,13 @@ around one of the blocks.
 import ast
 import io
 import json
+import re
+import shutil
 import subprocess
 import sysconfig
 import tempfile
 import tokenize
+from importlib import metadata
 from pathlib import Path
 
 from .base import Check, CheckResult, Impact, Issue, Severity
@@ -52,8 +55,11 @@ _NOT_CODE = frozenset(
 
 Block = tuple[Path, int, int]
 
-# Line -> (column where its code starts, column where it ends), 0-based.
+# Line -> (byte column where its code starts, where it ends), 0-based UTF-8,
+# the unit jscpd reports columns in.
 CodeLines = dict[int, tuple[int, int]]
+
+_IGNORE_MARKER = re.compile(r"jscpd:ignore-(start|end)")
 
 _LINE_END = 1 << 30
 
@@ -62,23 +68,43 @@ def _code_lines(text: str) -> CodeLines:
     """Return the lines that hold code, not imports, docstrings or signatures.
 
     Args:
-        text: Source of a module that parses.
+        text: Source of a module that parses, decoded, with LF newlines.
+            jscpd is given this same text, so its lines and columns agree.
 
     Returns:
         1-based line numbers that count toward the threshold, with the extent
         of their code, so a match ending partway through a line can skip it.
     """
+    # The tokenizer's own line split: str.splitlines also breaks at form
+    # feeds and U+2028 inside strings, and the line numbers would disagree.
+    lines = io.StringIO(text).readlines()
+
+    def byte(line: int, column: int) -> int:
+        return len(lines[line - 1][:column].encode("utf-8"))
+
     code: CodeLines = {}
+    dropped: set[int] = set()
+    ignore_from: int | None = None
     for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        # Lines jscpd is told to ignore cannot count toward a copy either.
+        # Markers are read in order, so one comment can open and close a
+        # region, and a second start inside an open region does not move it.
+        if token.type == tokenize.COMMENT:
+            for marker in _IGNORE_MARKER.finditer(token.string):
+                if marker.group(1) == "start":
+                    if ignore_from is None:
+                        ignore_from = token.start[0]
+                elif ignore_from is not None:
+                    dropped.update(range(ignore_from, token.start[0] + 1))
+                    ignore_from = None
         if token.type in _NOT_CODE:
             continue
         (first, start), (last, end) = token.start, token.end
         for line in range(first, last + 1):
-            begin = start if line == first else 0
-            finish = end if line == last else _LINE_END
+            begin = byte(line, start) if line == first else 0
+            finish = byte(line, end) if line == last else _LINE_END
             low, high = code.get(line, (begin, finish))
             code[line] = (min(low, begin), max(high, finish))
-    dropped: set[int] = set()
     for node in ast.walk(ast.parse(text)):
         if isinstance(node, ast.Import | ast.ImportFrom):
             dropped.update(range(node.lineno, (node.end_lineno or 0) + 1))
@@ -87,7 +113,11 @@ def _code_lines(text: str) -> CodeLines:
         # arguments can carry real duplication, such as copied tool schemas
         # or click options.
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
-            dropped.update(range(node.lineno, node.body[0].lineno))
+            # The body starts at its first statement's decorators, if any.
+            first = node.body[0]
+            decorators = getattr(first, "decorator_list", [])
+            body_start = min([first.lineno, *(d.lineno for d in decorators)])
+            dropped.update(range(node.lineno, body_start))
         body = getattr(node, "body", None)
         if isinstance(body, list) and body:
             doc = body[0]
@@ -128,18 +158,35 @@ def _covered(code: CodeLines, side: dict) -> int:
 
 
 def _jscpd() -> Path:
-    """Return the jscpd binary installed beside this interpreter.
+    """Return the jscpd binary installed with this environment's jscpd package.
 
-    The wheel ships a binary in the environment's scripts directory, not a
-    Python module, and ``uv tool`` and pipx put only preen's own entry point on
-    PATH.
+    The wheel ships a binary, not a Python module, and where installers put it
+    varies: the environment's scripts directory, the user base for
+    ``pip --user``. ``uv tool`` and pipx put only preen's own entry point on
+    PATH. The package's own file list records where the binary went.
 
     Returns:
-        Path to the jscpd executable.
+        Path to the jscpd executable (which may not exist, so running it fails
+        loudly rather than passing).
     """
+    try:
+        files = metadata.distribution("jscpd").files or []
+    except metadata.PackageNotFoundError:
+        files = []
+    for file in files:
+        if file.name in ("jscpd", "jscpd.exe") and file.parent.name in (
+            "bin",
+            "Scripts",
+        ):
+            path = Path(str(file.locate())).resolve()
+            if path.exists():
+                return path
     scripts = Path(sysconfig.get_path("scripts"))
-    exe = scripts / "jscpd.exe"
-    return exe if exe.exists() else scripts / "jscpd"
+    for candidate in (scripts / "jscpd.exe", scripts / "jscpd"):
+        if candidate.exists():
+            return candidate
+    found = shutil.which("jscpd")
+    return Path(found) if found else scripts / "jscpd"
 
 
 def _groups(pairs: list[tuple[Block, Block]]) -> list[list[Block]]:
@@ -238,19 +285,51 @@ class DuplicateCodeCheck(Check):
 
         # A file that does not parse cannot be measured; passing it would pass
         # a check that did not happen.
+        # A symlink to another package module is the same code, not a copy.
+        seen: set[Path] = set()
+        unique = []
+        for rel in files:
+            real = (self.project_dir / rel).resolve()
+            if real not in seen:
+                seen.add(real)
+                unique.append(rel)
+        files = unique
+
         code: dict[Path, CodeLines] = {}
+        texts: dict[Path, str] = {}
         for rel in files:
             try:
-                code[rel] = _code_lines((self.project_dir / rel).read_text("utf-8"))
+                # tokenize.open decodes as Python does (BOM, coding cookie)
+                # and translates newlines to \n.
+                with tokenize.open(self.project_dir / rel) as handle:
+                    texts[rel] = handle.read()
+                code[rel] = _code_lines(texts[rel])
             except (SyntaxError, tokenize.TokenError, UnicodeDecodeError) as exc:
                 return _error(self.name, f"cannot parse {rel}", str(exc))
 
         with tempfile.TemporaryDirectory() as out:
+            # jscpd reads UTF-8 only and skips anything else in silence, so it
+            # scans UTF-8, \n-only copies of exactly the text measured above.
+            sources = Path(out, "src").resolve()
+            for rel, text in texts.items():
+                (sources / rel).parent.mkdir(parents=True, exist_ok=True)
+                (sources / rel).write_text(text, encoding="utf-8", newline="\n")
+            # An explicit config keeps a repository's .jscpd.json (threshold,
+            # reportName, minLines) from changing what this check runs.
+            config = Path(out, "config.json")
+            config.write_text("{}")
+            report_dir = Path(out, "report")
             cmd = [
                 str(_jscpd()),
-                *(str(f) for f in files),
+                *(str(sources / f) for f in files),
+                "--config",
+                str(config),
                 "--format",
                 "python",
+                # Weak mode skips comment tokens, so copies whose comments
+                # differ still match; ignore markers are still honored.
+                "--mode",
+                "weak",
                 "--ignore-identifiers=consistent",
                 # jscpd counts raw lines; this is only a prefilter below the
                 # code-line threshold applied afterwards.
@@ -263,16 +342,16 @@ class DuplicateCodeCheck(Check):
                 "--reporters",
                 "json",
                 "--output",
-                out,
+                str(report_dir),
                 "--silent",
             ]
             try:
                 result = subprocess.run(
-                    cmd, capture_output=True, text=True, cwd=self.project_dir
+                    cmd, capture_output=True, text=True, cwd=sources
                 )
             except OSError as exc:
                 return _error(self.name, "jscpd failed to run", str(exc))
-            report = Path(out, "jscpd-report.json")
+            report = report_dir / "jscpd-report.json"
             if result.returncode != 0 or not report.exists():
                 return _error(
                     self.name,
@@ -284,13 +363,12 @@ class DuplicateCodeCheck(Check):
             except (json.JSONDecodeError, KeyError) as exc:
                 return _error(self.name, "jscpd wrote an unreadable report", str(exc))
 
-        root = self.project_dir.resolve()
         pairs: list[tuple[Block, Block]] = []
         sizes: dict[Block, int] = {}
         for dup in duplicates:
             first, second = (
                 (
-                    Path(dup[side]["name"]).resolve().relative_to(root),
+                    Path(dup[side]["name"]).resolve().relative_to(sources),
                     int(dup[side]["start"]),
                     int(dup[side]["end"]),
                 )

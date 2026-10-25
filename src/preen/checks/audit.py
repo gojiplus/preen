@@ -104,17 +104,21 @@ def _filter_pypi_requirements(text: str) -> tuple[str, list[str]]:
 
 
 def _extras_selections(project_dir: Path) -> tuple[list[list[str]], bool]:
-    """Choose the `uv export` extras flags that cover every extra.
+    """Choose the `uv export` selections that together cover every extra and group.
 
-    uv refuses ``--all-extras`` when ``[tool.uv] conflicts`` declares two
-    extras as conflicting, since no single environment can hold both. Such
-    a project is exported one extra at a time.
+    uv refuses to export two members of a ``[tool.uv] conflicts`` entry
+    together, since no single environment can hold both. Without conflicts
+    one export takes everything. With them, the groups are exported apart
+    from the extras (one group at a time if groups conflict with each other),
+    and each extra on its own without any group, so an extra that conflicts
+    with a group still exports.
 
     Args:
         project_dir: The project whose pyproject.toml declares the extras.
 
     Returns:
-        The extras flags for each export, and whether they are per-extra.
+        The selection flags for each export, and whether there is more than
+        one.
     """
     try:
         with (project_dir / "pyproject.toml").open("rb") as f:
@@ -122,16 +126,33 @@ def _extras_selections(project_dir: Path) -> tuple[list[list[str]], bool]:
     except (OSError, tomllib.TOMLDecodeError):
         data = {}
     extras = data.get("project", {}).get("optional-dependencies", {})
-    conflicts = data.get("tool", {}).get("uv", {}).get("conflicts", [])
-    conflicting = isinstance(conflicts, list) and any(
-        isinstance(item, dict) and "extra" in item
-        for conflict in conflicts
+    groups = data.get("dependency-groups", {})
+    uv = data.get("tool", {}).get("uv", {})
+    group_names = set(groups) if isinstance(groups, dict) else set()
+    # uv still reads the legacy tool.uv.dev-dependencies as the `dev` group.
+    if uv.get("dev-dependencies"):
+        group_names.add("dev")
+    conflicts = uv.get("conflicts", [])
+    members = [
+        item
+        for conflict in (conflicts if isinstance(conflicts, list) else [])
         if isinstance(conflict, list)
         for item in conflict
-    )
-    if conflicting and isinstance(extras, dict) and extras:
-        return [["--extra", name] for name in sorted(extras)], True
-    return [["--all-extras"]], False
+        if isinstance(item, dict)
+    ]
+    if not members:
+        return [["--all-groups", "--all-extras"]], False
+    if any("group" in item for item in members):
+        selections = [
+            ["--no-default-groups", "--group", name] for name in sorted(group_names)
+        ]
+    else:
+        selections = [["--all-groups"]]
+    if isinstance(extras, dict):
+        selections += [
+            ["--no-default-groups", "--extra", name] for name in sorted(extras)
+        ]
+    return selections, True
 
 
 def _merge_dependencies(reports: list[list]) -> list:
@@ -174,15 +195,15 @@ class AuditCheck(Check):
                 "dependency set to scan. Skipping audit."
             )
 
-        selections, per_extra = _extras_selections(self.project_dir)
+        selections, separate = _extras_selections(self.project_dir)
 
         exports: list[str] = []
         for selection in selections:
             requirements, stderr = self._export_requirements(selection)
             if requirements is not None:
                 exports.append(requirements)
-            elif per_extra:
-                # An extra that won't export is an extra left unscanned, and
+            elif separate:
+                # A selection that won't export is left unscanned, and
                 # an info-level skip would let `--strict` pass it unseen.
                 return self._export_failed(selection, stderr)
             else:
@@ -237,8 +258,8 @@ class AuditCheck(Check):
         """Export the project's locked dependencies as pinned requirements.
 
         Args:
-            selection: The extras flags to pass, ``["--all-extras"]`` or
-                ``["--extra", name]``.
+            selection: The group and extras flags to pass, from
+                :func:`_extras_selections`.
 
         Returns:
             The exported requirements-txt content, or None if `uv` is
@@ -252,7 +273,6 @@ class AuditCheck(Check):
                     "--format",
                     "requirements-txt",
                     "--no-emit-project",
-                    "--all-groups",
                     *selection,
                 ],
                 capture_output=True,
@@ -412,7 +432,10 @@ class AuditCheck(Check):
             if not vulns:
                 continue
 
-            vuln_ids = ", ".join(vuln.get("id", "") for vuln in vulns if vuln.get("id"))
+            # dict.fromkeys: pip-audit can return one advisory as two records.
+            vuln_ids = ", ".join(
+                dict.fromkeys(vuln["id"] for vuln in vulns if vuln.get("id"))
+            )
             fix_versions = sorted(
                 {fv for vuln in vulns for fv in vuln.get("fix_versions", [])}
             )
@@ -490,7 +513,7 @@ class AuditCheck(Check):
         )
 
     def _export_failed(self, selection: list[str], stderr: str) -> CheckResult:
-        """Build the failing result for an extra that would not export."""
+        """Build the failing result for a selection that would not export."""
         detail = stderr.strip().splitlines()[-1] if stderr.strip() else ""
         description = f"`uv export {' '.join(selection)}` failed"
         if detail:
@@ -505,10 +528,10 @@ class AuditCheck(Check):
                     description=description,
                     impact=Impact.IMPORTANT,
                     explanation=(
-                        "[tool.uv] conflicts declares conflicting extras, so "
-                        "each extra is exported and audited on its own. This "
-                        "one could not be exported, so its dependencies went "
-                        "unscanned."
+                        "[tool.uv] conflicts declares conflicting extras or "
+                        "groups, so each is exported and audited on its own. "
+                        "This one could not be exported, so its dependencies "
+                        "went unscanned."
                     ),
                 )
             ],

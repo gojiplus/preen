@@ -150,7 +150,7 @@ authors = [
     { name = "Gaurav Sood", email = "gsood07@gmail.com" },
 ]
 requires-python = ">=3.12"
-version = "0.8.0"
+version = "2.3.0"
 dependencies = ["pandas", "pyarrow>=15"]
 =======
 authors = [{ name = "Suriyan Laohaprapanon", email = "suriyant@gmail.com" }]
@@ -180,10 +180,10 @@ def _repo_with_conflict(tmp_path: Path, monkeypatch, text: str) -> Console:
 def test_split_conflict_sides_recovers_both_files() -> None:
     ours, theirs = split_conflict_sides(CONFLICTED_PYPROJECT)
 
-    assert 'version = "0.8.0"' in ours
+    assert 'version = "2.3.0"' in ours
     assert 'version = "0.1.0"' not in ours
     assert 'version = "0.1.0"' in theirs
-    assert 'version = "0.8.0"' not in theirs
+    assert 'version = "2.3.0"' not in theirs
     # Text outside the conflict belongs to both sides.
     for side in (ours, theirs):
         assert 'name = "lost_years"' in side
@@ -205,7 +205,7 @@ def test_project_metadata_at_risk_names_version_and_dependencies() -> None:
         for key, current, offered in project_metadata_at_risk(CONFLICTED_PYPROJECT)
     }
 
-    assert at_risk["version"] == ("0.8.0", "0.1.0")
+    assert at_risk["version"] == ("2.3.0", "0.1.0")
     assert at_risk["dependencies"] == (["pandas", "pyarrow>=15"], [])
     assert len(at_risk["authors"][0]) == 2
     assert len(at_risk["authors"][1]) == 1
@@ -228,7 +228,7 @@ def test_update_exits_nonzero_and_names_what_the_merge_would_replace(
     assert exc.value.exit_code == 1
     output = console.file.getvalue()
     assert "Unresolved conflicts" in output
-    assert "0.8.0" in output
+    assert "2.3.0" in output
     assert "0.1.0" in output
     assert "per-project facts" in output
 
@@ -237,7 +237,7 @@ def test_update_exits_on_conflicts_without_project_changes(
     tmp_path: Path, monkeypatch
 ) -> None:
     unchanged = (
-        '[project]\nversion = "0.8.0"\n'
+        '[project]\nversion = "2.3.0"\n'
         "<<<<<<< before updating\n[tool.ruff]\nline-length = 88\n"
         "=======\n[tool.ruff]\nline-length = 100\n>>>>>>> after updating\n"
     )
@@ -262,7 +262,7 @@ requires = ["uv_build>=0.12.5,<0.13"]
 
 [project]
 name = "lost_years"
-version = "0.8.0"
+version = "2.3.0"
 readme = "README.md"
 <<<<<<< before updating
 authors = [
@@ -304,7 +304,7 @@ def test_project_metadata_at_risk_reads_version_from_outside_the_hunk() -> None:
     }
 
     # The hunk's own "before" side carries no version; the file does.
-    assert at_risk["version"] == ("0.8.0", "0.1.0")
+    assert at_risk["version"] == ("2.3.0", "0.1.0")
     assert at_risk["dependencies"] == (["lxml>=5", "pandas"], None)
     assert "requires-python" not in at_risk
     # Untouched keys outside the hunk are not reported.
