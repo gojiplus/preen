@@ -768,7 +768,7 @@ ADVISORIES = {
 
 
 def _fake_uv_and_pip_audit(exports: list[list[str]], fail_extra: str | None = None):
-    """Fake `uv export` honouring extras flags, and a pip-audit that reads it.
+    """Fake `uv export` honoring extras flags, and a pip-audit that reads it.
 
     The export carries an extra's pins only when the command selects that
     extra, which is what makes a missing `--all-extras` observable.
