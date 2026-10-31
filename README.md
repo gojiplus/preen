@@ -1,4 +1,4 @@
-# preen
+# preen: keep Python packages up to standard
 
 [![PyPI version](https://img.shields.io/pypi/v/preen.svg)](https://pypi.org/project/preen/)
 [![Downloads](https://static.pepy.tech/badge/preen)](https://pepy.tech/project/preen)
