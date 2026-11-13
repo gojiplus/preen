@@ -117,10 +117,9 @@ def test_nonzero_exit_with_stderr_only_parses_as_output(
 def test_nonzero_exit_truly_no_output_reports_error(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """A non-zero exit with nothing on stdout or stderr degrades to a
+    """A non-zero exit with nothing on stdout or stderr is a critical
 
-    single informational "codespell error" note instead of silently
-    passing.
+    "codespell error" instead of silently passing.
     """
     (tmp_path / "README.md").write_text("ordinary text\n")
 
@@ -296,3 +295,23 @@ def test_british_spelling_is_flagged_in_prose_but_not_in_data(
     flagged = {(str(i.file), i.description) for i in issues}
     assert ("README.md", f"'{_GB_WORD}' should be 'optimize'") in flagged
     assert not any(str(i.file).startswith("data") for i in issues)
+
+
+def test_misspelled_file_name_is_critical(tmp_path: Path) -> None:
+    """codespell reports a misspelled file name without a line number."""
+    (tmp_path / (_TEH + ".md")).write_text("ordinary text\n")
+    result = CodespellCheck(tmp_path).run()
+    assert not result.passed
+    assert [issue.impact for issue in result.issues] == [Impact.CRITICAL]
+    assert result.issues[0].line is None
+
+
+def test_failure_with_unparseable_output_is_critical(tmp_path: Path) -> None:
+    """A bad option in the repo's config makes codespell print usage and exit."""
+    (tmp_path / ".codespellrc").write_text("[codespell]\nbogus-option = 1\n")
+    (tmp_path / "README.md").write_text("ordinary text\n")
+    result = CodespellCheck(tmp_path).run()
+    assert not result.passed
+    assert len(result.issues) == 1
+    assert result.issues[0].impact is Impact.CRITICAL
+    assert "codespell error" in result.issues[0].description

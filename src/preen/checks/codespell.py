@@ -55,9 +55,9 @@ class CodespellCheck(Check):
         """Parse codespell output and convert to Issue objects."""
         issues = []
 
-        # Pattern to match codespell output format:
         # path/to/file.py:line: word ==> suggestion
-        pattern = r"^(.+?):(\d+): (.+) ==> (.+)$"
+        # A misspelled file name (--check-filenames) is reported without a line.
+        pattern = r"^(.+?)(?::(\d+))?: (.+) ==> (.+)$"
 
         for line in output.strip().split("\n"):
             if not line.strip():
@@ -80,7 +80,7 @@ class CodespellCheck(Check):
                         severity=Severity.WARNING,
                         description=f"'{misspelled}' should be '{suggestion}'",
                         file=rel_path,
-                        line=int(line_num),
+                        line=int(line_num) if line_num else None,
                         impact=Impact.CRITICAL,
                         explanation=(
                             f"Spelling error: '{misspelled}' should be "
@@ -197,9 +197,12 @@ class CodespellCheck(Check):
             if result.returncode == 0:
                 continue
             output = result.stdout or result.stderr
-            if output:
-                issues.extend(self._parse_codespell_output(output))
+            found = self._parse_codespell_output(output)
+            if found:
+                issues.extend(found)
                 continue
+            # Usage text for a bad option in the repo's config lands here too.
+            detail = output.strip().splitlines()[-1] if output.strip() else ""
             issues.append(
                 Issue(
                     check=self.name,
@@ -207,6 +210,7 @@ class CodespellCheck(Check):
                     description=(
                         "codespell error: "
                         f"codespell exited with code {result.returncode}"
+                        + (f": {detail}" if detail else "")
                     ),
                     impact=Impact.CRITICAL,
                     explanation=(
