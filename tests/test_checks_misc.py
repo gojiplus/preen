@@ -372,14 +372,14 @@ def _git_repo_with_tag(repo: Path, version: str, date: str) -> None:
 
 
 def test_citation_fix_preserves_the_repo_s_quoting(tmp_path: Path) -> None:
-    """`version: "0.6.0"` must not come back as `version: 0.9.0`.
+    """`version: "0.6.0"` must not come back as `version: 6.1.0`.
 
     Found by running the fix across the fleet: two repos quote their values and
     the rewrite stripped the quotes, turning a one-line diff into a
     style change nobody asked for.
     """
     (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "x"\nversion = "0.9.0"\n'
+        '[project]\nname = "x"\nversion = "6.1.0"\n'
     )
     (tmp_path / "CITATION.cff").write_text(
         'cff-version: 1.2.0\ntitle: "x"\nversion: "0.6.0"\n'
@@ -390,7 +390,7 @@ def test_citation_fix_preserves_the_repo_s_quoting(tmp_path: Path) -> None:
     assert issue.proposed_fix is not None
     issue.proposed_fix.apply()
 
-    assert 'version: "0.9.0"' in (tmp_path / "CITATION.cff").read_text()
+    assert 'version: "6.1.0"' in (tmp_path / "CITATION.cff").read_text()
 
 
 def test_citation_fix_moves_the_release_date_with_the_version(tmp_path: Path) -> None:

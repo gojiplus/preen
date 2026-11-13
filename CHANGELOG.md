@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-13
+
 ### Changed
 
 - `codespell` reports every misspelling as critical. Before, only README,
