@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- `codespell` reports every misspelling as critical. Before, only README,
+  changelog, license and contributing files were critical; other Markdown,
+  reST, Python and text files were important, and TOML, YAML, config and shell
+  files were informational, which `--strict` let through. A codespell run that
+  fails without output is critical too.
+
 ## [0.8.0] - 2026-10-24
 
 ### Changed

@@ -66,7 +66,7 @@ def test_misspellings_parsed_into_issues(tmp_path: Path, monkeypatch) -> None:
     assert len(result.issues) == 1
     issue = result.issues[0]
     assert issue.severity == Severity.WARNING
-    assert issue.impact == Impact.CRITICAL  # README is a critical file
+    assert issue.impact == Impact.CRITICAL
     assert _TEH in issue.description
     assert "the" in issue.description
     assert issue.file == Path("README.md")
@@ -75,7 +75,7 @@ def test_misspellings_parsed_into_issues(tmp_path: Path, monkeypatch) -> None:
     assert issue.proposed_fix.diff == "--- diff ---\n"
 
 
-def test_impact_downgraded_for_non_doc_files(tmp_path: Path, monkeypatch) -> None:
+def test_misspelling_is_critical_in_every_file(tmp_path: Path, monkeypatch) -> None:
     misc = tmp_path / "config.yaml"
     misc.write_text("{}\n")
     output = f"{misc}:1: {_TEH} ==> the\n"
@@ -89,7 +89,7 @@ def test_impact_downgraded_for_non_doc_files(tmp_path: Path, monkeypatch) -> Non
 
     monkeypatch.setattr("preen.checks.codespell.subprocess.run", fake_run)
     result = CodespellCheck(tmp_path).run()
-    assert result.issues[0].impact == Impact.INFORMATIONAL
+    assert result.issues[0].impact == Impact.CRITICAL
 
 
 def test_nonzero_exit_with_stderr_only_parses_as_output(
@@ -134,7 +134,7 @@ def test_nonzero_exit_truly_no_output_reports_error(
     assert not result.passed
     assert len(result.issues) == 1
     issue = result.issues[0]
-    assert issue.impact == Impact.INFORMATIONAL
+    assert issue.impact == Impact.CRITICAL
     assert "codespell exited with code 1" in issue.description
 
 

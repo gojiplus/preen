@@ -193,6 +193,10 @@ Common misspellings in code and docs. `preen adopt` enables American spelling
 with codespell's `en-GB_to_en-US` dictionary, alongside `clear` and `rare`.
 Existing dictionaries, ignored words, patterns, and skipped files are preserved.
 
+Every misspelling is critical, whatever file it is in: it fails
+`preen check --strict` and blocks `preen release`. So does a codespell run that
+fails without reporting anything, since the files were then not checked.
+
 ## Tests and dependencies
 
 ### `tests`
