@@ -74,9 +74,6 @@ class CodespellCheck(Check):
                     # If path is not under project_dir, use as-is
                     rel_path = Path(file_path)
 
-                # Determine impact based on file location
-                impact = self._get_impact_for_file(rel_path)
-
                 issues.append(
                     Issue(
                         check=self.name,
@@ -84,34 +81,16 @@ class CodespellCheck(Check):
                         description=f"'{misspelled}' should be '{suggestion}'",
                         file=rel_path,
                         line=int(line_num),
-                        impact=impact,
+                        impact=Impact.CRITICAL,
                         explanation=(
                             f"Spelling error: '{misspelled}' should be "
-                            f"'{suggestion}'. Good spelling improves "
-                            "documentation quality."
+                            f"'{suggestion}'. The standard is US English "
+                            "everywhere, so a misspelling blocks a release."
                         ),
                     )
                 )
 
         return issues
-
-    def _get_impact_for_file(self, file_path: Path) -> Impact:
-        """Determine impact level based on file location."""
-        file_str = str(file_path).lower()
-
-        # Critical for user-facing documentation
-        if any(
-            critical in file_str
-            for critical in ["readme", "changelog", "license", "contributing"]
-        ):
-            return Impact.CRITICAL
-
-        # Important for documentation and code
-        if file_path.suffix in [".md", ".rst", ".py", ".txt"] or "docs/" in file_str:
-            return Impact.IMPORTANT
-
-        # Informational for other files
-        return Impact.INFORMATIONAL
 
     def _get_codespell_command(
         self, target: Path | list[Path] | None = None
@@ -229,8 +208,11 @@ class CodespellCheck(Check):
                         "codespell error: "
                         f"codespell exited with code {result.returncode}"
                     ),
-                    impact=Impact.INFORMATIONAL,
-                    explanation="codespell had trouble analyzing some files",
+                    impact=Impact.CRITICAL,
+                    explanation=(
+                        "codespell failed without reporting a misspelling, so "
+                        "the spelling of some files was not checked"
+                    ),
                 )
             )
 
