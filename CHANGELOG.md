@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-13
+
 ### Changed
 
 - `codespell` reports every misspelling as critical. Before, only README,
@@ -13,6 +15,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   reST, Python and text files were important, and TOML, YAML, config and shell
   files were informational, which `--strict` let through. A codespell run that
   fails without output is critical too.
+
+### Fixed
+
+- `codespell` reports a misspelled file name. codespell prints those without
+  a line number, which the parser required, so the line was dropped and the
+  check passed.
+- `codespell` fails when codespell exits non-zero and nothing it printed is
+  a misspelling, for example usage text for an unknown option in
+  `.codespellrc`. Before, any output at all counted as handled.
 
 ## [0.8.0] - 2026-10-24
 

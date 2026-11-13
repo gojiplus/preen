@@ -55,15 +55,17 @@ class CodespellCheck(Check):
         """Parse codespell output and convert to Issue objects."""
         issues = []
 
-        # Pattern to match codespell output format:
         # path/to/file.py:line: word ==> suggestion
-        pattern = r"^(.+?):(\d+): (.+) ==> (.+)$"
+        # A misspelled file name (--check-filenames) is reported without a
+        # line. It is tried second so a path containing ": " keeps its line.
+        in_content = r"^(.+?):(\d+): (.+) ==> (.+)$"
+        in_name = r"^(.+?)(): (.+) ==> (.+)$"
 
         for line in output.strip().split("\n"):
             if not line.strip():
                 continue
 
-            match = re.match(pattern, line)
+            match = re.match(in_content, line) or re.match(in_name, line)
             if match:
                 file_path, line_num, misspelled, suggestion = match.groups()
 
@@ -80,7 +82,7 @@ class CodespellCheck(Check):
                         severity=Severity.WARNING,
                         description=f"'{misspelled}' should be '{suggestion}'",
                         file=rel_path,
-                        line=int(line_num),
+                        line=int(line_num) if line_num else None,
                         impact=Impact.CRITICAL,
                         explanation=(
                             f"Spelling error: '{misspelled}' should be "
@@ -197,9 +199,12 @@ class CodespellCheck(Check):
             if result.returncode == 0:
                 continue
             output = result.stdout or result.stderr
-            if output:
-                issues.extend(self._parse_codespell_output(output))
+            found = self._parse_codespell_output(output)
+            if found:
+                issues.extend(found)
                 continue
+            # Usage text for a bad option in the repo's config lands here too.
+            detail = output.strip().splitlines()[-1] if output.strip() else ""
             issues.append(
                 Issue(
                     check=self.name,
@@ -207,6 +212,7 @@ class CodespellCheck(Check):
                     description=(
                         "codespell error: "
                         f"codespell exited with code {result.returncode}"
+                        + (f": {detail}" if detail else "")
                     ),
                     impact=Impact.CRITICAL,
                     explanation=(
@@ -240,10 +246,16 @@ class CodespellCheck(Check):
         """
         seen: set[Path] = set()
         for issue in issues:
-            if issue.file is None or issue.file in seen:
+            # codespell rewrites contents, never names, so a misspelled file
+            # name (no line) has nothing it can apply.
+            if issue.file is None or issue.line is None or issue.file in seen:
                 continue
             seen.add(issue.file)
-            count = sum(1 for other in issues if other.file == issue.file)
+            count = sum(
+                1
+                for other in issues
+                if other.file == issue.file and other.line is not None
+            )
             issue.proposed_fix = self._get_fix_for_file(issue.file, count)
 
     def _get_fix_for_file(self, rel_path: Path, count: int) -> Fix:

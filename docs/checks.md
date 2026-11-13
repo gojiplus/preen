@@ -195,7 +195,7 @@ Existing dictionaries, ignored words, patterns, and skipped files are preserved.
 
 Every misspelling is critical, whatever file it is in: it fails
 `preen check --strict` and blocks `preen release`. So does a codespell run that
-fails without reporting anything, since the files were then not checked.
+fails without reporting a misspelling, since the files were then not checked.
 
 ## Tests and dependencies
 
