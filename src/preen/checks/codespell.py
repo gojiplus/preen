@@ -56,14 +56,16 @@ class CodespellCheck(Check):
         issues = []
 
         # path/to/file.py:line: word ==> suggestion
-        # A misspelled file name (--check-filenames) is reported without a line.
-        pattern = r"^(.+?)(?::(\d+))?: (.+) ==> (.+)$"
+        # A misspelled file name (--check-filenames) is reported without a
+        # line. It is tried second so a path containing ": " keeps its line.
+        in_content = r"^(.+?):(\d+): (.+) ==> (.+)$"
+        in_name = r"^(.+?)(): (.+) ==> (.+)$"
 
         for line in output.strip().split("\n"):
             if not line.strip():
                 continue
 
-            match = re.match(pattern, line)
+            match = re.match(in_content, line) or re.match(in_name, line)
             if match:
                 file_path, line_num, misspelled, suggestion = match.groups()
 
@@ -244,10 +246,16 @@ class CodespellCheck(Check):
         """
         seen: set[Path] = set()
         for issue in issues:
-            if issue.file is None or issue.file in seen:
+            # codespell rewrites contents, never names, so a misspelled file
+            # name (no line) has nothing it can apply.
+            if issue.file is None or issue.line is None or issue.file in seen:
                 continue
             seen.add(issue.file)
-            count = sum(1 for other in issues if other.file == issue.file)
+            count = sum(
+                1
+                for other in issues
+                if other.file == issue.file and other.line is not None
+            )
             issue.proposed_fix = self._get_fix_for_file(issue.file, count)
 
     def _get_fix_for_file(self, rel_path: Path, count: int) -> Fix:

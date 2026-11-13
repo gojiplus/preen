@@ -304,6 +304,15 @@ def test_misspelled_file_name_is_critical(tmp_path: Path) -> None:
     assert not result.passed
     assert [issue.impact for issue in result.issues] == [Impact.CRITICAL]
     assert result.issues[0].line is None
+    assert result.issues[0].proposed_fix is None
+
+
+def test_path_containing_a_colon_and_space_keeps_its_line(tmp_path: Path) -> None:
+    """The file-name form must not swallow a content line."""
+    output = f"docs/a: b.md:3: {_TEH} ==> the\n"
+    [issue] = CodespellCheck(tmp_path)._parse_codespell_output(output)
+    assert issue.file == Path("docs/a: b.md")
+    assert issue.line == 3
 
 
 def test_failure_with_unparseable_output_is_critical(tmp_path: Path) -> None:
