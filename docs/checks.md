@@ -279,9 +279,11 @@ strings. preen runs lychee from the repo root, which is the only place lychee
 looks for that file, and does not scan `lychee.toml` for links. A leftover
 `[tool.preen] link_ignore` fails the check with a pointer to `lychee.toml`.
 
-A scan that could not run — no lychee binary, a timeout, unreadable output —
-reports that fact at info rather than passing silently: no link having been
-checked is not the same as every link being healthy.
+A scan that could not run — no lychee binary, or a timeout — reports that
+fact at info rather than passing silently: no link having been checked is not
+the same as every link being healthy. When lychee runs but prints no report,
+most often because `lychee.toml` cannot be loaded, the check fails and shows
+lychee's message, since that file is the repo's own.
 
 ### `examples`
 
