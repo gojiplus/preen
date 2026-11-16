@@ -310,45 +310,57 @@ def test_urls_without_placeholders_are_still_fetched(tmp_path: Path) -> None:
     assert _dump_after_excludes(doc) == real
 
 
-def test_link_ignore_from_pyproject_is_applied(tmp_path: Path) -> None:
-    """A repo can declare endpoints that are alive but 404 on a bare GET.
+def test_lychee_toml_exclude_applies_whatever_the_working_directory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A repo's lychee.toml excludes are honored when preen runs from elsewhere.
 
-    themains/know-your-ip documents two: `rdap.arin.net/registry/` 404s on its
-    own and returns 200 for `.../registry/ip/8.8.8.8`, and
-    `api.platform.censys.io` is an API base the package only ever calls with a
-    path. Skipping the whole `links` check to silence them would also stop the
-    README being checked, which is where a broken link actually costs a reader
-    something.
+    lychee looks for lychee.toml only in its working directory, and preen is
+    often launched from outside the project (`preen check path/to/repo`).
+    Real binary: the host never resolves, so without the exclude the link is
+    a DNS failure whether or not the machine is online.
     """
+    if shutil.which("lychee") is None and LinkCheck(tmp_path)._lychee_binary() is None:
+        pytest.skip("lychee is not installed")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "README.md").write_text(_url("nothing-here.preen-test-zz.com/x") + "\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    assert not LinkCheck(repo).run().passed
+
+    (repo / "lychee.toml").write_text("exclude = ['preen-test-zz']\n")
+
+    result = LinkCheck(repo).run()
+    assert result.passed
+    assert result.issues == []
+
+
+def test_lychee_toml_is_not_scanned(tmp_path: Path) -> None:
+    """Its exclude patterns are regexes, not links (issue #52)."""
+    (tmp_path / "lychee.toml").write_text("exclude = []\n")
+    (tmp_path / "notes.toml").write_text("x = 1\n")
+
+    names = [path.name for path in LinkCheck(tmp_path)._collect_files()]
+
+    assert names == ["notes.toml"]
+
+
+def test_leftover_link_ignore_is_an_error(tmp_path: Path, monkeypatch) -> None:
+    """Dropping the old key silently would turn its URLs into failures with no
+    pointer to why."""
     (tmp_path / "pyproject.toml").write_text(
-        # Host-only, no scheme. Anchoring the pattern on the scheme would
-        # put a literal URL in this file, which preen's own links check
-        # then extracts and reports dead: the config breaks the check it
-        # configures. That happened twice while writing this -- once in the
-        # pattern, once in the comment explaining the pattern.
-        '[tool.preen]\nlink_ignore = ["rdap\\\\.arin\\\\.net"]\n'
+        '[project]\nname = "x"\n\n[tool.preen]\nlink_ignore = ["api"]\n'
     )
-    doc = tmp_path / "notes.md"
-    kept = _url("a-real-domain.example-host.org/x")
-    doc.write_text(f"{_url('rdap.arin.net/registry/')}\n{kept}\n")
+    _stub(monkeypatch, {"error_map": {}})
 
-    binary = shutil.which("lychee")
-    assert binary is not None
-    cmd = [binary, "--no-progress", "--dump", "--scheme", "http", "--scheme", "https"]
-    for pattern in LinkCheck.DEFAULT_SKIP_PATTERNS:
-        cmd += ["--exclude", pattern]
-    from preen.config import PreenConfig
+    result = LinkCheck(tmp_path).run()
 
-    ignore = PreenConfig.from_pyproject(tmp_path).link_ignore
-    assert ignore, "link_ignore did not load from pyproject"
-    for pattern in ignore:
-        cmd += ["--exclude", pattern]
-    cmd.append(str(doc))
-
-    dumped = subprocess.run(
-        cmd, capture_output=True, text=True, check=False
-    ).stdout.split()
-    assert dumped == [kept]
+    assert not result.passed
+    assert "lychee.toml" in result.issues[0].description
+    assert result.issues[0].impact == Impact.CRITICAL
 
 
 def test_can_fix_false(tmp_path: Path) -> None:
@@ -393,41 +405,11 @@ def test_reserved_domains_are_never_a_finding(tmp_path: Path) -> None:
     assert result.issues == []
 
 
-def test_link_ignore_patterns_do_not_flag_themselves(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """pyproject.toml is scanned, so its own ignore patterns come back as URLs.
-
-    A pattern survives its own `--exclude` only when it happens to be a regex
-    matching its own literal text. A properly escaped one does not, so it was
-    fetched, failed DNS, and reported as a dead critical link in the very file
-    that declared it (issue #52).
-    """
-    pattern = _url(r"api\.example\.org/.*")
-    # A TOML literal string, since a regex carries backslashes.
-    (tmp_path / "pyproject.toml").write_text(
-        f"[project]\nname = \"x\"\n\n[tool.preen]\nlink_ignore = ['{pattern}']\n"
-    )
-    # lychee percent-encodes the backslashes it extracted.
-    extracted = pattern.replace("\\", "%5C")
-    _stub(
-        monkeypatch,
-        _report(tmp_path / "pyproject.toml", _entry(extracted, text="dns error")),
-    )
-
-    result = LinkCheck(tmp_path).run()
-
-    assert result.passed
-    assert result.issues == []
-
-
 def test_a_genuinely_dead_link_in_pyproject_is_still_reported(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """The filter must not excuse every URL that happens to live there."""
-    (tmp_path / "pyproject.toml").write_text(
-        f'[project]\nname = "x"\n\n[tool.preen]\nlink_ignore = ["{_url("ok.org/")}"]\n'
-    )
+    """pyproject.toml is scanned like any other file."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\n')
     _stub(
         monkeypatch,
         _report(

@@ -1,0 +1,9 @@
+# URLs the link checks should not fetch. Read by lychee itself, so preen's
+# `links` check, the pre-commit hook and CI share this one list. Patterns carry
+# no scheme on purpose: preen before 0.10 scans .toml files, and a pattern with
+# a scheme would come back out as a URL to fetch.
+exclude = [
+    # The sync test builds this URL from two string literals; lychee extracts
+    # the bare prefix, which 404s while the full joined URL is valid.
+    'raw\.githubusercontent\.com/gojiplus/py-canon/',
+]

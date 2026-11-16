@@ -14,47 +14,44 @@ URLs truncated, including a Wikipedia article whose title ends in
 
 lychee is the same checker the R half of the fleet runs via r-canon's
 reusable-link-check workflow, so both halves now agree on what a URL is.
+
+A repo's own exclusions live in ``lychee.toml`` at its root, the file lychee
+itself, the fleet's pre-commit hook and the R workflow all read. lychee only
+looks for it in the working directory, so lychee runs from the project root.
 """
 
 import json
 import shutil
 import subprocess
 import sysconfig
+import tomllib
 from pathlib import Path
 from typing import ClassVar
-from urllib.parse import unquote
 
-from ..config import PreenConfig
 from .base import Check, CheckResult, Impact, Issue, Severity
 
 
-def _is_own_ignore_pattern(url: str, patterns: list[str]) -> bool:
-    r"""Report whether a URL is really one of pyproject's own ignore patterns.
+def _has_link_ignore(project_dir: Path) -> bool:
+    """Report whether pyproject.toml still sets ``[tool.preen] link_ignore``.
 
-    ``*.toml`` is in the scan set, so pyproject.toml -- the file that holds
-    ``[tool.preen] link_ignore`` -- is handed to lychee, and every pattern
-    carrying a scheme comes back out as an extracted URL. A pattern survives
-    its own ``--exclude`` only when it happens to be a regex matching its own
-    literal text. A properly escaped one -- an https pattern spelled
-    ``api\.example\.org/.*`` -- does not, so it was fetched, failed DNS, and
-    was reported as a dead critical link in pyproject.toml (issue #52).
-    (Spelled without its scheme on purpose: this docstring is itself scanned,
-    and lychee truncates an escaped host at the first backslash, leaving a
-    two-character hostname that resolves nowhere.)
-
-    Filtering here rather than passing an extra ``--exclude``: lychee reports
-    the URL already percent-encoded, so a ``re.escape``d pattern would not
-    match what comes back.
+    The setting was removed in favor of ``lychee.toml``. A leftover entry would
+    otherwise be dropped without a word, and the URLs it excused would start
+    failing with nothing pointing at why.
 
     Args:
-        url: The URL lychee reported.
-        patterns: The configured ``link_ignore`` entries.
+        project_dir: Project root.
 
     Returns:
-        True when the URL is text from one of those entries.
+        True when the old key is present.
     """
-    decoded = unquote(url).rstrip("/")
-    return any(decoded and decoded in pattern for pattern in patterns)
+    pyproject = project_dir / "pyproject.toml"
+    if not pyproject.is_file():
+        return False
+    try:
+        data = tomllib.loads(pyproject.read_text())
+    except (tomllib.TOMLDecodeError, OSError):
+        return False
+    return "link_ignore" in data.get("tool", {}).get("preen", {})
 
 
 class LinkCheck(Check):
@@ -165,6 +162,9 @@ class LinkCheck(Check):
             for path in paths
             if any(path.match(pattern) for pattern in self.SCAN_PATTERNS)
             and not any(part.startswith(".") for part in path.parts)
+            # Its exclude patterns are regexes, and lychee would extract
+            # them as URLs and fetch them (issue #52).
+            and path.name != "lychee.toml"
             and not self.is_lint_excluded(path)
         )
 
@@ -203,9 +203,6 @@ class LinkCheck(Check):
         ]
         for pattern in self.DEFAULT_SKIP_PATTERNS:
             cmd += ["--exclude", pattern]
-        # A repo's own known-good endpoints, from [tool.preen] link_ignore.
-        for pattern in PreenConfig.from_pyproject(self.project_dir).link_ignore:
-            cmd += ["--exclude", pattern]
         cmd += [str(f) for f in files]
 
         try:
@@ -218,6 +215,9 @@ class LinkCheck(Check):
                 text=True,
                 timeout=self.NETWORK_TIMEOUT_SECONDS,
                 check=False,
+                # lychee reads the repo's lychee.toml and .lycheeignore from
+                # the working directory and nowhere else.
+                cwd=self.project_dir,
             )
         except subprocess.TimeoutExpired:
             return None, (
@@ -324,6 +324,29 @@ class LinkCheck(Check):
         Returns:
             The check result.
         """
+        if _has_link_ignore(self.project_dir):
+            return CheckResult(
+                check=self.name,
+                passed=False,
+                issues=[
+                    Issue(
+                        check=self.name,
+                        severity=Severity.ERROR,
+                        description=(
+                            "[tool.preen] link_ignore is no longer read; move "
+                            "its patterns to `exclude` in lychee.toml"
+                        ),
+                        file=Path("pyproject.toml"),
+                        impact=Impact.CRITICAL,
+                        explanation=(
+                            "lychee.toml at the repo root is the one place "
+                            "link exclusions live, shared by preen, the "
+                            "pre-commit hook and the CI link check."
+                        ),
+                    )
+                ],
+            )
+
         files = self._collect_files()
         if not files:
             return CheckResult(check=self.name, passed=True, issues=[])
@@ -347,7 +370,6 @@ class LinkCheck(Check):
                 ],
             )
         error_map = report.get("error_map") or {}
-        ignore_patterns = PreenConfig.from_pyproject(self.project_dir).link_ignore
 
         issues = []
         for raw_path, entries in error_map.items():
@@ -357,10 +379,6 @@ class LinkCheck(Check):
             except ValueError:
                 rel_path = path
             for entry in entries:
-                if rel_path.name == "pyproject.toml" and _is_own_ignore_pattern(
-                    entry.get("url", ""), ignore_patterns
-                ):
-                    continue
                 issue = self._issue_for(rel_path, entry)
                 if issue is not None:
                     issues.append(issue)
