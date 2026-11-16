@@ -369,6 +369,14 @@ class LinkCheck(Check):
         try:
             report, failure = self._run_lychee(files)
         except LycheeFailedError as exc:
+            # Point at lychee.toml only when there is one to blame; its
+            # `output` key also lands here, since the report then goes to a
+            # file instead of stdout.
+            hint = (
+                "check lychee.toml, including any `output` key. "
+                if (self.project_dir / "lychee.toml").is_file()
+                else ""
+            )
             return CheckResult(
                 check=self.name,
                 passed=False,
@@ -377,8 +385,8 @@ class LinkCheck(Check):
                         check=self.name,
                         severity=Severity.ERROR,
                         description=(
-                            "lychee ran but produced no report; check "
-                            f"lychee.toml. lychee said: {exc}"
+                            "lychee ran but produced no report; "
+                            f"{hint}lychee said: {exc}"
                         ),
                         impact=Impact.CRITICAL,
                         explanation=(
