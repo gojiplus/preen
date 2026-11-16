@@ -271,11 +271,13 @@ hosts are skipped, as are the RFC 2606 / RFC 6761 reserved names — `.invalid`,
 precisely so that they never resolve, so a fixture using one is doing the right
 thing.
 
-A repo declares its own known-good endpoints in `[tool.preen] link_ignore`.
-Those patterns are regexes, so write them in a TOML literal string
-(for example an https pattern written `'https://api\\.example\\.org/.*'`) rather than a basic one; pyproject.toml is
-itself scanned, and preen no longer reports a repo's own ignore patterns as
-dead links.
+A repo lists URLs it knows are alive but fail a bare GET, such as an API base
+that needs a path, under `exclude` in `lychee.toml` at its root. That is the
+file lychee reads by itself, so the same list serves preen, the pre-commit
+hook and the CI link check. Patterns are regexes; write them as TOML literal
+strings. preen runs lychee from the repo root, which is the only place lychee
+looks for that file, and does not scan `lychee.toml` for links. A leftover
+`[tool.preen] link_ignore` fails the check with a pointer to `lychee.toml`.
 
 A scan that could not run — no lychee binary, a timeout, unreadable output —
 reports that fact at info rather than passing silently: no link having been

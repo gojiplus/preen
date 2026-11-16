@@ -30,13 +30,6 @@ class PreenConfig:
     # obeyed.
     enforce_python_floor: bool = False
 
-    # Regexes for URLs the `links` check should not fetch. Some endpoints are
-    # real but do not answer a bare GET: an API base that needs a path or a
-    # query returns 404 or 400 while being perfectly alive. Silencing one of
-    # those by skipping the whole `links` check also stops the README being
-    # checked, which is where a broken link actually costs a reader something.
-    link_ignore: list[str] = field(default_factory=list)
-
     # Advisory ids the `audit` check should not fail on. For the case where
     # the fix does not exist yet: themains/piedomains locks nltk 3.10.3, the
     # current release, which GHSA-8mgp-746c-j5xp names with no patched

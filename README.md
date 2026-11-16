@@ -151,15 +151,17 @@ skip_checks = ["links"]  # checks to skip by default
 run_doctests = false     # execute `>>>` examples too (default: false)
 enforce_python_floor = false  # gate on the standard's Python floor
 
-# URLs the `links` check should not fetch. Some endpoints are real but do not
-# answer a bare GET, such as an API base that needs a path. Skipping the whole
-# `links` check to silence one of those would stop the README being checked,
-# which is where a broken link actually costs a reader something.
-link_ignore = ["https://api.example.com/*"]
-
 # Advisory ids `audit` should report but not fail on, for the case where no
 # fixed release exists yet. Still shown as info so the exception stays visible.
 audit_ignore = ["GHSA-8mgp-746c-j5xp"]
+```
+
+URLs the `links` check should not fetch go in `lychee.toml` at the repo root,
+the file lychee itself reads:
+
+```toml
+# An API base that 404s without a path.
+exclude = ['^https://api\.example\.org/$']
 ```
 
 ## Notes

@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- `links` reads a repo's URL exclusions from `lychee.toml` at its root, the
+  file lychee, the fleet's pre-commit hook and r-canon's link check also read.
+  lychee runs from the project root, since that is the only place it looks for
+  the file, and `lychee.toml` itself is not scanned for links.
+
+### Removed
+
+- `[tool.preen] link_ignore`. A pyproject that still sets it fails `links`
+  with a message to move the patterns to `exclude` in `lychee.toml`.
+
 ## [0.9.0] - 2026-11-13
 
 ### Changed
