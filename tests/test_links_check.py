@@ -338,6 +338,45 @@ def test_lychee_toml_exclude_applies_whatever_the_working_directory(
     assert result.issues == []
 
 
+def test_a_relative_project_path_is_checked(tmp_path: Path, monkeypatch) -> None:
+    """`preen check repo` from the parent directory checks repo's links.
+
+    lychee runs inside the project, so a file path relative to the caller's
+    directory would name a file that does not exist there (repo/repo/...),
+    lychee would print no report, and no link would be checked.
+    """
+    if shutil.which("lychee") is None and LinkCheck(tmp_path)._lychee_binary() is None:
+        pytest.skip("lychee is not installed")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "README.md").write_text(_url("nothing-here.preen-test-zz.com/x") + "\n")
+    monkeypatch.chdir(tmp_path)
+
+    result = LinkCheck(Path("repo")).run()
+
+    assert not result.passed
+    assert [issue.file for issue in result.issues] == [Path("README.md")]
+
+
+def test_an_unreadable_lychee_toml_fails_the_check(tmp_path: Path) -> None:
+    """A broken lychee.toml must not switch link checking off.
+
+    lychee refuses to start and prints no report. That is the repo's own
+    config, unlike a missing binary, so it gates, and lychee's reason is shown.
+    """
+    if shutil.which("lychee") is None and LinkCheck(tmp_path)._lychee_binary() is None:
+        pytest.skip("lychee is not installed")
+    (tmp_path / "README.md").write_text(_url("nothing-here.preen-test-zz.com/x") + "\n")
+    (tmp_path / "lychee.toml").write_text("exclude = [\n")
+
+    result = LinkCheck(tmp_path).run()
+
+    assert not result.passed
+    assert len(result.issues) == 1
+    assert result.issues[0].severity == Severity.ERROR
+    assert "lychee.toml" in result.issues[0].description
+
+
 def test_lychee_toml_is_not_scanned(tmp_path: Path) -> None:
     """Its exclude patterns are regexes, not links (issue #52)."""
     (tmp_path / "lychee.toml").write_text("exclude = []\n")
@@ -346,6 +385,16 @@ def test_lychee_toml_is_not_scanned(tmp_path: Path) -> None:
     names = [path.name for path in LinkCheck(tmp_path)._collect_files()]
 
     assert names == ["notes.toml"]
+
+
+def test_a_nested_lychee_toml_is_scanned(tmp_path: Path) -> None:
+    """lychee reads only the root file; one deeper is ordinary TOML."""
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "lychee.toml").write_text("x = 1\n")
+
+    found = LinkCheck(tmp_path)._collect_files()
+
+    assert found == [tmp_path / "sub" / "lychee.toml"]
 
 
 def test_leftover_link_ignore_is_an_error(tmp_path: Path, monkeypatch) -> None:

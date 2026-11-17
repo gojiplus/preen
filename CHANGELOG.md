@@ -6,12 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-16
+
 ### Changed
 
 - `links` reads a repo's URL exclusions from `lychee.toml` at its root, the
   file lychee, the fleet's pre-commit hook and r-canon's link check also read.
   lychee runs from the project root, since that is the only place it looks for
-  the file, and `lychee.toml` itself is not scanned for links.
+  the file, and the root `lychee.toml` itself is not scanned for links. A
+  `lychee.toml` lychee cannot load fails the check with lychee's message,
+  instead of reading as links not checked.
 
 ### Removed
 

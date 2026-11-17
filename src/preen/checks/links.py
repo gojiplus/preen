@@ -54,6 +54,10 @@ def _has_link_ignore(project_dir: Path) -> bool:
     return "link_ignore" in data.get("tool", {}).get("preen", {})
 
 
+class LycheeFailedError(Exception):
+    """lychee ran but printed no JSON report."""
+
+
 class LinkCheck(Check):
     """Check for broken or dead links in project files."""
 
@@ -156,15 +160,19 @@ class LinkCheck(Check):
             Sorted list of absolute paths.
         """
         paths = self.project_files()
+        # Absolute, because lychee runs inside the project: a path relative to
+        # the caller's directory would name a file that is not there.
+        root = self.project_dir.resolve()
 
         return sorted(
-            self.project_dir / path
+            root / path
             for path in paths
             if any(path.match(pattern) for pattern in self.SCAN_PATTERNS)
             and not any(part.startswith(".") for part in path.parts)
             # Its exclude patterns are regexes, and lychee would extract
-            # them as URLs and fetch them (issue #52).
-            and path.name != "lychee.toml"
+            # them as URLs and fetch them (issue #52). Only the root file is
+            # lychee's config; one deeper is ordinary TOML.
+            and path != Path("lychee.toml")
             and not self.is_lint_excluded(path)
         )
 
@@ -179,6 +187,9 @@ class LinkCheck(Check):
             the scan did not happen. Returning an empty report for that case
             made "no links were checked" indistinguishable from "every link is
             healthy" -- the same shape as the pydoclint false pass.
+
+        Raises:
+            LycheeFailedError: lychee ran but printed no JSON report.
         """
         binary = self._lychee_binary()
         if binary is None:
@@ -217,7 +228,7 @@ class LinkCheck(Check):
                 check=False,
                 # lychee reads the repo's lychee.toml and .lycheeignore from
                 # the working directory and nowhere else.
-                cwd=self.project_dir,
+                cwd=self.project_dir.resolve(),
             )
         except subprocess.TimeoutExpired:
             return None, (
@@ -229,7 +240,11 @@ class LinkCheck(Check):
         try:
             return json.loads(proc.stdout), ""
         except json.JSONDecodeError:
-            return None, "lychee's output was not the JSON report preen expects"
+            # lychee started and gave no report: most often the repo's own
+            # lychee.toml is unreadable (exit 3). That is the repo's problem,
+            # unlike a missing binary, so it must not read as "not checked".
+            detail = proc.stderr.strip() or f"exit code {proc.returncode}"
+            raise LycheeFailedError(detail) from None
 
     def _get_impact_for_file(self, file_path: Path) -> Impact:
         """Determine impact level based on file location.
@@ -351,7 +366,36 @@ class LinkCheck(Check):
         if not files:
             return CheckResult(check=self.name, passed=True, issues=[])
 
-        report, failure = self._run_lychee(files)
+        try:
+            report, failure = self._run_lychee(files)
+        except LycheeFailedError as exc:
+            # Point at lychee.toml only when there is one to blame; its
+            # `output` key also lands here, since the report then goes to a
+            # file instead of stdout.
+            hint = (
+                "check lychee.toml, including any `output` key. "
+                if (self.project_dir / "lychee.toml").is_file()
+                else ""
+            )
+            return CheckResult(
+                check=self.name,
+                passed=False,
+                issues=[
+                    Issue(
+                        check=self.name,
+                        severity=Severity.ERROR,
+                        description=(
+                            "lychee ran but produced no report; "
+                            f"{hint}lychee said: {exc}"
+                        ),
+                        impact=Impact.CRITICAL,
+                        explanation=(
+                            "An unreadable lychee.toml stops lychee before it "
+                            "checks anything, so no link would be verified."
+                        ),
+                    )
+                ],
+            )
         if report is None:
             return CheckResult(
                 check=self.name,
@@ -375,7 +419,7 @@ class LinkCheck(Check):
         for raw_path, entries in error_map.items():
             path = Path(raw_path)
             try:
-                rel_path = path.relative_to(self.project_dir)
+                rel_path = path.relative_to(self.project_dir.resolve())
             except ValueError:
                 rel_path = path
             for entry in entries:
