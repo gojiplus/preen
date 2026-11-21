@@ -225,7 +225,9 @@ repeated in one list is counted each time.
 
 To remove a test on purpose, name it in a git trailer on a commit in the
 branch. The value is the exact id, or a pattern where `*` and `?` are the
-only wildcards (brackets are literal, since parametrize ids contain them).
+only wildcards, and only outside the `[...]` case suffix (parametrize ids
+contain brackets and may contain `*`, so a copied trailer for one case
+acknowledges only that case).
 Git parses the trailers, so a line in the message body that only looks like
 one does not count:
 
@@ -234,16 +236,19 @@ Removed-test: tests/test_lit.py::test_redirects_are_rechecked
 Removed-tests: tests/test_old_api.py::*
 ```
 
-The base is `$PREEN_BASE_REF`; on a pull request checked out as GitHub's merge
-commit, that commit's first parent, which is the target it was built against;
-otherwise the merge base with `origin/$GITHUB_BASE_REF`, the branch's
+The base is `$PREEN_BASE_REF`; when the checkout is GitHub's pull-request merge
+commit (`GITHUB_REF` is `refs/pull/N/merge` and HEAD is `GITHUB_SHA`), that
+commit's first parent, which is the target it was built against; otherwise the merge base with `origin/$GITHUB_BASE_REF`, the branch's
 upstream, or `origin/HEAD`. With none resolvable, as in a shallow clone, the
-check passes with a note; the py-canon lint job checks out full history so
-it has one.
+check passes with a note. py-canon's lint job checks out full history from the
+release that pins this version of preen.
 
 Not seen: cases built at run time (non-literal `argvalues`,
-`pytest_generate_tests`), tests in symlinked files, and tests outside a sparse
-checkout, which read as removed.
+`pytest_generate_tests`) and tests in symlinked files. Misread: tests outside a
+sparse checkout read as removed; a class whose name ends in `TestCase` counts
+as a unittest class without its bases being resolved; a repeated value split
+between two tests can read as a removed case. Tests under `if TYPE_CHECKING:`
+are not tests.
 
 ### `skip-on-error`
 
@@ -260,11 +265,12 @@ except Exception:
 skip and CI stays green. Important. Bare `except`, and the builtin
 `Exception`, `BaseException` and `AssertionError` (alone, in a tuple, or as
 `builtins.X`) count as broad. The handler must skip as one of its own
-statements, alone or returned, with no `raise` before it: `pytest.skip`,
+statements, alone or returned: `pytest.skip`,
 `pytest.xfail` (also through `import pytest as ...` or `from pytest import
 skip as ...`) or `self.skipTest`. `pytest.mark.skip(...)` builds a mark and is
-not a skip. A handler that inspects the error and re-raises otherwise is not
-reported, and an earlier handler on the same `try` that catches
+not a skip. A handler whose earlier statement is `if not isinstance(err, T):
+raise`, with `T` narrower than `Exception`, lets only `T` reach the skip and is
+not reported; any other `raise` before the skip does not exempt it. An earlier handler on the same `try` that catches
 `AssertionError` changes the diagnosis from a hidden assertion to a hidden
 error. Catch the exception that means "unavailable" (`ImportError`, a network
 error), or use `pytest.importorskip`. Mark a deliberate one with a `# preen:

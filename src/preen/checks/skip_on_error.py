@@ -38,12 +38,17 @@ BROAD = frozenset({"Exception", "BaseException", "AssertionError"})
 PYTEST_SKIPS = frozenset({"skip", "xfail"})
 
 
-def _catches(handler: ast.ExceptHandler, names: frozenset[str]) -> bool:
+def _catches(
+    handler: ast.ExceptHandler,
+    names: frozenset[str],
+    builtins_names: frozenset[str] = frozenset({"builtins"}),
+) -> bool:
     """Whether an except clause names one of the given builtin classes.
 
     Args:
         handler: The except clause.
         names: Builtin exception class names.
+        builtins_names: Names bound to the ``builtins`` module.
 
     Returns:
         True for a bare clause, or one naming a class in ``names`` as a bare
@@ -60,33 +65,36 @@ def _catches(handler: ast.ExceptHandler, names: frozenset[str]) -> bool:
             isinstance(n, ast.Attribute)
             and n.attr in names
             and isinstance(n.value, ast.Name)
-            and n.value.id == "builtins"
+            and n.value.id in builtins_names
         ):
             return True
     return False
 
 
-def _skip_names(tree: ast.Module) -> tuple[set[str], set[str]]:
-    """Find the names a module uses for pytest and its skip functions.
+def _skip_names(tree: ast.Module) -> tuple[set[str], set[str], frozenset[str]]:
+    """Find the names a module binds to pytest, its skips and ``builtins``.
 
     Args:
         tree: The parsed module.
 
     Returns:
-        ``(module_aliases, function_aliases)``: names bound to the pytest
-        module, and names bound to ``pytest.skip`` or ``pytest.xfail``.
+        ``(pytest_aliases, skip_aliases, builtins_aliases)``, from
+        module-level imports only: an import inside one function does not
+        rename anything in another.
     """
-    modules, functions = {"pytest"}, set()
-    for node in ast.walk(tree):
+    modules, functions, builtin = {"pytest"}, set(), {"builtins"}
+    for node in tree.body:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name == "pytest":
                     modules.add(alias.asname or "pytest")
+                elif alias.name == "builtins":
+                    builtin.add(alias.asname or "builtins")
         elif isinstance(node, ast.ImportFrom) and node.module == "pytest":
             for alias in node.names:
                 if alias.name in PYTEST_SKIPS:
                     functions.add(alias.asname or alias.name)
-    return modules, functions
+    return modules, functions, frozenset(builtin)
 
 
 def _is_skip_call(
@@ -132,15 +140,49 @@ def _skips_unconditionally(
 
     Returns:
         True when a top-level statement skips (alone or as a ``return``
-        value) and no ``raise`` appears in the statements before it.
+        value) and no earlier statement is a re-raise guard that lets only a
+        narrow exception through.
     """
     for stmt in handler.body:
         value = stmt.value if isinstance(stmt, ast.Expr | ast.Return) else None
         if _is_skip_call(value, modules, functions):
             return True
-        if any(isinstance(n, ast.Raise) for n in ast.walk(stmt)):
+        if _reraises_all_but_narrow(stmt, handler.name):
             return False
     return False
+
+
+def _reraises_all_but_narrow(stmt: ast.stmt, err: str | None) -> bool:
+    """Whether a statement re-raises every error except a narrow one.
+
+    Args:
+        stmt: A statement in the handler.
+        err: The name the handler binds the exception to.
+
+    Returns:
+        True for ``if not isinstance(err, T): raise``, where ``T`` is not one
+        of the broad classes. ``if isinstance(err, T): raise`` lets
+        everything else, failed assertions included, through to the skip.
+    """
+    if not (isinstance(stmt, ast.If) and err and not stmt.orelse):
+        return False
+    test = stmt.test
+    if not (isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not)):
+        return False
+    call = test.operand
+    if not (
+        isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == "isinstance"
+        and len(call.args) == 2
+        and isinstance(call.args[0], ast.Name)
+        and call.args[0].id == err
+    ):
+        return False
+    kinds = call.args[1].elts if isinstance(call.args[1], ast.Tuple) else [call.args[1]]
+    if any(getattr(k, "id", getattr(k, "attr", "")) in BROAD for k in kinds):
+        return False
+    return any(isinstance(s, ast.Raise) for s in stmt.body)
 
 
 def _allowed_lines(source: bytes) -> set[int]:
@@ -179,12 +221,13 @@ def find_skip_on_error(source: str | bytes) -> list[tuple[int, bool]]:
         same ``try`` catches ``AssertionError``.
     """
     raw = source.encode("utf-8") if isinstance(source, str) else source
+    raw = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     try:
         tree = ast.parse(raw)
     except (SyntaxError, ValueError):
         return []
     allowed = _allowed_lines(raw)
-    modules, functions = _skip_names(tree)
+    modules, functions, builtin = _skip_names(tree)
     found: list[tuple[int, bool]] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Try | ast.TryStar):
@@ -194,14 +237,14 @@ def find_skip_on_error(source: str | bytes) -> list[tuple[int, bool]]:
         )
         assertion_caught_earlier = False
         for handler in node.handlers:
-            broad = _catches(handler, BROAD)
+            broad = _catches(handler, BROAD, builtin)
             if (
                 broad
                 and handler.lineno not in allowed
                 and _skips_unconditionally(handler, modules, functions)
             ):
                 found.append((handler.lineno, asserts and not assertion_caught_earlier))
-            if _catches(handler, BROAD):
+            if _catches(handler, BROAD, builtin):
                 assertion_caught_earlier = True
     return sorted(found)
 
@@ -239,7 +282,7 @@ class SkipOnErrorCheck(Check):
                 hidden = (
                     "a failed assertion in the try block is reported as a skip"
                     if asserts
-                    else "any error in the try block is reported as a skip"
+                    else "an error in the try block is reported as a skip"
                 )
                 issues.append(
                     Issue(

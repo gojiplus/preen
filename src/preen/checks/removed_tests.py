@@ -27,15 +27,18 @@ only wildcards::
 The trailer is the point: deleting a test stays cheap, and the reason for it
 is written down where a reviewer reads it.
 
-The base is ``$PREEN_BASE_REF``; else, on a pull request (``GITHUB_BASE_REF``
-set) whose checkout is GitHub's merge commit, that commit's first parent,
-which is the target it was built against; else the merge base with
+The base is ``$PREEN_BASE_REF``; else, when the checkout is GitHub's
+pull-request merge commit (``GITHUB_REF`` is ``refs/pull/N/merge`` and HEAD is
+``GITHUB_SHA``), that commit's first parent, which is the target it was built
+against; else the merge base with
 ``origin/$GITHUB_BASE_REF``, the branch's upstream, or ``origin/HEAD``. When
 none resolves, for example in a shallow clone, the check says so and passes.
 
 Not seen: cases built at run time (non-literal ``argvalues``,
-``pytest_generate_tests``), tests in symlinked files, and tests outside a
-sparse checkout, which read as removed.
+``pytest_generate_tests``) and tests in symlinked files. Misread: tests
+outside a sparse checkout read as removed; a class whose name ends in
+``TestCase`` counts as a unittest class without its bases being resolved; a
+repeated value split between two tests can read as a removed case.
 """
 
 import ast
@@ -112,14 +115,16 @@ def _value_key(node: ast.expr) -> str:
         node: One element of argvalues.
 
     Returns:
-        The unparsed value. For ``pytest.param(...)`` only the positional
+        The unparsed value. For ``pytest.param(...)``, spelled that way,
+        only the positional
         arguments count, so changing its ``id`` or marks is not a removal.
     """
     if (
         isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute | ast.Name)
-        and (getattr(node.func, "attr", None) or getattr(node.func, "id", None))
-        == "param"
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "param"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "pytest"
     ):
         args = node.args
         return ast.unparse(args[0]) if len(args) == 1 else ast.unparse(ast.Tuple(args))
@@ -197,6 +202,19 @@ def _is_test_class(node: ast.ClassDef) -> bool:
     return False
 
 
+def _is_type_checking(test: ast.expr) -> bool:
+    """Whether an ``if`` guards code that never runs.
+
+    Args:
+        test: The ``if`` condition.
+
+    Returns:
+        True for ``TYPE_CHECKING`` and ``typing.TYPE_CHECKING``.
+    """
+    name = test.attr if isinstance(test, ast.Attribute) else getattr(test, "id", "")
+    return name == "TYPE_CHECKING"
+
+
 def inventory(path: str, source: str | bytes) -> list[InventoryEntry]:
     """List the tests a module defines.
 
@@ -232,6 +250,8 @@ def inventory(path: str, source: str | bytes) -> list[InventoryEntry]:
                     f"{prefix}::{node.name}",
                     inherited + _parametrize_cases(node.decorator_list),
                 )
+            elif isinstance(node, ast.If) and _is_type_checking(node.test):
+                continue
             elif isinstance(node, ast.If | ast.Try | ast.TryStar | ast.With):
                 for block in ("body", "orelse", "finalbody"):
                     visit(getattr(node, block, []), prefix, inherited)
@@ -335,13 +355,16 @@ def _matches(node: str, pattern: str) -> bool:
 
     Returns:
         True for an exact match, or a match where ``*`` stands for any run of
-        characters and ``?`` for one. Brackets are literal: parametrize ids
-        contain them, and a glob character class would let one exact trailer
-        acknowledge a different test.
+        characters and ``?`` for one, outside the ``[...]`` case suffix. The
+        suffix is literal: parametrize ids contain brackets and may contain
+        ``*``, and a copied trailer for one case must not acknowledge another.
     """
     if node == pattern:
         return True
-    regex = re.escape(pattern).replace(r"\*", ".*").replace(r"\?", ".")
+    head, bracket, suffix = pattern.partition("[")
+    regex = re.escape(head).replace(r"\*", ".*").replace(r"\?", ".")
+    if bracket:
+        regex += re.escape(bracket + suffix)
     return re.fullmatch(regex, node) is not None
 
 
@@ -412,8 +435,12 @@ class RemovedTestsCheck(Check):
         if explicit:
             out = _git(self.project_dir, "merge-base", explicit, "HEAD")
             return (explicit, out.strip()) if out else None
-        if os.environ.get("GITHUB_BASE_REF") and _git(
-            self.project_dir, "rev-parse", "--verify", "-q", "HEAD^2"
+        head = (_git(self.project_dir, "rev-parse", "HEAD") or "").strip()
+        if (
+            re.fullmatch(r"refs/pull/\d+/merge", os.environ.get("GITHUB_REF", ""))
+            and head
+            and head == os.environ.get("GITHUB_SHA")
+            and _git(self.project_dir, "rev-parse", "--verify", "-q", "HEAD^2")
         ):
             # GitHub's pull-request checkout is a merge commit whose first
             # parent is the target it was built against. Reading the target

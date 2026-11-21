@@ -353,8 +353,52 @@ def test_a_pull_request_merge_commit_is_compared_with_its_first_parent(
     _git(repo, "merge", "-q", "--no-ff", "-m", "merge", "feature")
     monkeypatch.delenv("PREEN_BASE_REF")
     monkeypatch.setenv("GITHUB_BASE_REF", "main")
+    monkeypatch.setenv("GITHUB_REF", "refs/pull/1/merge")
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True
+    ).stdout.strip()
+    monkeypatch.setenv("GITHUB_SHA", head)
     _git(repo, "update-ref", "refs/remotes/origin/main", "main~1")
     assert RemovedTestsCheck(repo).run().passed
+
+
+def test_a_head_checkout_that_merged_main_uses_the_merge_base(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A workflow checking out the PR head, not GitHub's merge ref: the
+    # branch merged main into itself, so HEAD^1 is the branch, not main.
+    (repo / "tests" / "test_new.py").write_text("def test_n():\n    assert 1\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "feature test")
+    _git(repo, "checkout", "-q", "main")
+    (repo / "notes.txt").write_text("x")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "main moves")
+    _git(repo, "checkout", "-q", "feature")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "merge main", "main")
+    monkeypatch.delenv("PREEN_BASE_REF")
+    monkeypatch.setenv("GITHUB_BASE_REF", "main")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/feature")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "main")
+    (repo / "tests" / "test_new.py").unlink()
+    assert RemovedTestsCheck(repo).run().passed
+
+
+def test_a_star_inside_a_case_id_is_literal() -> None:
+    assert _matches("t.py::test_v[x='*']", "t.py::test_v[x='*']")
+    assert not _matches("t.py::test_v[x='two']", "t.py::test_v[x='*']")
+    assert _matches("t.py::test_v[x='two']", "t.py::test_v*")
+
+
+def test_a_local_function_named_param_is_a_value() -> None:
+    before = "@pytest.mark.parametrize('x', [param(1)])\ndef test_v(x):\n    assert x\n"
+    after = before.replace("[param(1)]", "[1]")
+    assert _gone(before, after) == ["tests/test_lit.py::test_v[x=param(1)]"]
+
+
+def test_type_checking_blocks_are_not_tests() -> None:
+    src = "if TYPE_CHECKING:\n    def test_t():\n        assert 1\n"
+    assert inventory("t/test_a.py", src) == []
 
 
 def test_a_subdirectory_project_reads_its_base(repo: Path) -> None:

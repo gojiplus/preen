@@ -144,3 +144,50 @@ def test_latin1_and_bom_sources_are_scanned() -> None:
     bom = ("\ufeff" + body).encode("utf-8")
     assert len(find_skip_on_error(latin1)) == 1
     assert len(find_skip_on_error(bom)) == 1
+
+
+# Defects the first repair introduced, found by the verification pass.
+
+
+def test_reraising_only_a_narrow_error_still_hides_assertions() -> None:
+    src = (
+        "try:\n    assert False\nexcept Exception as err:\n"
+        "    if isinstance(err, ImportError):\n        raise\n"
+        "    pytest.skip('x')\n"
+    )
+    assert find_skip_on_error(src) == [(3, True)]
+
+
+def test_a_raise_in_an_uncalled_helper_does_not_count() -> None:
+    src = (
+        "try:\n    assert False\nexcept Exception:\n"
+        "    def never():\n        raise\n"
+        "    pytest.skip('x')\n"
+    )
+    assert find_skip_on_error(src) == [(3, True)]
+
+
+def test_an_aliased_builtins_exception_is_broad() -> None:
+    src = (
+        "import builtins as bi\n"
+        "try:\n    assert False\nexcept bi.Exception:\n    pytest.skip('x')\n"
+    )
+    assert find_skip_on_error(src) == [(4, True)]
+
+
+def test_an_import_inside_another_function_does_not_alias() -> None:
+    src = (
+        "def helper():\n    from pytest import skip as announce\n\n"
+        "def test_a():\n    def announce(m):\n        print(m)\n"
+        "    try:\n        assert False\n    except Exception:\n"
+        "        announce('x')\n        raise\n"
+    )
+    assert find_skip_on_error(src) == []
+
+
+def test_carriage_return_line_endings_keep_the_marker() -> None:
+    src = (
+        b"try:\r    f()\rexcept Exception:  # preen: allow-skip-on-error\r"
+        b"    pytest.skip('x')\r"
+    )
+    assert find_skip_on_error(src) == []
