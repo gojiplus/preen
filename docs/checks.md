@@ -203,6 +203,54 @@ fails without reporting a misspelling, since the files were then not checked.
 
 Runs the pytest suite.
 
+### `removed-tests`
+
+Tests a change deletes without saying what replaces them. The check lists
+every `test_*` function and method, and every case of a `parametrize` whose
+values are a literal list, at the merge base and in the working tree. Anything
+in the first list and missing from the second is reported. Important, because
+coverage does not move when this happens: the code those tests exercised is
+still run by other tests, but nothing checks what they pinned.
+
+A test whose body reappears under a new name or in another file counts as
+renamed. So does one renamed with small edits; the threshold is 0.8 on a
+character-level similarity of the unparsed bodies, which a variable rename
+clears and a test that checks something else does not. A parametrize case
+moved to a sibling test in the same file counts as kept.
+
+To remove a test on purpose, name it in a commit trailer on the branch. The
+value is the exact id or an fnmatch pattern:
+
+```
+Removed-test: tests/test_lit.py::test_redirects_are_rechecked
+Removed-tests: tests/test_old_api.py::*
+```
+
+The base is `$PREEN_BASE_REF`, else `origin/$GITHUB_BASE_REF` on a pull
+request, else the branch's upstream, else `origin/HEAD`. With none
+resolvable, as in a shallow clone, the check passes with a note; the
+py-canon lint job checks out full history so it has one.
+
+### `skip-on-error`
+
+A broad `except` in a test or `conftest.py` that skips unconditionally:
+
+```python
+try:
+    assert fit(x).monotone
+except Exception:
+    pytest.skip("solver not available")
+```
+
+`AssertionError` is an `Exception`, so the failed assertion is reported as a
+skip and CI stays green. Important. Bare `except`, `Exception`,
+`BaseException` and `AssertionError`, alone or in a tuple, count as broad;
+the handler must call `skip`, `xfail` or `skipTest` as one of its own
+statements. A handler that inspects the error, skips on a match and
+re-raises otherwise is not reported. Catch the exception that means
+"unavailable" (`ImportError`, a network error), or use `pytest.importorskip`.
+Mark a deliberate one `# preen: allow-skip-on-error` on the `except` line.
+
 ### `deps`
 
 Dependency hygiene via deptry (unused/missing/transitive dependencies).

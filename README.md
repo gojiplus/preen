@@ -107,6 +107,9 @@ reusable workflows, not stale copies), `ruff`, `tests`, `citation`,
 `changelog` (Keep a Changelog structure), `deps` (deptry), `deptree`
 (circular imports), `depgroups` (PEP 735 dependency-groups usage),
 `dropped-args` (a parameter a caller accepts but never forwards),
+`removed-tests` (tests deleted since the merge base without a `Removed-test:`
+trailer), `skip-on-error` (a broad `except` in a test that turns failures into
+skips),
 `duplicate-code` (12+ lines of package code copied within or across modules), `audit`
 (pip-audit over the locked dependencies, extras included), `ci-matrix` (canon shim, or a
 matrix covering the requires-python floor), `structure`, `runtime-assets`
