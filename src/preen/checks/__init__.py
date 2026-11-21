@@ -25,9 +25,11 @@ from .pydoclint import PydoclintCheck
 from .pyright import PyrightCheck
 from .pytest_config import PytestConfigCheck
 from .python_floor import PythonFloorCheck
+from .removed_tests import RemovedTestsCheck
 from .ruff import RuffCheck
 from .runner import run_checks
 from .runtime_assets import RuntimeAssetsCheck
+from .skip_on_error import SkipOnErrorCheck
 from .structure import StructureCheck
 from .template import TemplateCheck
 from .tests import TestsCheck
@@ -38,6 +40,8 @@ ALL_CHECKS: list[type[Check]] = [
     TemplateCheck,
     RuffCheck,
     TestsCheck,
+    RemovedTestsCheck,
+    SkipOnErrorCheck,
     CitationCheck,
     ChangelogCheck,
     DepsCheck,

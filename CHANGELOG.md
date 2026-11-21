@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- A `removed-tests` check: tests and literal `parametrize` cases present at
+  the merge base and missing now, unless a commit on the branch names them in
+  a `Removed-test:` trailer. Renames and moves are recognized by body. Replayed
+  over 4,864 historical test-touching fleet commits, it would have asked for a
+  trailer on 447 (9%).
+- A `skip-on-error` check: a broad `except` in a test or `conftest.py` that
+  skips unconditionally, which reports a failed assertion as a skip.
+
 ## [0.10.0] - 2026-11-16
 
 ### Changed
