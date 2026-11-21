@@ -1,6 +1,7 @@
 """Interactive prompt system for release workflow."""
 
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
@@ -173,9 +174,9 @@ class EducationalPrompt:
 
         for explanation in explanations:
             if explanation:
-                self.console.print(f"  {explanation}")
+                self.console.print(f"  {escape(explanation)}")
 
         self.console.print(f"\n  Found {len(issues)} issue(s):")
         for issue in issues:
             symbol = issue.get_impact_symbol()
-            self.console.print(f"  {symbol} {issue.description}")
+            self.console.print(f"  {symbol} {escape(issue.description)}")

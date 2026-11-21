@@ -74,3 +74,137 @@ def test_the_check_reads_test_modules_and_conftest_only(tmp_path: Path) -> None:
         "tests/test_a.py",
     ]
     assert "failed assertion" in result.issues[0].description
+
+
+# Findings from the 0.11.0 release review, one test each.
+
+
+def test_a_raise_before_the_skip_makes_it_conditional() -> None:
+    src = (
+        "try:\n    assert False\nexcept Exception as err:\n"
+        "    if not isinstance(err, ImportError):\n        raise\n"
+        "    pytest.skip('unavailable')\n"
+    )
+    assert find_skip_on_error(src) == []
+
+
+def test_an_earlier_assertion_handler_changes_the_diagnosis() -> None:
+    src = (
+        "try:\n    assert False\nexcept AssertionError:\n    raise\n"
+        "except Exception:\n    pytest.skip('x')\n"
+    )
+    assert find_skip_on_error(src) == [(5, False)]
+
+
+def test_a_package_exception_named_exception_is_narrow() -> None:
+    src = "try:\n    assert f()\nexcept External.Exception:\n    pytest.skip('x')\n"
+    assert find_skip_on_error(src) == []
+
+
+def test_a_mark_is_not_a_skip() -> None:
+    src = (
+        "try:\n"
+        "    assert f()\n"
+        "except Exception:\n"
+        "    pytest.mark.skip(reason='x')\n"
+        "    raise\n"
+    )
+    assert find_skip_on_error(src) == []
+
+
+def test_returned_and_aliased_skips_count() -> None:
+    returned = "try:\n    assert f()\nexcept Exception:\n    return pytest.skip('x')\n"
+    aliased = (
+        "from pytest import skip as unavailable\n"
+        "try:\n    assert f()\nexcept Exception:\n    unavailable('x')\n"
+    )
+    assert find_skip_on_error(returned) == [(3, True)]
+    assert find_skip_on_error(aliased) == [(4, True)]
+
+
+def test_the_marker_counts_only_in_a_comment() -> None:
+    in_string = (
+        "try:\n    f()\nexcept Exception: pytest.skip('preen: allow-skip-on-error')\n"
+    )
+    assert find_skip_on_error(in_string) == [(3, False)]
+
+
+def test_the_marker_survives_a_line_separator_in_an_earlier_string() -> None:
+    src = (
+        "S = 'a\u2028b'\n"
+        "try:\n    f()\nexcept Exception:  # preen: allow-skip-on-error\n"
+        "    pytest.skip('offline')\n"
+    )
+    assert find_skip_on_error(src) == []
+
+
+def test_latin1_and_bom_sources_are_scanned() -> None:
+    body = "try:\n    f()\nexcept Exception:\n    pytest.skip('x')\n"
+    latin1 = ("# -*- coding: latin-1 -*-\nS = 'caf\u00e9'\n" + body).encode("latin-1")
+    bom = ("\ufeff" + body).encode("utf-8")
+    assert len(find_skip_on_error(latin1)) == 1
+    assert len(find_skip_on_error(bom)) == 1
+
+
+# Defects the first repair introduced, found by the verification pass.
+
+
+def test_reraising_only_a_narrow_error_still_hides_assertions() -> None:
+    src = (
+        "try:\n    assert False\nexcept Exception as err:\n"
+        "    if isinstance(err, ImportError):\n        raise\n"
+        "    pytest.skip('x')\n"
+    )
+    assert find_skip_on_error(src) == [(3, True)]
+
+
+def test_a_raise_in_an_uncalled_helper_does_not_count() -> None:
+    src = (
+        "try:\n    assert False\nexcept Exception:\n"
+        "    def never():\n        raise\n"
+        "    pytest.skip('x')\n"
+    )
+    assert find_skip_on_error(src) == [(3, True)]
+
+
+def test_an_aliased_builtins_exception_is_broad() -> None:
+    src = (
+        "import builtins as bi\n"
+        "try:\n    assert False\nexcept bi.Exception:\n    pytest.skip('x')\n"
+    )
+    assert find_skip_on_error(src) == [(4, True)]
+
+
+def test_an_import_inside_another_function_does_not_alias() -> None:
+    src = (
+        "def helper():\n    from pytest import skip as announce\n\n"
+        "def test_a():\n    def announce(m):\n        print(m)\n"
+        "    try:\n        assert False\n    except Exception:\n"
+        "        announce('x')\n        raise\n"
+    )
+    assert find_skip_on_error(src) == []
+
+
+def test_carriage_return_line_endings_keep_the_marker() -> None:
+    src = (
+        b"try:\r    f()\rexcept Exception:  # preen: allow-skip-on-error\r"
+        b"    pytest.skip('x')\r"
+    )
+    assert find_skip_on_error(src) == []
+
+
+# Third review pass.
+
+
+def test_a_skip_alias_imported_inside_the_test_counts() -> None:
+    src = (
+        "def test_a():\n    from pytest import skip as unavailable\n"
+        "    try:\n        assert False\n    except Exception:\n"
+        "        unavailable('x')\n"
+    )
+    assert find_skip_on_error(src) == [(5, True)]
+
+
+def test_an_unconditional_raise_before_the_skip_is_not_flagged() -> None:
+    src = "try:\n    assert False\nexcept Exception:\n    raise\n    pytest.skip('x')\n"
+    assert find_skip_on_error(src) == []
