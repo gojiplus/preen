@@ -206,30 +206,44 @@ Runs the pytest suite.
 ### `removed-tests`
 
 Tests a change deletes without saying what replaces them. The check lists
-every `test_*` function and method, and every case of a `parametrize` whose
-values are a literal list, at the merge base and in the working tree. Anything
-in the first list and missing from the second is reported. Important, because
-coverage does not move when this happens: the code those tests exercised is
-still run by other tests, but nothing checks what they pinned.
+every `test*` function and method (in `Test*` classes and `unittest.TestCase`
+subclasses, including under a module-level `if` or `try`), and every case of
+a `parametrize` whose values are a literal list, on the function or its
+class, at the base and in the working tree. Anything in the first list and
+missing from the second is reported. Important, because coverage does not
+move when this happens: the code those tests exercised is still run by other
+tests, but nothing checks what they pinned.
 
-A test whose body reappears under a new name or in another file counts as
-renamed. So does one renamed with small edits; the threshold is 0.8 on a
-character-level similarity of the unparsed bodies, which a variable rename
-clears and a test that checks something else does not. A parametrize case
-moved to a sibling test in the same file counts as kept.
+A vanished test counts as renamed when its body reappears, exactly or with
+small edits (0.8 character-level similarity), in a test that did not exist at
+the base. That threshold cannot tell a variable rename from an edit that
+inverts an assertion, so a rename that also changes what the test checks can
+pass unreported. A parametrize case counts as kept when the surviving test
+still has it or it appears in a test in the same file that gained it. Case
+keys ignore spacing in argnames and the `id` of a `pytest.param`; a value
+repeated in one list is counted each time.
 
-To remove a test on purpose, name it in a commit trailer on the branch. The
-value is the exact id or an fnmatch pattern:
+To remove a test on purpose, name it in a git trailer on a commit in the
+branch. The value is the exact id, or a pattern where `*` and `?` are the
+only wildcards (brackets are literal, since parametrize ids contain them).
+Git parses the trailers, so a line in the message body that only looks like
+one does not count:
 
 ```
 Removed-test: tests/test_lit.py::test_redirects_are_rechecked
 Removed-tests: tests/test_old_api.py::*
 ```
 
-The base is `$PREEN_BASE_REF`, else `origin/$GITHUB_BASE_REF` on a pull
-request, else the branch's upstream, else `origin/HEAD`. With none
-resolvable, as in a shallow clone, the check passes with a note; the
-py-canon lint job checks out full history so it has one.
+The base is `$PREEN_BASE_REF`; on a pull request checked out as GitHub's merge
+commit, that commit's first parent, which is the target it was built against;
+otherwise the merge base with `origin/$GITHUB_BASE_REF`, the branch's
+upstream, or `origin/HEAD`. With none resolvable, as in a shallow clone, the
+check passes with a note; the py-canon lint job checks out full history so
+it has one.
+
+Not seen: cases built at run time (non-literal `argvalues`,
+`pytest_generate_tests`), tests in symlinked files, and tests outside a sparse
+checkout, which read as removed.
 
 ### `skip-on-error`
 
@@ -243,13 +257,19 @@ except Exception:
 ```
 
 `AssertionError` is an `Exception`, so the failed assertion is reported as a
-skip and CI stays green. Important. Bare `except`, `Exception`,
-`BaseException` and `AssertionError`, alone or in a tuple, count as broad;
-the handler must call `skip`, `xfail` or `skipTest` as one of its own
-statements. A handler that inspects the error, skips on a match and
-re-raises otherwise is not reported. Catch the exception that means
-"unavailable" (`ImportError`, a network error), or use `pytest.importorskip`.
-Mark a deliberate one `# preen: allow-skip-on-error` on the `except` line.
+skip and CI stays green. Important. Bare `except`, and the builtin
+`Exception`, `BaseException` and `AssertionError` (alone, in a tuple, or as
+`builtins.X`) count as broad. The handler must skip as one of its own
+statements, alone or returned, with no `raise` before it: `pytest.skip`,
+`pytest.xfail` (also through `import pytest as ...` or `from pytest import
+skip as ...`) or `self.skipTest`. `pytest.mark.skip(...)` builds a mark and is
+not a skip. A handler that inspects the error and re-raises otherwise is not
+reported, and an earlier handler on the same `try` that catches
+`AssertionError` changes the diagnosis from a hidden assertion to a hidden
+error. Catch the exception that means "unavailable" (`ImportError`, a network
+error), or use `pytest.importorskip`. Mark a deliberate one with a `# preen:
+allow-skip-on-error` comment on the `except` line; the marker counts only in a
+comment.
 
 ### `deps`
 

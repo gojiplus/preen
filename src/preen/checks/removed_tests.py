@@ -12,12 +12,14 @@ promised the redirect protection. The code kept it, but nothing tested it.
 Coverage does not see this. The lines those tests exercised are still
 executed by other tests, so the percentage does not move.
 
-The check compares the test inventory at the merge base with the working
-tree. The inventory holds every ``test_*`` function and method, plus every
-case of a ``pytest.mark.parametrize`` whose values are a literal list. A test
-whose body reappears under another name or file counts as renamed, not
-removed. A removal passes when a commit since the merge base carries a
-trailer naming it, which may be an fnmatch pattern::
+The check compares the test inventory at the base with the working tree. The
+inventory holds every ``test*`` function and method (in ``Test*`` classes and
+``unittest.TestCase`` subclasses, including under a module-level ``if`` or
+``try``), plus every case of a ``pytest.mark.parametrize`` whose values are a
+literal list, on the function or its class. A test whose body reappears in a
+newly added test counts as renamed, not removed. A removal passes when a
+commit since the base carries a git trailer naming it; ``*`` and ``?`` are the
+only wildcards::
 
     Removed-test: tests/test_lit.py::test_redirects_are_rechecked
     Removed-test: tests/test_old.py::*
@@ -25,25 +27,29 @@ trailer naming it, which may be an fnmatch pattern::
 The trailer is the point: deleting a test stays cheap, and the reason for it
 is written down where a reviewer reads it.
 
-The base is ``$PREEN_BASE_REF``, else ``origin/$GITHUB_BASE_REF`` (set on
-pull requests), else the branch's upstream, else ``origin/HEAD``. When none
-resolves, for example in a shallow clone, the check says so and passes.
+The base is ``$PREEN_BASE_REF``; else, on a pull request (``GITHUB_BASE_REF``
+set) whose checkout is GitHub's merge commit, that commit's first parent,
+which is the target it was built against; else the merge base with
+``origin/$GITHUB_BASE_REF``, the branch's upstream, or ``origin/HEAD``. When
+none resolves, for example in a shallow clone, the check says so and passes.
+
+Not seen: cases built at run time (non-literal ``argvalues``,
+``pytest_generate_tests``), tests in symlinked files, and tests outside a
+sparse checkout, which read as removed.
 """
 
 import ast
 import difflib
-import fnmatch
 import os
 import re
 import subprocess
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
 from .base import Check, CheckResult, Impact, Issue, Severity
 
-TRAILER = re.compile(
-    r"^Removed-tests?:[ \t]*(.+?)[ \t]*$", re.IGNORECASE | re.MULTILINE
-)
+TRAILER_KEYS = ("Removed-test", "Removed-tests")
 
 FuncDef = ast.FunctionDef | ast.AsyncFunctionDef
 
@@ -70,7 +76,9 @@ class InventoryEntry:
         node_id: ``path::Class::name``, as pytest spells it.
         fingerprint: The function's arguments and body as source, without
             its name or decorators, so a rename or a move matches.
-        cases: ``argnames=value`` keys for each literal parametrize case.
+        cases: One key per literal parametrize case. A value repeated in the
+            same list gets ``#2``, ``#3`` so shortening ``[1, 1]`` to ``[1]``
+            counts as a removal.
     """
 
     node_id: str
@@ -78,37 +86,80 @@ class InventoryEntry:
     cases: frozenset[str]
 
 
-def _parametrize_cases(func: FuncDef) -> frozenset[str]:
-    """List the literal cases of every parametrize decorator on a test.
+def _names_key(node: ast.expr) -> str:
+    """Spell parametrize argnames the same however they were written.
 
     Args:
-        func: The test function.
+        node: The argnames expression.
 
     Returns:
-        One ``argnames=value`` key per case, written with ``ast.unparse`` so
-        reformatting does not change it. Values that are not a literal list
-        or tuple contribute nothing, since they cannot be read statically.
+        Comma-joined names without spaces: ``"x, y"``, ``"x,y"`` and
+        ``("x", "y")`` all give ``x,y``.
     """
-    cases: set[str] = set()
-    for deco in func.decorator_list:
-        if not isinstance(deco, ast.Call) or not deco.args:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return ",".join(n.strip() for n in node.value.split(","))
+    if isinstance(node, ast.List | ast.Tuple) and all(
+        isinstance(e, ast.Constant) and isinstance(e.value, str) for e in node.elts
+    ):
+        return ",".join(str(e.value).strip() for e in node.elts)  # type: ignore[union-attr]
+    return ast.unparse(node)
+
+
+def _value_key(node: ast.expr) -> str:
+    """Spell one parametrize value by what it passes, not how it is labeled.
+
+    Args:
+        node: One element of argvalues.
+
+    Returns:
+        The unparsed value. For ``pytest.param(...)`` only the positional
+        arguments count, so changing its ``id`` or marks is not a removal.
+    """
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute | ast.Name)
+        and (getattr(node.func, "attr", None) or getattr(node.func, "id", None))
+        == "param"
+    ):
+        args = node.args
+        return ast.unparse(args[0]) if len(args) == 1 else ast.unparse(ast.Tuple(args))
+    return ast.unparse(node)
+
+
+def _parametrize_cases(decorators: list[ast.expr]) -> list[str]:
+    """List the literal cases of every parametrize decorator.
+
+    Args:
+        decorators: A function's or class's decorator list.
+
+    Returns:
+        One ``argnames=value`` key per case. Values that are not a literal
+        list or tuple contribute nothing, since they cannot be read
+        statically.
+    """
+    cases: list[str] = []
+    for deco in decorators:
+        if not isinstance(deco, ast.Call):
             continue
         target = deco.func
         if not (isinstance(target, ast.Attribute) and target.attr == "parametrize"):
             continue
-        first = deco.args[0]
-        names = (
-            first.value
-            if isinstance(first, ast.Constant) and isinstance(first.value, str)
-            else ast.unparse(first)
-        )
+        names = deco.args[0] if deco.args else None
         values = deco.args[1] if len(deco.args) > 1 else None
         for kw in deco.keywords:
-            if kw.arg == "argvalues":
+            if kw.arg == "argnames":
+                names = kw.value
+            elif kw.arg == "argvalues":
                 values = kw.value
-        if isinstance(values, ast.List | ast.Tuple):
-            cases.update(f"{names}={ast.unparse(v)}" for v in values.elts)
-    return frozenset(cases)
+        if names is None or not isinstance(values, ast.List | ast.Tuple):
+            continue
+        key = _names_key(names)
+        counts: Counter[str] = Counter()
+        for v in values.elts:
+            case = f"{key}={_value_key(v)}"
+            counts[case] += 1
+            cases.append(case if counts[case] == 1 else f"{case}#{counts[case]}")
+    return cases
 
 
 def _fingerprint(func: FuncDef) -> str:
@@ -127,44 +178,75 @@ def _fingerprint(func: FuncDef) -> str:
     return f"({ast.unparse(func.args)})\n{ast.unparse(body)}"
 
 
-def inventory(path: str, source: str) -> list[InventoryEntry]:
+def _is_test_class(node: ast.ClassDef) -> bool:
+    """Whether pytest collects tests from a class.
+
+    Args:
+        node: The class.
+
+    Returns:
+        True for ``Test*`` names and for ``unittest.TestCase`` subclasses,
+        recognized by a base whose name ends in ``TestCase``.
+    """
+    if node.name.startswith("Test"):
+        return True
+    for base in node.bases:
+        name = base.attr if isinstance(base, ast.Attribute) else getattr(base, "id", "")
+        if name.endswith("TestCase"):
+            return True
+    return False
+
+
+def inventory(path: str, source: str | bytes) -> list[InventoryEntry]:
     """List the tests a module defines.
 
     Args:
         path: The module's project-relative path, in POSIX form.
-        source: Its contents.
+        source: Its contents. Bytes are decoded the way Python does it,
+            honoring a coding declaration or a byte-order mark.
 
     Returns:
-        Module-level ``test*`` functions and ``test*`` methods of ``Test*``
-        classes, nested classes included. A file that does not parse yields
-        nothing; the test run reports it.
+        ``test*`` functions at module level and ``test*`` methods of test
+        classes, nested classes included, and those under module-level or
+        class-level ``if``, ``try`` and ``with`` blocks. A file that does not
+        parse yields nothing; the test run reports it.
     """
     try:
         tree = ast.parse(source)
-    except SyntaxError:
+    except (SyntaxError, ValueError):
         return []
     found: list[InventoryEntry] = []
 
-    def visit(body: list[ast.stmt], prefix: str) -> None:
+    def visit(body: list[ast.stmt], prefix: str, inherited: list[str]) -> None:
         for node in body:
             if isinstance(node, FuncDef) and node.name.startswith("test"):
+                cases = inherited + _parametrize_cases(node.decorator_list)
                 found.append(
                     InventoryEntry(
-                        f"{prefix}::{node.name}",
-                        _fingerprint(node),
-                        _parametrize_cases(node),
+                        f"{prefix}::{node.name}", _fingerprint(node), frozenset(cases)
                     )
                 )
-            elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
-                visit(node.body, f"{prefix}::{node.name}")
+            elif isinstance(node, ast.ClassDef) and _is_test_class(node):
+                visit(
+                    node.body,
+                    f"{prefix}::{node.name}",
+                    inherited + _parametrize_cases(node.decorator_list),
+                )
+            elif isinstance(node, ast.If | ast.Try | ast.TryStar | ast.With):
+                for block in ("body", "orelse", "finalbody"):
+                    visit(getattr(node, block, []), prefix, inherited)
+                for handler in getattr(node, "handlers", []):
+                    visit(handler.body, prefix, inherited)
 
-    visit(tree.body, path)
+    visit(tree.body, path, [])
     return found
 
 
-#: How alike two bodies must be for a vanished test to count as renamed.
-#: A rename that also renames a variable (``per_km`` to ``per_mile``)
-#: scores about 0.97; replacing what a test checks scores well below this.
+#: How alike two bodies must be for a vanished test to count as renamed to a
+#: newly added one. A rename that also renames a variable (``per_km`` to
+#: ``per_mile``) scores about 0.97. A small edit that inverts what a test
+#: checks (``is True`` to ``is False``) can also clear it, so only tests that
+#: did not exist at the base are candidates.
 RENAME_SIMILARITY = 0.8
 
 
@@ -178,9 +260,12 @@ def _renamed_to(
         added: Tests whose ids did not exist at the base.
 
     Returns:
-        The closest added test at or above :data:`RENAME_SIMILARITY`, or
-        None.
+        An added test with the same fingerprint, else the closest one at or
+        above :data:`RENAME_SIMILARITY`, else None.
     """
+    for new in added:
+        if new.fingerprint == old.fingerprint:
+            return new
     best, score = None, RENAME_SIMILARITY
     for new in added:
         matcher = difflib.SequenceMatcher(None, old.fingerprint, new.fingerprint)
@@ -213,33 +298,30 @@ def removed(before: list[InventoryEntry], after: list[InventoryEntry]) -> list[s
 
     Returns:
         Node ids of removed tests, and ``node_id[case]`` for each
-        parametrize case a surviving or renamed test dropped, sorted. A test
-        renamed with small edits to its body counts as renamed, so one that
-        lost a single assertion in the same edit is not reported; the case
-        comparison still applies to it.
+        parametrize case a surviving or renamed test dropped, sorted. A
+        vanished test matches only a test that did not exist at the base, so
+        an unchanged sibling with the same body cannot stand in for it. A
+        test renamed with small edits to its body counts as renamed, so one
+        that lost a single assertion in the same edit is not reported; the
+        case comparison still applies to it.
     """
-    old_ids = {e.node_id for e in before}
+    old_by_id = {e.node_id: e for e in before}
     by_id = {e.node_id: e for e in after}
-    by_print: dict[str, InventoryEntry] = {}
+    added = [e for e in after if e.node_id not in old_by_id]
+    # A case counts as moved only into a test that gained it, so an unchanged
+    # sibling that happens to share a value cannot hide a deletion.
+    gained: dict[str, set[str]] = {}
     for e in after:
-        by_print.setdefault(e.fingerprint, e)
-    added = [e for e in after if e.node_id not in old_ids]
-    # A case that moved to a sibling test in the same file is still tested.
-    # Comparing only against the matched test misread a split of one
-    # parametrized test into two as the loss of every case.
-    file_cases: dict[str, frozenset[str]] = {}
-    for e in after:
-        path = _file_of(e.node_id)
-        file_cases[path] = file_cases.get(path, frozenset()) | e.cases
+        prior = old_by_id.get(e.node_id)
+        new_cases = e.cases - prior.cases if prior else e.cases
+        gained.setdefault(_file_of(e.node_id), set()).update(new_cases)
     gone: list[str] = []
     for old in before:
-        new = by_id.get(old.node_id) or by_print.get(old.fingerprint)
-        if new is None:
-            new = _renamed_to(old, added)
+        new = by_id.get(old.node_id) or _renamed_to(old, added)
         if new is None:
             gone.append(old.node_id)
             continue
-        kept = new.cases | file_cases.get(_file_of(old.node_id), frozenset())
+        kept = new.cases | gained.get(_file_of(old.node_id), set())
         gone.extend(f"{old.node_id}[{case}]" for case in sorted(old.cases - kept))
     return sorted(gone)
 
@@ -252,15 +334,33 @@ def _matches(node: str, pattern: str) -> bool:
         pattern: The trailer's value.
 
     Returns:
-        True for an exact match, or an fnmatch match. Exact comes first
-        because a parametrize id contains brackets, which fnmatch reads as a
-        character class.
+        True for an exact match, or a match where ``*`` stands for any run of
+        characters and ``?`` for one. Brackets are literal: parametrize ids
+        contain them, and a glob character class would let one exact trailer
+        acknowledge a different test.
     """
-    return node == pattern or fnmatch.fnmatchcase(node, pattern)
+    if node == pattern:
+        return True
+    regex = re.escape(pattern).replace(r"\*", ".*").replace(r"\?", ".")
+    return re.fullmatch(regex, node) is not None
 
 
 def _git(cwd: Path, *args: str) -> str | None:
-    """Run git and return its output, or None when it fails.
+    """Run git and return its text output, or None when it fails.
+
+    Args:
+        cwd: Directory to run in.
+        *args: git arguments.
+
+    Returns:
+        Standard output, or None on a non-zero exit or a missing git.
+    """
+    out = _git_bytes(cwd, *args)
+    return None if out is None else out.decode("utf-8", errors="replace")
+
+
+def _git_bytes(cwd: Path, *args: str) -> bytes | None:
+    """Run git and return its raw output, or None when it fails.
 
     Args:
         cwd: Directory to run in.
@@ -270,23 +370,19 @@ def _git(cwd: Path, *args: str) -> str | None:
         Standard output, or None on a non-zero exit or a missing git.
     """
     try:
-        proc = subprocess.run(
-            ["git", *args], capture_output=True, text=True, cwd=cwd, check=False
-        )
+        proc = subprocess.run(["git", *args], capture_output=True, cwd=cwd, check=False)
     except FileNotFoundError:
         return None
     return proc.stdout if proc.returncode == 0 else None
 
 
 def _base_candidates() -> list[str]:
-    """List the refs to compare against, most specific first.
+    """List the refs whose merge base with HEAD may be the base.
 
     Returns:
-        Ref names, unresolved.
+        Ref names, unresolved, most specific first.
     """
     refs: list[str] = []
-    if os.environ.get("PREEN_BASE_REF"):
-        refs.append(os.environ["PREEN_BASE_REF"])
     if os.environ.get("GITHUB_BASE_REF"):
         refs.append(f"origin/{os.environ['GITHUB_BASE_REF']}")
     refs += ["@{upstream}", "origin/HEAD"]
@@ -310,47 +406,73 @@ class RemovedTestsCheck(Check):
         """Find the commit the change started from.
 
         Returns:
-            ``(ref, sha)`` for the first candidate that resolves, or None.
+            ``(label, sha)``, or None when nothing resolves.
         """
+        explicit = os.environ.get("PREEN_BASE_REF")
+        if explicit:
+            out = _git(self.project_dir, "merge-base", explicit, "HEAD")
+            return (explicit, out.strip()) if out else None
+        if os.environ.get("GITHUB_BASE_REF") and _git(
+            self.project_dir, "rev-parse", "--verify", "-q", "HEAD^2"
+        ):
+            # GitHub's pull-request checkout is a merge commit whose first
+            # parent is the target it was built against. Reading the target
+            # branch's current tip instead would charge the PR with deletions
+            # made on the target after the merge commit was created.
+            out = _git(self.project_dir, "rev-parse", "HEAD^1")
+            if out:
+                return "the pull request's target", out.strip()
         for ref in _base_candidates():
             out = _git(self.project_dir, "merge-base", ref, "HEAD")
             if out:
                 return ref, out.strip()
         return None
 
-    def _base_sources(self, sha: str) -> dict[str, str]:
-        """Read every test file as it was at a commit.
+    def _prefix(self) -> str:
+        """Return the project directory's path inside the repository.
+
+        Returns:
+            ``sub/dir/`` when the project is a subdirectory, else ``""``.
+        """
+        return (_git(self.project_dir, "rev-parse", "--show-prefix") or "").strip()
+
+    def _base_sources(self, sha: str) -> dict[str, bytes]:
+        """Read every test file under the project as it was at a commit.
 
         Args:
             sha: The commit.
 
         Returns:
-            ``{posix_path: source}``.
+            ``{project_relative_posix_path: source_bytes}``.
         """
-        listing = _git(self.project_dir, "ls-tree", "-r", "-z", "--name-only", sha)
-        out: dict[str, str] = {}
-        for name in (listing or "").split("\0"):
+        prefix = self._prefix()
+        listing = _git(
+            self.project_dir, "ls-tree", "-r", "-z", "--full-tree", "--name-only", sha
+        )
+        out: dict[str, bytes] = {}
+        for full in (listing or "").split("\0"):
+            if not full or not full.startswith(prefix):
+                continue
+            name = full[len(prefix) :]
             path = Path(name)
-            if name and is_test_file(path) and not self.is_excluded(path):
-                text = _git(self.project_dir, "show", f"{sha}:{name}")
-                if text is not None:
-                    out[name] = text
+            if is_test_file(path) and not self.is_excluded(path):
+                data = _git_bytes(self.project_dir, "show", f"{sha}:{full}")
+                if data is not None:
+                    out[name] = data
         return out
 
-    def _head_sources(self) -> dict[str, str]:
+    def _head_sources(self) -> dict[str, bytes]:
         """Read every test file in the working tree.
 
         Returns:
-            ``{posix_path: source}``.
+            ``{project_relative_posix_path: source_bytes}``.
         """
-        out: dict[str, str] = {}
+        out: dict[str, bytes] = {}
         for path in self.project_files():
             if is_test_file(path) and not self.is_excluded(path):
                 try:
-                    out[path.as_posix()] = (self.project_dir / path).read_text(
-                        encoding="utf-8"
-                    )
-                except (OSError, UnicodeDecodeError):
+                    out[path.as_posix()] = (self.project_dir / path).read_bytes()
+                except OSError:
                     continue
         return out
 
@@ -361,13 +483,21 @@ class RemovedTestsCheck(Check):
             sha: The merge base.
 
         Returns:
-            The patterns the trailers name.
+            The patterns the trailers name. Git parses the trailers, so a
+            line that merely looks like one in the message body does not
+            count.
         """
-        log = _git(self.project_dir, "log", "--format=%B", f"{sha}..HEAD") or ""
-        return TRAILER.findall(log)
+        keys = ",".join(f"key={k}" for k in TRAILER_KEYS)
+        log = _git(
+            self.project_dir,
+            "log",
+            f"--format=%(trailers:{keys},valueonly,separator=%x00)%x00",
+            f"{sha}..HEAD",
+        )
+        return [v.strip() for v in (log or "").split("\0") if v.strip()]
 
     def run(self) -> CheckResult:
-        """Compare the test inventory at the merge base with the working tree.
+        """Compare the test inventory at the base with the working tree.
 
         Returns:
             CheckResult containing one issue per unacknowledged removal.
@@ -385,7 +515,7 @@ class RemovedTestsCheck(Check):
             )
             return CheckResult(check=self.name, passed=True, issues=[note])
 
-        ref, sha = base
+        label, sha = base
         before = [
             e
             for p, s in sorted(self._base_sources(sha).items())
@@ -405,7 +535,7 @@ class RemovedTestsCheck(Check):
             Issue(
                 check=self.name,
                 severity=Severity.WARNING,
-                description=f"{node} was removed since {ref} ({sha[:10]})",
+                description=f"{node} was removed since {label} ({sha[:10]})",
                 file=Path(_file_of(node)),
                 impact=Impact.IMPORTANT,
                 explanation=(

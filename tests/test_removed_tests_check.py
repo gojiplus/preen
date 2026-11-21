@@ -239,3 +239,136 @@ def test_no_base_passes_with_a_note(
 
 def test_outside_git_passes(tmp_path: Path) -> None:
     assert RemovedTestsCheck(tmp_path).run().passed
+
+
+# Findings from the 0.11.0 release review, one test each.
+
+
+def test_an_unchanged_sibling_with_the_same_body_cannot_stand_in() -> None:
+    body = "    assert value(request.node.name)\n"
+    before = f"def test_value_1(request):\n{body}\ndef test_value_2(request):\n{body}"
+    after = f"def test_value_2(request):\n{body}"
+    assert _gone(before, after) == ["tests/test_lit.py::test_value_1"]
+
+
+def test_an_unchanged_sibling_sharing_a_value_cannot_hide_a_deleted_case() -> None:
+    before = (
+        "@pytest.mark.parametrize('x', [1, 2])\ndef test_abs(x):\n    assert abs(x)\n"
+        "@pytest.mark.parametrize('x', [1, 2])\ndef test_order(x):\n    assert x < 3\n"
+    )
+    after = before.replace("[1, 2])\ndef test_abs", "[1])\ndef test_abs")
+    assert _gone(before, after) == ["tests/test_lit.py::test_abs[x=2]"]
+
+
+def test_keyword_parametrize_is_read() -> None:
+    src = (
+        "@pytest.mark.parametrize(argnames='x', argvalues=[1, 2])\n"
+        "def test_v(x):\n"
+        "    assert x\n"
+    )
+    assert _gone(src, src.replace("[1, 2]", "[1]")) == [
+        "tests/test_lit.py::test_v[x=2]"
+    ]
+
+
+def test_class_level_parametrize_applies_to_methods() -> None:
+    src = (
+        "@pytest.mark.parametrize('x', [1, 2])\nclass TestValues:\n"
+        "    def test_v(self, x):\n        assert x\n"
+    )
+    assert _gone(src, src.replace("[1, 2]", "[1]")) == [
+        "tests/test_lit.py::TestValues::test_v[x=2]"
+    ]
+
+
+def test_argnames_spacing_and_param_ids_do_not_count() -> None:
+    before = (
+        "@pytest.mark.parametrize('x,y', [(1, 2), pytest.param(3, 4, id='one')])\n"
+        "def test_x(x, y):\n    assert x < y\n"
+    )
+    after = before.replace("'x,y'", "'x, y'").replace("id='one'", "id='renamed'")
+    assert _gone(before, after) == []
+
+
+def test_a_repeated_value_counts_each_time() -> None:
+    src = "@pytest.mark.parametrize('x', [1, 1])\ndef test_v(x):\n    assert x\n"
+    assert _gone(src, src.replace("[1, 1]", "[1]")) == [
+        "tests/test_lit.py::test_v[x=1#2]"
+    ]
+
+
+def test_unittest_and_conditional_tests_are_inventoried() -> None:
+    src = (
+        "import sys, unittest\n"
+        "class ParserCase(unittest.TestCase):\n"
+        "    def test_result(self):\n        self.assertTrue(1)\n"
+        "if sys.version_info.major == 3:\n"
+        "    def test_feature():\n        assert 1\n"
+    )
+    assert [e.node_id for e in inventory("t/test_a.py", src)] == [
+        "t/test_a.py::ParserCase::test_result",
+        "t/test_a.py::test_feature",
+    ]
+
+
+def test_an_exact_trailer_does_not_glob_its_brackets() -> None:
+    assert _matches("t.py::test_v[x=1]", "t.py::test_v[x=1]")
+    assert not _matches("t.py::test_v1", "t.py::test_v[x=1]")
+    assert _matches("t.py::test_old_a", "t.py::test_old_*")
+
+
+def test_latin1_and_bom_sources_parse() -> None:
+    latin1 = "# -*- coding: latin-1 -*-\ndef test_caf\u00e9():\n    assert 1\n".encode(
+        "latin-1"
+    )
+    bom = "\ufeffdef test_a():\n    assert 1\n".encode("utf-8")
+    assert len(inventory("t/test_a.py", latin1)) == 1
+    assert len(inventory("t/test_b.py", bom)) == 1
+
+
+def test_a_trailer_quoted_in_prose_acknowledges_nothing(repo: Path) -> None:
+    (repo / "tests" / "test_lit.py").write_text(AFTER)
+    message = (
+        "Use requests-hardened\n\n"
+        "A trailer such as\nRemoved-tests: *\nwould acknowledge everything.\n\n"
+        "Signed-off-by: t <t@example.org>\n"
+    )
+    _git(repo, "commit", "-q", "-am", message)
+    assert len(RemovedTestsCheck(repo).run().issues) == 3
+
+
+def test_a_pull_request_merge_commit_is_compared_with_its_first_parent(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The PR adds a file; meanwhile main deletes the tests. On GitHub the
+    # checkout is a merge of the two, and main's deletion is not the PR's.
+    _git(repo, "checkout", "-q", "main")
+    (repo / "tests" / "test_lit.py").write_text(AFTER)
+    _git(repo, "commit", "-q", "-am", "main deletes tests")
+    _git(repo, "checkout", "-q", "feature")
+    (repo / "notes.txt").write_text("x")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "PR change")
+    _git(repo, "checkout", "-q", "--detach", "main")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "merge", "feature")
+    monkeypatch.delenv("PREEN_BASE_REF")
+    monkeypatch.setenv("GITHUB_BASE_REF", "main")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "main~1")
+    assert RemovedTestsCheck(repo).run().passed
+
+
+def test_a_subdirectory_project_reads_its_base(repo: Path) -> None:
+    (repo / "tests" / "test_lit.py").write_text(AFTER)
+    assert len(RemovedTestsCheck(repo / "tests").run().issues) == 3
+
+
+def test_a_deleted_latin1_test_file_is_reported(repo: Path) -> None:
+    src = "# -*- coding: latin-1 -*-\nS = 'caf\u00e9'\ndef test_a():\n    assert S\n"
+    (repo / "tests" / "test_latin.py").write_bytes(src.encode("latin-1"))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "add")
+    _git(repo, "update-ref", "refs/heads/main", "HEAD")
+    (repo / "tests" / "test_latin.py").unlink()
+    assert [
+        i.description.split(" was ")[0] for i in RemovedTestsCheck(repo).run().issues
+    ] == ["tests/test_latin.py::test_a"]
