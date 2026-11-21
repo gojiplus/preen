@@ -108,34 +108,41 @@ def _names_key(node: ast.expr) -> str:
     return ast.unparse(node)
 
 
-def _value_key(node: ast.expr) -> str:
+def _value_key(node: ast.expr, param_names: frozenset[str] = frozenset()) -> str:
     """Spell one parametrize value by what it passes, not how it is labeled.
 
     Args:
         node: One element of argvalues.
+        param_names: Names the module binds to ``pytest.param``.
 
     Returns:
-        The unparsed value. For ``pytest.param(...)``, spelled that way,
-        only the positional
+        The unparsed value. For ``pytest.param(...)``, or a name imported
+        from pytest as ``param``, only the positional
         arguments count, so changing its ``id`` or marks is not a removal.
     """
-    if (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "param"
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "pytest"
+    func = node.func if isinstance(node, ast.Call) else None
+    if isinstance(node, ast.Call) and (
+        (
+            isinstance(func, ast.Attribute)
+            and func.attr == "param"
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "pytest"
+        )
+        or (isinstance(func, ast.Name) and func.id in param_names)
     ):
         args = node.args
         return ast.unparse(args[0]) if len(args) == 1 else ast.unparse(ast.Tuple(args))
     return ast.unparse(node)
 
 
-def _parametrize_cases(decorators: list[ast.expr]) -> list[str]:
+def _parametrize_cases(
+    decorators: list[ast.expr], param_names: frozenset[str] = frozenset()
+) -> list[str]:
     """List the literal cases of every parametrize decorator.
 
     Args:
         decorators: A function's or class's decorator list.
+        param_names: Names the module binds to ``pytest.param``.
 
     Returns:
         One ``argnames=value`` key per case. Values that are not a literal
@@ -161,7 +168,7 @@ def _parametrize_cases(decorators: list[ast.expr]) -> list[str]:
         key = _names_key(names)
         counts: Counter[str] = Counter()
         for v in values.elts:
-            case = f"{key}={_value_key(v)}"
+            case = f"{key}={_value_key(v, param_names)}"
             counts[case] += 1
             cases.append(case if counts[case] == 1 else f"{case}#{counts[case]}")
     return cases
@@ -211,8 +218,14 @@ def _is_type_checking(test: ast.expr) -> bool:
     Returns:
         True for ``TYPE_CHECKING`` and ``typing.TYPE_CHECKING``.
     """
-    name = test.attr if isinstance(test, ast.Attribute) else getattr(test, "id", "")
-    return name == "TYPE_CHECKING"
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    return (
+        isinstance(test, ast.Attribute)
+        and test.attr == "TYPE_CHECKING"
+        and isinstance(test.value, ast.Name)
+        and test.value.id == "typing"
+    )
 
 
 def inventory(path: str, source: str | bytes) -> list[InventoryEntry]:
@@ -234,11 +247,18 @@ def inventory(path: str, source: str | bytes) -> list[InventoryEntry]:
     except (SyntaxError, ValueError):
         return []
     found: list[InventoryEntry] = []
+    params = frozenset(
+        alias.asname or alias.name
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom) and node.module == "pytest"
+        for alias in node.names
+        if alias.name == "param"
+    )
 
     def visit(body: list[ast.stmt], prefix: str, inherited: list[str]) -> None:
         for node in body:
             if isinstance(node, FuncDef) and node.name.startswith("test"):
-                cases = inherited + _parametrize_cases(node.decorator_list)
+                cases = inherited + _parametrize_cases(node.decorator_list, params)
                 found.append(
                     InventoryEntry(
                         f"{prefix}::{node.name}", _fingerprint(node), frozenset(cases)
@@ -248,10 +268,10 @@ def inventory(path: str, source: str | bytes) -> list[InventoryEntry]:
                 visit(
                     node.body,
                     f"{prefix}::{node.name}",
-                    inherited + _parametrize_cases(node.decorator_list),
+                    inherited + _parametrize_cases(node.decorator_list, params),
                 )
             elif isinstance(node, ast.If) and _is_type_checking(node.test):
-                continue
+                visit(node.orelse, prefix, inherited)
             elif isinstance(node, ast.If | ast.Try | ast.TryStar | ast.With):
                 for block in ("body", "orelse", "finalbody"):
                     visit(getattr(node, block, []), prefix, inherited)
@@ -355,16 +375,18 @@ def _matches(node: str, pattern: str) -> bool:
 
     Returns:
         True for an exact match, or a match where ``*`` stands for any run of
-        characters and ``?`` for one, outside the ``[...]`` case suffix. The
+        characters and ``?`` for one, outside the ``[...]`` case suffix that
+        follows the last ``::``. The
         suffix is literal: parametrize ids contain brackets and may contain
         ``*``, and a copied trailer for one case must not acknowledge another.
     """
     if node == pattern:
         return True
-    head, bracket, suffix = pattern.partition("[")
+    sep = pattern.rfind("::")
+    cut = pattern.find("[", sep + 2) if sep >= 0 else -1
+    head, suffix = (pattern[:cut], pattern[cut:]) if cut >= 0 else (pattern, "")
     regex = re.escape(head).replace(r"\*", ".*").replace(r"\?", ".")
-    if bracket:
-        regex += re.escape(bracket + suffix)
+    regex += re.escape(suffix)
     return re.fullmatch(regex, node) is not None
 
 

@@ -191,3 +191,20 @@ def test_carriage_return_line_endings_keep_the_marker() -> None:
         b"    pytest.skip('x')\r"
     )
     assert find_skip_on_error(src) == []
+
+
+# Third review pass.
+
+
+def test_a_skip_alias_imported_inside_the_test_counts() -> None:
+    src = (
+        "def test_a():\n    from pytest import skip as unavailable\n"
+        "    try:\n        assert False\n    except Exception:\n"
+        "        unavailable('x')\n"
+    )
+    assert find_skip_on_error(src) == [(5, True)]
+
+
+def test_an_unconditional_raise_before_the_skip_is_not_flagged() -> None:
+    src = "try:\n    assert False\nexcept Exception:\n    raise\n    pytest.skip('x')\n"
+    assert find_skip_on_error(src) == []

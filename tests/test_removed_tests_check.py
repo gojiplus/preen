@@ -416,3 +416,29 @@ def test_a_deleted_latin1_test_file_is_reported(repo: Path) -> None:
     assert [
         i.description.split(" was ")[0] for i in RemovedTestsCheck(repo).run().issues
     ] == ["tests/test_latin.py::test_a"]
+
+
+# Third review pass.
+
+
+def test_the_else_of_type_checking_is_live() -> None:
+    src = "if TYPE_CHECKING:\n    pass\nelse:\n    def test_live():\n        assert 1\n"
+    assert _gone(src, "") == ["tests/test_lit.py::test_live"]
+
+
+def test_only_typing_type_checking_is_dead_code() -> None:
+    src = "if Flags.TYPE_CHECKING:\n    def test_f():\n        assert 1\n"
+    assert _gone(src, "") == ["tests/test_lit.py::test_f"]
+
+
+def test_an_imported_param_drops_its_id() -> None:
+    before = (
+        "from pytest import param\n"
+        "@pytest.mark.parametrize('x', [param(1, id='first')])\n"
+        "def test_v(x):\n    assert x\n"
+    )
+    assert _gone(before, before.replace("first", "second")) == []
+
+
+def test_a_bracket_in_a_directory_name_keeps_wildcards() -> None:
+    assert _matches("tests/[api]/test_x.py::test_live", "tests/[api]/*")

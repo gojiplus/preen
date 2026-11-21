@@ -35,6 +35,7 @@ from .removed_tests import is_test_file
 
 ALLOW_COMMENT = "preen: allow-skip-on-error"
 BROAD = frozenset({"Exception", "BaseException", "AssertionError"})
+FUNCTION_OR_CLASS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 PYTEST_SKIPS = frozenset({"skip", "xfail"})
 
 
@@ -71,19 +72,37 @@ def _catches(
     return False
 
 
-def _skip_names(tree: ast.Module) -> tuple[set[str], set[str], frozenset[str]]:
+def _skip_names(
+    body: list[ast.stmt],
+    base: tuple[set[str], set[str], frozenset[str]] | None = None,
+) -> tuple[set[str], set[str], frozenset[str]]:
     """Find the names a module binds to pytest, its skips and ``builtins``.
 
     Args:
-        tree: The parsed module.
+        body: Statements whose imports count: a module's, or one function's
+            own (nested functions excluded).
+        base: Aliases already in scope, such as the module's.
 
     Returns:
-        ``(pytest_aliases, skip_aliases, builtins_aliases)``, from
-        module-level imports only: an import inside one function does not
-        rename anything in another.
+        ``(pytest_aliases, skip_aliases, builtins_aliases)``. An import inside
+        one function does not rename anything in another.
     """
-    modules, functions, builtin = {"pytest"}, set(), {"builtins"}
-    for node in tree.body:
+    modules, functions, builtin = (
+        (set(base[0]), set(base[1]), set(base[2]))
+        if base
+        else ({"pytest"}, set(), {"builtins"})
+    )
+    pending = list(body)
+    imports: list[ast.stmt] = []
+    while pending:
+        node = pending.pop()
+        if isinstance(node, ast.Import | ast.ImportFrom):
+            imports.append(node)
+        elif not isinstance(node, FUNCTION_OR_CLASS):
+            pending.extend(
+                c for c in ast.iter_child_nodes(node) if isinstance(c, ast.stmt)
+            )
+    for node in imports:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name == "pytest":
@@ -140,14 +159,14 @@ def _skips_unconditionally(
 
     Returns:
         True when a top-level statement skips (alone or as a ``return``
-        value) and no earlier statement is a re-raise guard that lets only a
-        narrow exception through.
+        value) and no earlier statement is a bare ``raise`` or a re-raise guard
+        that lets only a narrow exception through.
     """
     for stmt in handler.body:
         value = stmt.value if isinstance(stmt, ast.Expr | ast.Return) else None
         if _is_skip_call(value, modules, functions):
             return True
-        if _reraises_all_but_narrow(stmt, handler.name):
+        if isinstance(stmt, ast.Raise) or _reraises_all_but_narrow(stmt, handler.name):
             return False
     return False
 
@@ -227,11 +246,31 @@ def find_skip_on_error(source: str | bytes) -> list[tuple[int, bool]]:
     except (SyntaxError, ValueError):
         return []
     allowed = _allowed_lines(raw)
-    modules, functions, builtin = _skip_names(tree)
+    module_scope = _skip_names(tree.body)
+    scopes: list[tuple[list[ast.stmt], tuple[set[str], set[str], frozenset[str]]]] = [
+        (tree.body, module_scope)
+    ]
+    scopes.extend(
+        (fn.body, _skip_names(fn.body, module_scope))
+        for fn in ast.walk(tree)
+        if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef)
+    )
+    tries: list[tuple[ast.Try | ast.TryStar, tuple]] = []
+    for body, scope in scopes:
+        pending: list[ast.AST] = list(body)
+        while pending:
+            node = pending.pop()
+            if isinstance(node, FUNCTION_OR_CLASS[:2]):
+                continue
+            if isinstance(node, ast.Try | ast.TryStar):
+                tries.append((node, scope))
+            pending.extend(
+                c
+                for c in ast.iter_child_nodes(node)
+                if isinstance(c, ast.stmt | ast.ExceptHandler)
+            )
     found: list[tuple[int, bool]] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Try | ast.TryStar):
-            continue
+    for node, (modules, functions, builtin) in tries:
         asserts = any(
             isinstance(n, ast.Assert) for stmt in node.body for n in ast.walk(stmt)
         )
