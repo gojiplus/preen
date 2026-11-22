@@ -147,7 +147,7 @@ name = "lost_years"
 <<<<<<< before updating
 authors = [
     { name = "Suriyan Laohaprapanon", email = "suriyant@gmail.com" },
-    { name = "Gaurav Sood", email = "gsood07@gmail.com" },
+    { name = "Gaurav Sood", email = "author@example.org" },
 ]
 requires-python = ">=3.12"
 version = "2.3.0"
@@ -267,7 +267,7 @@ readme = "README.md"
 <<<<<<< before updating
 authors = [
     { name = "Suriyan Laohaprapanon", email = "suriyant@gmail.com" },
-    { name = "Gaurav Sood", email = "gsood07@gmail.com" },
+    { name = "Gaurav Sood", email = "author@example.org" },
 ]
 requires-python = ">=3.12"
 dependencies = [

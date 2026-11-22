@@ -4,7 +4,7 @@ description = "Conformance and adoption CLI for the py-canon fleet standard"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "Gaurav Sood", email = "contact@gsood.com" }]
+authors = [{ name = "Gaurav Sood" }]
 requires-python = ">=3.12"
 version = "0.11.0"
 keywords = ["packaging", "release", "conformance", "copier", "cli", "python"]
