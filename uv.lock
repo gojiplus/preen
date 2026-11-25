@@ -810,7 +810,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "codespell", specifier = ">=2.4.3" },
-    { name = "copier", specifier = ">=9" },
+    { name = "copier", specifier = ">=9.0.1" },
     { name = "deptry", specifier = ">=0.20" },
     { name = "jscpd", specifier = ">=5.4.2,<6" },
     { name = "lychee-bin", specifier = ">=0.24.2" },
@@ -818,7 +818,7 @@ requires-dist = [
     { name = "pathspec", specifier = ">=1.1" },
     { name = "pydoclint", specifier = ">=0.9.1" },
     { name = "pyright", specifier = ">=1.1.411" },
-    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "rich", specifier = ">=13.5" },
     { name = "ruff", specifier = ">=0.15.21" },
     { name = "tomlkit", specifier = ">=0.13" },
