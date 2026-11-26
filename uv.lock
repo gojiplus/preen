@@ -810,7 +810,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "codespell", specifier = ">=2.4.3" },
-    { name = "copier", specifier = ">=9.0.1" },
+    { name = "copier", specifier = ">=9.6.0" },
     { name = "deptry", specifier = ">=0.20" },
     { name = "jscpd", specifier = ">=5.4.2,<6" },
     { name = "lychee-bin", specifier = ">=0.24.2" },
