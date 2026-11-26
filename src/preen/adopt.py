@@ -34,7 +34,7 @@ external = ["DOC"]
 select = [
     "E", "W", "F", "I", "B", "C4", "UP", "N", "D", "S", "SIM", "T20", "PT", "RUF",
     "PTH", "RET", "PIE", "FURB", "PERF", "DTZ", "LOG", "G", "TC", "FLY",
-    "RSE", "SLOT", "FA", "A", "EXE", "ICN", "PGH", "PLE", "ARG", "SLF",
+    "RSE", "SLOT", "FA", "A", "EXE", "ICN", "PGH", "PLE", "ARG", "SLF", "NPY",
 ]
 # D203/D213: the google convention the fleet standard picks. W191/D206/D300:
 # ruff's own docs list these as always incompatible with `ruff format`, which

@@ -15,7 +15,7 @@ classifiers = [
 ]
 dependencies = [
     "typer>=0.27.0",
-    "rich>=13.5",
+    "rich>=13.8.0",
     "PyYAML>=6.0.2",
     "copier>=9.0.1",
     "tomlkit>=0.13",
