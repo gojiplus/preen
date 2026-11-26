@@ -15,9 +15,9 @@ classifiers = [
 ]
 dependencies = [
     "typer>=0.27.0",
-    "rich>=13.5",
-    "PyYAML>=6.0",
-    "copier>=9",
+    "rich>=13.8.0",
+    "PyYAML>=6.0.2",
+    "copier>=9.6.0",
     "tomlkit>=0.13",
     "packaging>=24",
     # runtime-assets matches uv build-backend exclude globs. Rather than
